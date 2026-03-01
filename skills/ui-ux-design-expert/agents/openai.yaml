@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI/UX 设计专家"
+  short_description: "产出可访问的界面规范、设计系统与交互原型"
+  default_prompt: "使用 $ui-ux-design-expert 为我的产品设计一套可访问且可落地的 UI/UX 方案。"

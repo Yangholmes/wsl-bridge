@@ -1,0 +1,4 @@
+interface:
+  display_name: "PRD Master"
+  short_description: "Write measurable, implementation-ready product requirements"
+  default_prompt: "Use $prd-master to draft a complete PRD with clear scope, metrics, and acceptance criteria."
