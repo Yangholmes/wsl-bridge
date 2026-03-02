@@ -3,34 +3,28 @@
 ## 1. 文档信息
 
 - 项目名称：`wsl-bridge`
-- 文档版本：`v1.0`
-- 更新时间：`2026-03-01`
-- 目标读者：产品、前端、后端、测试、运维
+- 文档版本：`v2.0`
+- 更新时间：`2026-03-02`
+- 目标读者：产品、研发、测试
 
 ## 2. 背景与目标
 
-当 WSL 运行在 NAT 网络模式时，外部网络无法直接访问 WSL 内服务。项目目标是在 Windows 侧提供统一的桥接与代理能力，覆盖 WSL 与 Hyper-V 场景，并可由桌面应用可视化管理。
+当 WSL 运行在 NAT 网络模式时，外部网络无法直接访问 WSL 内服务。项目目标是在 Windows 侧提供统一的桥接与代理能力，覆盖 WSL 与 Hyper-V 场景，并通过桌面应用可视化管理。
 
-本项目需要支持：
-
-- L4 转发（TCP/UDP）
-- L7 代理（HTTP/SOCKS）
-- 多网卡绑定策略
-- 防火墙按 Domain/Private/Public 分开配置
-- UI 普通权限 + 后台服务提权
+本次设计调整为：**项目交付为一个独立 Tauri 桌面应用（通常为 `.exe`），用户每次只需启动该可执行程序，不再依赖前后端分离或独立 Windows Service。**
 
 ## 3. 约束与结论
 
-### 3.1 已确认需求（来自需求澄清）
+### 3.1 已确认需求
 
 1. 必须支持 HTTP/SOCKS 协议。
 2. 必须支持 UDP。
 3. 目标系统是 Windows 10/11。
-4. 规则仅在应用启动后执行；应用未启动时无需恢复/自愈。
+4. 规则仅在应用启动后执行；应用未启动时无需恢复或自愈。
 5. 支持绑定单网卡或所有网卡。
 6. 仅需管理 WSL 与 Hyper-V。
 7. 防火墙需按 Domain/Private/Public 独立配置。
-8. 权限模型为 UI 普通权限 + 后台服务提权。
+8. 权限模型为整个应用统一管理员权限运行。
 
 ### 3.2 对 `netsh interface portproxy` 的结论
 
@@ -42,58 +36,59 @@
 
 可作为兼容性后备（仅 TCP 端口映射）但不作为核心执行器。
 
-## 4. 总体架构
+## 4. 总体架构（单应用）
 
-### 4.1 进程与职责
+### 4.1 形态
 
-1. `wsl-bridge-ui`（Tauri 2 + Solid.js + TanStack）
+`wsl-bridge.exe`（Tauri 2，单进程桌面应用）
 
-- 普通用户权限运行。
-- 提供规则管理、网络拓扑展示、状态监控和日志查看。
-- 不直接操作系统敏感配置。
+- 一个可执行文件启动应用（UI + 系统能力）。
+- UI 层负责展示与交互。
+- Rust Core 层负责转发、代理、防火墙、网络探测、规则编排。
+- 使用 Tauri Command/Event 在同进程内通信，不使用跨进程 IPC。
 
-2. `wsl-bridge-service`（Windows Service，Rust）
+### 4.2 模块划分
 
-- 提权运行（建议 LocalSystem 或受限服务账号）。
-- 执行所有敏感操作：监听端口、代理转发、防火墙修改、网络探测。
-- 管理规则生命周期（应用会话驱动）。
+1. `ui`（Solid.js + TanStack）
 
-3. 本地存储（SQLite）
+- 规则配置、拓扑展示、状态监控、日志查看。
+- 不直接操作系统 API。
 
-- 路径建议：`C:\ProgramData\wsl-bridge\state.db`
-- 保存配置态规则、运行状态、审计日志、拓扑快照。
+2. `core-engine`（Rust）
 
-### 4.2 IPC 通信
+- 管理规则生命周期与运行状态。
+- 执行 TCP/UDP 转发与 HTTP/SOCKS 代理。
+- 负责 WSL/Hyper-V/网卡探测。
+- 负责防火墙规则创建、更新、删除。
 
-- UI 与服务通过 Named Pipe 通信（仅本机）。
-- Named Pipe 设置 ACL，仅允许当前登录用户 SID + Administrators 访问。
-- 所有请求均附带会话标识 `session_id` 和请求 ID，便于追踪。
+3. `store`（SQLite）
 
-### 4.3 生命周期策略（关键）
+- 保存配置态规则、运行状态快照、审计日志。
+- 建议路径：`%ProgramData%\wsl-bridge\state.db`（默认）或应用数据目录。
 
-- 服务可常驻，但默认不应用规则。
-- UI 启动后发起 `ActivateSession`，服务才 `ApplyRules`。
-- UI 心跳超时或显式退出时，服务执行 `StopRules`，撤销运行态监听与可选防火墙规则。
+### 4.3 生命周期策略
+
+- 应用启动后，用户可点击“应用规则”触发 `ApplyRules`。
+- 应用退出时，统一执行 `StopRules`，停止监听并按策略回收运行态防火墙规则。
 - 满足“应用没启动就不执行规则”的业务约束。
 
 ## 5. 技术栈与组件
 
-### 5.1 桌面端
+### 5.1 桌面应用
 
 - Tauri：`>= 2.0`
 - 前端：Solid.js + TanStack Router + TanStack Query + TanStack Table
-- 前端职责：展示/配置/触发，不承担系统权限逻辑
+- 前后端通信：Tauri `command` + `event`（同进程）
 
-### 5.2 服务端（Rust）
+### 5.2 Rust Core
 
 - 异步运行时：`tokio`
-- 服务管理：`windows-service`
 - 网络与套接字：`tokio::net` + `socket2`
 - HTTP 代理：`hyper`（或等效 Rust HTTP 栈）
 - SOCKS5：优先成熟 crate；不足时最小自实现（CONNECT + UDP ASSOCIATE）
 - 持久化：`sqlx + sqlite`
 - 日志与追踪：`tracing + tracing-subscriber`
-- Windows API：`windows` crate（网卡、服务、事件、Firewall COM/WMI）
+- Windows API：`windows` crate（网卡、Firewall COM/WMI、系统信息）
 
 ## 6. 核心功能设计
 
@@ -131,8 +126,8 @@
 ### 6.3 多网卡支持
 
 - `BindMode = SingleNic | AllNics`
-- SingleNic：绑定该网卡当前 IP，网卡地址变化时自动重绑。
-- AllNics：监听 `0.0.0.0`（IPv4）和 `::`（IPv6，可配置开关）。
+- `SingleNic`：绑定该网卡当前 IP，网卡地址变化时自动重绑。
+- `AllNics`：监听 `0.0.0.0`（IPv4）和 `::`（IPv6，可配置开关）。
 
 ### 6.4 防火墙策略
 
@@ -141,9 +136,9 @@
 - 规则命名建议：`WSLBridge-{RuleId}-{Profile}-{Proto}-{Port}`
 - 创建、更新、删除与规则状态一致，避免遗留放行。
 
-## 7. 规则模型与数据结构
+## 7. 数据模型与状态
 
-## 7.1 `proxy_rule`
+### 7.1 `proxy_rule`
 
 - `id` TEXT PK
 - `name` TEXT
@@ -160,7 +155,7 @@
 - `created_at` INTEGER
 - `updated_at` INTEGER
 
-## 7.2 `firewall_policy`
+### 7.2 `firewall_policy`
 
 - `rule_id` TEXT PK/FK
 - `allow_domain` INTEGER
@@ -169,22 +164,14 @@
 - `direction` TEXT（默认 `inbound`）
 - `action` TEXT（默认 `allow`）
 
-## 7.3 `runtime_state`
+### 7.3 `runtime_state`
 
 - `rule_id` TEXT PK/FK
 - `state` TEXT (`running|stopped|error`)
-- `pid` INTEGER NULL
 - `last_error` TEXT NULL
 - `last_apply_at` INTEGER
 
-## 7.4 `session_state`
-
-- `session_id` TEXT PK
-- `client_user_sid` TEXT
-- `last_heartbeat_at` INTEGER
-- `active` INTEGER
-
-## 7.5 `audit_log`
+### 7.4 `audit_log`
 
 - `id` INTEGER PK AUTOINCREMENT
 - `time` INTEGER
@@ -193,43 +180,39 @@
 - `event` TEXT
 - `detail` TEXT
 
-## 8. IPC 接口（UI <-> Service）
+## 8. 应用内接口（UI <-> Rust Core）
 
-### 8.1 会话类
+通过 Tauri `command` 暴露能力，典型接口如下：
 
-1. `ActivateSession { client_version } -> { session_id, heartbeat_interval_ms }`
-2. `Heartbeat { session_id } -> { ok }`
-3. `DeactivateSession { session_id } -> { ok }`
+### 8.1 拓扑类
 
-### 8.2 拓扑类
+1. `scan_topology() -> { adapters, wsl, hyperv, timestamp }`
+2. `get_wsl_distros() -> { distros[] }`
+3. `get_hyperv_vms() -> { vms[] }`
 
-1. `ScanTopology -> { adapters, wsl, hyperv, timestamp }`
-2. `GetWSLDistros -> { distros[] }`
-3. `GetHyperVVMs -> { vms[] }`
+### 8.2 规则类
 
-### 8.3 规则类
+1. `list_rules() -> { rules[] }`
+2. `create_rule({ rule, firewall }) -> { id }`
+3. `update_rule({ id, patch }) -> { ok }`
+4. `delete_rule({ id }) -> { ok }`
+5. `enable_rule({ id, enabled }) -> { ok }`
 
-1. `ListRules -> { rules[] }`
-2. `CreateRule { rule, firewall } -> { id }`
-3. `UpdateRule { id, patch } -> { ok }`
-4. `DeleteRule { id } -> { ok }`
-5. `EnableRule { id, enabled } -> { ok }`
+### 8.3 运行与状态
 
-### 8.4 运行与状态
-
-1. `ApplyRules { session_id } -> { applied, failed[] }`
-2. `StopRules { session_id } -> { stopped }`
-3. `GetRuntimeStatus -> { items[] }`
-4. `TailLogs { cursor } -> { events[], next_cursor }`
+1. `apply_rules() -> { applied, failed[] }`
+2. `stop_rules() -> { stopped }`
+3. `get_runtime_status() -> { items[] }`
+4. `tail_logs({ cursor }) -> { events[], next_cursor }`
 
 ## 9. 执行流程
 
 ### 9.1 启动流程
 
-1. UI 启动并连接服务。
-2. 发起 `ActivateSession`，进入心跳。
-3. UI 拉取拓扑与规则，展示当前状态。
-4. 用户点击“应用规则”后服务执行 `ApplyRules`。
+1. 用户启动 `wsl-bridge.exe`（管理员权限）。
+2. 应用初始化数据库与运行时。
+3. 加载规则与拓扑信息并展示。
+4. 用户点击“应用规则”后执行 `apply_rules()`。
 
 ### 9.2 应用规则流程
 
@@ -241,22 +224,22 @@
 
 ### 9.3 退出与清理流程
 
-1. UI 发送 `DeactivateSession`（或心跳超时）。
-2. 服务停止运行态代理/转发 listener。
+1. 应用收到退出事件。
+2. 执行 `stop_rules()` 停止运行态代理/转发 listener。
 3. 根据策略清理运行态相关防火墙规则。
-4. 保留配置态规则（下次 UI 启动可再次应用）。
+4. 保留配置态规则（下次启动可再次应用）。
 
-## 10. 安全与权限
+## 10. 权限与安全
 
-### 10.1 权限边界
+### 10.1 权限策略
 
-- UI 无管理员权限。
-- 所有系统改动必须走服务 IPC。
-- 服务端对每个 IPC 请求做来源 SID 校验和参数校验。
+- 整个应用统一管理员权限运行（启动时触发 UAC）。
+- 系统改动仅在 Rust Core 中执行，避免 UI 侧越权调用。
+- 所有 command 输入做参数校验与边界检查。
 
 ### 10.2 配置安全
 
-- 不在前端保存敏感配置。
+- 不在前端本地缓存敏感配置。
 - 若后续支持 SOCKS/HTTP 认证，凭据需 DPAPI 加密后落盘。
 
 ### 10.3 审计
@@ -275,9 +258,9 @@
 
 ## 12. 里程碑计划
 
-### M1
+### M1（单应用 MVP）
 
-- 服务骨架 + Named Pipe IPC
+- Tauri 应用骨架与 command 接口
 - 规则 CRUD
 - TCP/UDP 转发
 - 防火墙按 Profile 配置
@@ -298,7 +281,7 @@
 
 ### M4
 
-- 安装器与服务注册
+- 安装包与签名发布
 - 升级/卸载清理
 - 压测与稳定性回归
 - Win10/11 兼容验收
@@ -308,35 +291,36 @@
 1. UDP 会话复杂度高
    应对：先完成单目标映射与超时回收，再逐步加入高级策略。
 2. WSL/Hyper-V IP 变化导致中断
-   应对：应用规则时实时解析；运行期按事件/轮询刷新。
+   应对：应用规则时实时解析；运行期按事件或轮询刷新。
 3. 防火墙遗留规则
    应对：统一命名 + 引导式回收 + 启动时一致性检查。
-4. UI/Service 版本不一致
-   应对：IPC 协议版本字段与兼容检查。
+4. 单进程承载更多职责导致稳定性压力
+   应对：核心执行模块化，建立 panic 恢复与守护清理逻辑。
 
 ## 14. 非目标（当前阶段不做）
 
 - 不支持 VMware/VirtualBox。
 - 不做内核级 WFP/驱动方案。
-- 不做开机自动恢复规则（与需求约束一致）。
+- 不做“应用未启动时自动恢复规则”（与需求约束一致）。
+- 不引入独立后端服务或前后端分离部署。
 
 ## 15. 验收标准（MVP）
 
-1. 在 Windows 10/11 上可安装并启动 UI 与服务。
+1. 在 Windows 10/11 上可直接启动 `wsl-bridge.exe` 完成管理操作。
 2. 可创建并应用 TCP/UDP 规则，外部能访问 WSL/Hyper-V 服务。
 3. 可创建 HTTP/SOCKS5 代理并可用。
 4. 可按单网卡/所有网卡切换绑定策略。
 5. 可按 Domain/Private/Public 分别配置放行。
-6. 关闭 UI 后规则停止生效。
+6. 关闭应用后规则停止生效。
 7. 日志可定位规则应用失败原因。
 
 ## 16. 实施建议（代码仓库）
 
 - 建议 workspace 结构：
-  - `apps/ui`（Tauri + Solid）
-  - `apps/service`（Windows Service）
-  - `crates/shared`（DTO、错误码、协议版本）
-  - `crates/core`（探测、编排、执行器）
-  - `docs/`（设计与运维文档）
+  - `src-tauri`（Tauri + Rust Core）
+  - `src`（前端页面与状态管理）
+  - `src-tauri/crates/core`（探测、编排、执行器）
+  - `src-tauri/crates/shared`（DTO、错误码）
+  - `docs`（设计与运维文档）
 
 ---

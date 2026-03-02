@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rust Best Practices"
+  short_description: "Apply pragmatic, idiomatic Rust coding standards"
+  default_prompt: "Use $rust-best-practices to enforce idiomatic Rust best practices before and during Rust code changes."
