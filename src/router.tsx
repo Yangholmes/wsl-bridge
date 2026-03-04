@@ -1,13 +1,14 @@
 import { createRootRoute, createRoute, createRouter, Link, Outlet } from "@tanstack/solid-router";
 
 import { RulesPage } from "./features/rules/RulesPage";
+import { RuntimePage } from "./features/runtime/RuntimePage";
+import { TopologyPage } from "./features/topology/TopologyPage";
 
 function RootLayout() {
   return (
     <div class="app-layout">
       <aside class="sidebar">
         <div class="brand">WSL Bridge</div>
-        <div class="sub">Solid + TanStack</div>
         <nav class="nav">
           <Link to="/" class="nav-item">
             Dashboard
@@ -17,6 +18,9 @@ function RootLayout() {
           </Link>
           <Link to="/runtime" class="nav-item">
             Runtime
+          </Link>
+          <Link to="/topology" class="nav-item">
+            Topology
           </Link>
           <Link to="/logs" class="nav-item">
             Logs
@@ -43,7 +47,16 @@ function Placeholder(props: { title: string; text: string }) {
 }
 
 const rootRoute = createRootRoute({
-  component: RootLayout
+  component: RootLayout,
+  errorComponent: (props) => {
+    // 在控制台打印完整的 error 对象，查看 stack 堆栈
+    console.error(props.error)
+    return (
+      <div>
+        <button onClick={() => props.reset()}>重试</button>
+      </div>
+    );
+  },
 });
 
 const indexRoute = createRoute({
@@ -52,7 +65,7 @@ const indexRoute = createRoute({
   component: () => (
     <Placeholder
       title="Dashboard"
-      text="M1 已完成，当前可在 Rules 页面执行完整规则管理与调试。"
+      text="M2 已完成：支持动态目标解析、拓扑探测、运行态错误定位与网卡变化自动重绑。"
     />
   )
 });
@@ -66,13 +79,19 @@ const rulesRoute = createRoute({
 const runtimeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/runtime",
-  component: () => <Placeholder title="Runtime" text="M2 将补充独立运行态监控页面。" />
+  component: RuntimePage
+});
+
+const topologyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/topology",
+  component: TopologyPage
 });
 
 const logsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/logs",
-  component: () => <Placeholder title="Logs" text="M2 将补充日志筛选与导出。" />
+  component: () => <Placeholder title="Logs" text="M3 将补充日志筛选与导出。" />
 });
 
 const settingsRoute = createRoute({
@@ -90,6 +109,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   rulesRoute,
   runtimeRoute,
+  topologyRoute,
   logsRoute,
   settingsRoute
 ]);
@@ -103,4 +123,3 @@ declare module "@tanstack/solid-router" {
     router: typeof router;
   }
 }
-

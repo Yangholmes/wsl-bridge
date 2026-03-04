@@ -120,6 +120,7 @@ pub struct TopologySnapshot {
     pub adapters: Vec<AdapterInfo>,
     pub wsl: Vec<WslInfo>,
     pub hyperv: Vec<HyperVVmInfo>,
+    pub hyperv_error: Option<String>,
     pub timestamp: DateTime<Utc>,
 }
 

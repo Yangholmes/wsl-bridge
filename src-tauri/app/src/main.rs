@@ -51,6 +51,7 @@ fn main() {
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             tauri_commands::scan_topology,
+            tauri_commands::debug_hyperv_probe,
             tauri_commands::list_rules,
             tauri_commands::create_rule,
             tauri_commands::update_rule,

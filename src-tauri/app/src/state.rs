@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::{env, fs};
+use std::{thread, time::Duration};
 
 use wsl_bridge_core::{EngineOptions, FirewallMode, RuleEngine};
 
@@ -21,17 +22,19 @@ impl AppState {
         let options = engine_options_from_env();
 
         match RuleEngine::with_sqlite_and_options(&path, options) {
-            Ok(engine) => Self {
-                engine: Arc::new(engine),
-            },
+            Ok(engine) => {
+                let engine = Arc::new(engine);
+                start_topology_reconcile_loop(engine.clone());
+                Self { engine }
+            }
             Err(err) => {
                 eprintln!(
                     "failed to initialize sqlite storage at {}: {err}; fallback to memory",
                     path.display()
                 );
-                Self {
-                    engine: Arc::new(RuleEngine::new_with_options(options)),
-                }
+                let engine = Arc::new(RuleEngine::new_with_options(options));
+                start_topology_reconcile_loop(engine.clone());
+                Self { engine }
             }
         }
     }
@@ -56,4 +59,23 @@ fn engine_options_from_env() -> EngineOptions {
     EngineOptions {
         firewall_mode: mode,
     }
+}
+
+fn start_topology_reconcile_loop(engine: Arc<RuleEngine>) {
+    let interval_secs = env::var("WSL_BRIDGE_TOPOLOGY_POLL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(8);
+
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(interval_secs));
+        if let Some(result) = engine.reconcile_runtime_topology() {
+            eprintln!(
+                "topology changed: rules reapplied, applied={}, failed={}",
+                result.applied,
+                result.failed.len()
+            );
+        }
+    });
 }

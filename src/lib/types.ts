@@ -94,10 +94,38 @@ export type AdapterInfo = {
   ipv6: string[];
 };
 
+export type WslInfo = {
+  distro: string;
+  networking_mode: string;
+  ip: string | null;
+};
+
+export type HyperVVmInfo = {
+  vm_name: string;
+  v_switch: string | null;
+  ip: string | null;
+};
+
 export type TopologySnapshot = {
   adapters: AdapterInfo[];
-  wsl: Array<Record<string, unknown>>;
-  hyperv: Array<Record<string, unknown>>;
+  wsl: WslInfo[];
+  hyperv: HyperVVmInfo[];
+  hyperv_error: string | null;
   timestamp: string;
 };
 
+export type HyperVProbeStep = {
+  source: string;
+  executable: string;
+  ok: boolean;
+  status_code: number;
+  parsed_vm_names: string[];
+  raw_stdout: string;
+  raw_stderr: string;
+};
+
+export type HyperVProbeDebug = {
+  timestamp: string;
+  selected_vm_names: string[];
+  steps: HyperVProbeStep[];
+};

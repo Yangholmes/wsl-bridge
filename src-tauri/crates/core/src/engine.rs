@@ -8,15 +8,18 @@ use thiserror::Error;
 use tracing::warn;
 use uuid::Uuid;
 use wsl_bridge_shared::{
-    ApplyRulesResult, AuditLog, BindMode, CreateRuleRequest, FirewallPolicy, NewProxyRule, ProxyRule,
-    RulePatch, RuleType, RuntimeState, RuntimeStatusItem, StopRulesResult, TailLogsResult,
-    TopologySnapshot,
+    ApplyRulesResult, AuditLog, BindMode, CreateRuleRequest, FirewallPolicy, NewProxyRule,
+    ProxyRule, RulePatch, RuleType, RuntimeState, RuntimeStatusItem, StopRulesResult,
+    TailLogsResult, TargetKind, TopologySnapshot,
 };
 
-use crate::firewall::{FirewallMode, FirewallRuleRuntime, apply_firewall, cleanup_firewall};
-use crate::forwarder::{ForwarderHandle, ForwarderKind, spawn as spawn_forwarder};
+use crate::firewall::{apply_firewall, cleanup_firewall, FirewallMode, FirewallRuleRuntime};
+use crate::forwarder::{spawn as spawn_forwarder, ForwarderHandle, ForwarderKind};
 use crate::sqlite_store::{Snapshot, SqliteStore};
-use crate::topology::{list_adapters, resolve_nic_ip};
+use crate::topology::{
+    debug_hyperv_probe, list_adapters, list_wsl_instances, resolve_dynamic_target_host,
+    resolve_nic_ip, scan_hyperv, HyperVProbeDebug,
+};
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -54,6 +57,8 @@ struct EngineStore {
 struct ActiveRuleRuntime {
     forwarder: ForwarderHandle,
     firewall: FirewallRuleRuntime,
+    listen_addr: SocketAddr,
+    target_addr: SocketAddr,
 }
 
 #[derive(Debug)]
@@ -120,12 +125,18 @@ impl RuleEngine {
     }
 
     pub fn scan_topology(&self) -> TopologySnapshot {
+        let hyperv = scan_hyperv();
         TopologySnapshot {
             adapters: list_adapters(),
-            wsl: Vec::new(),
-            hyperv: Vec::new(),
+            wsl: list_wsl_instances(),
+            hyperv: hyperv.items,
+            hyperv_error: hyperv.error,
             timestamp: Utc::now(),
         }
+    }
+
+    pub fn debug_hyperv_probe(&self) -> HyperVProbeDebug {
+        debug_hyperv_probe()
     }
 
     pub fn list_rules(&self) -> Vec<ProxyRule> {
@@ -485,6 +496,8 @@ impl RuleEngine {
                 ActiveRuleRuntime {
                     forwarder,
                     firewall: firewall_runtime,
+                    listen_addr,
+                    target_addr,
                 },
             );
         }
@@ -549,6 +562,77 @@ impl RuleEngine {
         }
     }
 
+    pub fn reconcile_runtime_topology(&self) -> Option<ApplyRulesResult> {
+        let active_snapshot = {
+            let active = self.active.lock();
+            if active.is_empty() {
+                return None;
+            }
+            active
+                .iter()
+                .map(|(rule_id, runtime)| {
+                    (rule_id.clone(), (runtime.listen_addr, runtime.target_addr))
+                })
+                .collect::<HashMap<_, _>>()
+        };
+
+        let rules = {
+            let store = self.store.read();
+            store.rules.clone()
+        };
+
+        let mut changed = Vec::new();
+        for (rule_id, (old_listen, old_target)) in active_snapshot {
+            let Some(rule) = rules.get(&rule_id) else {
+                changed.push(format!("rule_removed={rule_id}"));
+                continue;
+            };
+            if !rule.enabled {
+                changed.push(format!("rule_disabled={rule_id}"));
+                continue;
+            }
+
+            let new_listen = match self.resolve_listen_addr(rule) {
+                Ok(value) => value,
+                Err(err) => {
+                    changed.push(format!("listen_resolve_failed={rule_id}:{err}"));
+                    continue;
+                }
+            };
+            let new_target = match self.resolve_target_addr(rule) {
+                Ok(value) => value,
+                Err(err) => {
+                    changed.push(format!("target_resolve_failed={rule_id}:{err}"));
+                    continue;
+                }
+            };
+
+            if new_listen != old_listen || new_target != old_target {
+                changed.push(format!(
+                    "rule_id={rule_id},listen={old_listen}->{new_listen},target={old_target}->{new_target}"
+                ));
+            }
+        }
+
+        if changed.is_empty() {
+            return None;
+        }
+
+        {
+            let mut store = self.store.write();
+            append_log(
+                &mut store,
+                "warn",
+                "engine",
+                "topology_changed",
+                &changed.join(" | "),
+            );
+            self.persist_store(&store);
+        }
+
+        Some(self.apply_rules())
+    }
+
     fn resolve_listen_addr(&self, rule: &ProxyRule) -> Result<SocketAddr, String> {
         let host_ip = match rule.bind_mode {
             BindMode::AllNics => {
@@ -576,9 +660,40 @@ impl RuleEngine {
         let target_port = rule
             .target_port
             .ok_or_else(|| "target_port is required for forwarding rules".to_owned())?;
-        let target_host = rule.target_host.as_ref().ok_or_else(|| {
-            "target_host is required in M1; dynamic target resolution is planned in M2".to_owned()
-        })?;
+
+        let target_host = match rule.target_kind {
+            TargetKind::Static => rule
+                .target_host
+                .clone()
+                .ok_or_else(|| "target_host is required for static target".to_owned())?,
+            TargetKind::Wsl | TargetKind::Hyperv => {
+                if let Some(target_ref) = rule.target_ref.as_ref().map(|value| value.trim()) {
+                    if !target_ref.is_empty() {
+                        if let Some(host) =
+                            resolve_dynamic_target_host(rule.target_kind, target_ref)
+                        {
+                            host
+                        } else {
+                            return Err(format!(
+                                "unable to resolve {:?} target_ref {} to IP",
+                                rule.target_kind, target_ref
+                            ));
+                        }
+                    } else {
+                        rule.target_host.clone().ok_or_else(|| {
+                            "target_ref is empty and target_host fallback is missing".to_owned()
+                        })?
+                    }
+                } else {
+                    rule.target_host.clone().ok_or_else(|| {
+                        format!(
+                            "target_ref is required for {:?} target, or provide target_host fallback",
+                            rule.target_kind
+                        )
+                    })?
+                }
+            }
+        };
 
         (target_host.as_str(), target_port)
             .to_socket_addrs()
@@ -642,16 +757,31 @@ impl RuleEngine {
                 "listen_port must be > 0".to_owned(),
             ));
         }
-        if rule.bind_mode == BindMode::SingleNic && rule.nic_id.as_deref().unwrap_or("").is_empty() {
+        if rule.bind_mode == BindMode::SingleNic && rule.nic_id.as_deref().unwrap_or("").is_empty()
+        {
             return Err(EngineError::InvalidRule(
                 "single_nic mode requires nic_id".to_owned(),
             ));
         }
         if rule.rule_type == RuleType::TcpFwd || rule.rule_type == RuleType::UdpFwd {
-            if rule.target_host.is_none() {
-                return Err(EngineError::InvalidRule(
-                    "target_host is required for tcp/udp forwarding in M1".to_owned(),
-                ));
+            match rule.target_kind {
+                TargetKind::Static => {
+                    if rule.target_host.as_deref().unwrap_or("").trim().is_empty() {
+                        return Err(EngineError::InvalidRule(
+                            "target_host is required for static forwarding target".to_owned(),
+                        ));
+                    }
+                }
+                TargetKind::Wsl | TargetKind::Hyperv => {
+                    if rule.target_ref.as_deref().unwrap_or("").trim().is_empty()
+                        && rule.target_host.as_deref().unwrap_or("").trim().is_empty()
+                    {
+                        return Err(EngineError::InvalidRule(format!(
+                            "target_ref is required for {:?} forwarding target",
+                            rule.target_kind
+                        )));
+                    }
+                }
             }
             if rule.target_port.is_none() {
                 return Err(EngineError::InvalidRule(
@@ -789,7 +919,9 @@ mod tests {
 
         {
             let engine = RuleEngine::with_sqlite(&path).expect("sqlite engine");
-            let id = engine.create_rule(test_rule("persisted", 38150)).expect("create");
+            let id = engine
+                .create_rule(test_rule("persisted", 38150))
+                .expect("create");
             engine.enable_rule(&id, true).expect("enable");
             let _ = engine.apply_rules();
             let _ = engine.stop_rules();

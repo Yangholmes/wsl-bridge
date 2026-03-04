@@ -9,6 +9,7 @@ WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在
 - 架构设计：已完成（见 `docs/wsl-bridge-design.md`）。
 - UI/UX 设计：已完成（见 `docs/wsl-bridge-uiux-design.md`）。
 - M1：已完成（单应用骨架 + 规则管理 + TCP/UDP 转发 + 防火墙 Profile 基础能力）。
+- M2：已完成（WSL/Hyper-V 拓扑探测 + 动态目标解析 + Runtime/Topology 页面 + 网卡变化自动重绑）。
 
 ## 仓库结构
 
@@ -18,7 +19,7 @@ WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在
 │  ├─ wsl-bridge-design.md
 │  ├─ wsl-bridge-uiux-design.md
 │  └─ 开发日志.md
-├─ src/                   # Solid + TanStack 前端源码
+├─ src/                   # Solid + Kobalte + TanStack 前端源码
 ├─ dist/                  # 前端构建产物（pnpm build 后生成）
 ├─ src-tauri/
 │  ├─ app/                # 单应用入口、Tauri 配置
@@ -52,6 +53,11 @@ WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在
   - `all_nics`
   - `single_nic`（按网卡 ID 解析本机地址）
 - 端口冲突检测（监听地址端口冲突）
+- 动态目标解析（M2 第一阶段）：
+  - `target_kind = wsl | hyperv` 时，应用规则阶段按 `target_ref` 实时解析目标 IP
+  - `scan_topology()` 返回 WSL/Hyper-V 拓扑信息
+- 运行期自动重绑（M2）：
+  - 后台轮询拓扑变化；当 `single_nic` 绑定地址或动态目标地址变化时，自动重应用规则。
 
 ### 防火墙能力（M1）
 
@@ -74,7 +80,8 @@ WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在
 
 ### 应用与 UI
 
-- 前端已迁移到 Solid + TanStack 正式结构：
+- 前端已迁移到 Solid + Kobalte + TanStack 正式结构：
+  - Kobalte：Dialog / TextField / Select / Switch / Checkbox 等可访问组件
   - TanStack Router：页面路由与布局
   - TanStack Query：规则/运行态/拓扑查询管理
   - TanStack Table：规则表格渲染
@@ -83,15 +90,24 @@ WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在
   - 新建规则（含防火墙 Profile 配置）
   - 编辑规则（受后端 patch 能力约束）
   - 筛选（名称/类型/启用状态）
+  - 批量操作（批量启用/禁用/删除、当前页全选）
+  - 分页（10/20/50 每页、页码导航）
   - 运行态合并展示（state/last_apply_at/last_error）
+  - `wsl/hyperv` 目标实时 IP 预览（基于拓扑扫描结果）
+  - `wsl/hyperv` 的目标引用自动下拉填充（识别到的 distro/VM 名称）
   - 行内启停、删除、应用/停止
+- 新增 M2 页面：
+  - Runtime：运行态列表、错误高亮、按规则查看关联日志
+  - Topology：WSL / Hyper-V / 网卡三块拓扑信息
 - 网卡下拉来源于 `scan_topology()` 适配器列表
+- Topology 查询采用懒加载与共享缓存策略，降低 Rules/Topology 切页重复扫描频率
 
 ## 存储与环境变量
 
 - 默认数据库路径：`./data/state.db`
 - `WSL_BRIDGE_DB_PATH`：覆盖数据库路径
 - `WSL_BRIDGE_FIREWALL_MODE`：`disabled | best_effort | enforced`（默认 `best_effort`）
+- `WSL_BRIDGE_TOPOLOGY_POLL_SECS`：拓扑轮询间隔秒数（默认 `8`，用于自动重绑检测）
 
 ## 本地开发与验证
 
@@ -106,24 +122,7 @@ pnpm tauri build
 
 ## UI 调试指南
 
-### 1. 浏览器模式（推荐先做 UI 调试）
-
-该模式不依赖 Tauri Runtime，前端会自动使用 mock bridge。
-
-```powershell
-pnpm install
-pnpm dev
-```
-
-访问：`http://127.0.0.1:1420`
-
-适用场景：
-
-- 页面结构与样式调试
-- 表单交互与筛选逻辑调试
-- 表格行为与状态展示调试
-
-### 2. Tauri 联调模式（前后端联通）
+### 1. Tauri 联调模式（前后端联通）
 
 单终端执行：
 
@@ -137,7 +136,7 @@ pnpm tauri dev
 - 校验 SQLite、防火墙、TCP/UDP 执行路径
 - 校验单网卡/全网卡与运行态联动
 
-### 3. 打包最终产物
+### 2. 打包最终产物
 
 ```powershell
 pnpm tauri build
@@ -161,6 +160,5 @@ pnpm tauri build
 
 ## 后续路线图
 
-1. M2：WSL/Hyper-V 动态目标解析、拓扑增强、网卡变化重绑。
-2. M3：HTTP 代理、SOCKS5、日志与运行态联动增强。
-3. M4：安装打包、签名发布、兼容性与稳定性验收。
+1. M3：HTTP 代理、SOCKS5、日志与运行态联动增强。
+2. M4：安装打包、签名发布、兼容性与稳定性验收。

@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
+use wsl_bridge_core::HyperVProbeDebug;
 use wsl_bridge_shared::{
     ApplyRulesResult, CreateRuleRequest, ProxyRule, RulePatch, RuntimeStatusItem, StopRulesResult,
     TailLogsResult, TopologySnapshot,
@@ -12,6 +13,10 @@ use crate::state::AppState;
 // In the next step they can be directly wrapped with #[tauri::command].
 pub fn scan_topology(state: &AppState) -> TopologySnapshot {
     state.engine.scan_topology()
+}
+
+pub fn debug_hyperv_probe(state: &AppState) -> HyperVProbeDebug {
+    state.engine.debug_hyperv_probe()
 }
 
 pub fn list_rules(state: &AppState) -> Vec<ProxyRule> {

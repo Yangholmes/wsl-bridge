@@ -1,7 +1,7 @@
 use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -37,7 +37,10 @@ pub fn spawn(
     }
 }
 
-fn spawn_tcp_forwarder(listen_addr: SocketAddr, target_addr: SocketAddr) -> io::Result<ForwarderHandle> {
+fn spawn_tcp_forwarder(
+    listen_addr: SocketAddr,
+    target_addr: SocketAddr,
+) -> io::Result<ForwarderHandle> {
     let listener = TcpListener::bind(listen_addr)?;
     listener.set_nonblocking(true)?;
 
@@ -89,7 +92,10 @@ fn handle_tcp_connection(mut inbound: TcpStream, target_addr: SocketAddr) -> io:
     Ok(())
 }
 
-fn spawn_udp_forwarder(listen_addr: SocketAddr, target_addr: SocketAddr) -> io::Result<ForwarderHandle> {
+fn spawn_udp_forwarder(
+    listen_addr: SocketAddr,
+    target_addr: SocketAddr,
+) -> io::Result<ForwarderHandle> {
     let socket = UdpSocket::bind(listen_addr)?;
     socket.set_read_timeout(Some(Duration::from_millis(200)))?;
 
@@ -115,7 +121,10 @@ fn spawn_udp_forwarder(listen_addr: SocketAddr, target_addr: SocketAddr) -> io::
                 Err(_) => continue,
             };
             let _ = upstream.set_read_timeout(Some(Duration::from_millis(350)));
-            if upstream.send_to(&recv_buf[..recv_len], target_addr).is_err() {
+            if upstream
+                .send_to(&recv_buf[..recv_len], target_addr)
+                .is_err()
+            {
                 continue;
             }
 

@@ -1,4 +1,6 @@
 #[cfg(feature = "tauri")]
+use wsl_bridge_core::HyperVProbeDebug;
+#[cfg(feature = "tauri")]
 use wsl_bridge_shared::{
     ApplyRulesResult, CreateRuleRequest, ProxyRule, RulePatch, RuntimeStatusItem, StopRulesResult,
     TailLogsResult, TopologySnapshot,
@@ -9,8 +11,22 @@ use crate::{commands, state::AppState};
 
 #[cfg(feature = "tauri")]
 #[tauri::command]
-pub fn scan_topology(state: tauri::State<'_, AppState>) -> TopologySnapshot {
-    commands::scan_topology(&state)
+pub async fn scan_topology(state: tauri::State<'_, AppState>) -> Result<TopologySnapshot, String> {
+    let app_state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || commands::scan_topology(&app_state))
+        .await
+        .map_err(|err| format!("scan_topology join error: {err}"))
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub async fn debug_hyperv_probe(
+    state: tauri::State<'_, AppState>,
+) -> Result<HyperVProbeDebug, String> {
+    let app_state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || commands::debug_hyperv_probe(&app_state))
+        .await
+        .map_err(|err| format!("debug_hyperv_probe join error: {err}"))
 }
 
 #[cfg(feature = "tauri")]

@@ -3,9 +3,7 @@ import {
   createMemo,
   createSignal,
   For,
-  Match,
-  Show,
-  Switch
+  Show
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { createQuery } from "@tanstack/solid-query";
@@ -15,6 +13,11 @@ import {
   getCoreRowModel,
   type ColumnDef
 } from "@tanstack/solid-table";
+import * as KButton from "@kobalte/core/button";
+import * as KSelect from "@kobalte/core/select";
+import * as KSwitch from "@kobalte/core/switch";
+import * as KTextField from "@kobalte/core/text-field";
+import * as KTooltip from "@kobalte/core/tooltip";
 
 import {
   applyRules,
@@ -23,12 +26,26 @@ import {
   enableRule,
   getRuntimeStatus,
   listRules,
-  scanTopology,
   stopRules,
   tailLogs,
   updateRule
 } from "./api";
-import type { BindMode, CreateRuleRequest, ProxyRule, RuleType, RuntimeState, RulePatch } from "../../lib/types";
+import {
+  createTopologyQueryOptions,
+  getGlobalTargetKind,
+  getGlobalTargetRef,
+  setGlobalTargetContext
+} from "../topology/state";
+import { RuleFormModal, type FormState, type SelectOption } from "./components/RuleFormModal";
+import type {
+  BindMode,
+  CreateRuleRequest,
+  ProxyRule,
+  RuleType,
+  RuntimeState,
+  RulePatch,
+  TargetKind
+} from "../../lib/types";
 
 type RuleRow = ProxyRule & {
   runtime_state: RuntimeState | "unknown";
@@ -36,21 +53,13 @@ type RuleRow = ProxyRule & {
   last_apply_at: string | null;
 };
 
-type FormState = {
-  name: string;
-  type: RuleType;
-  listen_host: string;
-  listen_port: string;
-  target_kind: "static" | "wsl" | "hyperv";
-  target_ref: string;
-  target_host: string;
-  target_port: string;
-  bind_mode: BindMode;
-  nic_id: string;
-  enabled: boolean;
-  fw_domain: boolean;
-  fw_private: boolean;
-  fw_public: boolean;
+type AppSelectProps = {
+  value: string;
+  onChange: (value: string) => void;
+  options: SelectOption[];
+  disabled?: boolean;
+  placeholder?: string;
+  triggerClass?: string;
 };
 
 const defaultForm: FormState = {
@@ -70,6 +79,46 @@ const defaultForm: FormState = {
   fw_public: false
 };
 
+const ruleTypeOptions: SelectOption[] = [
+  { value: "tcp_fwd", label: "tcp_fwd" },
+  { value: "udp_fwd", label: "udp_fwd" },
+  { value: "http_proxy", label: "http_proxy" },
+  { value: "socks5_proxy", label: "socks5_proxy" }
+];
+
+const targetKindOptions: SelectOption[] = [
+  { value: "static", label: "static" },
+  { value: "wsl", label: "wsl" },
+  { value: "hyperv", label: "hyperv" }
+];
+
+const bindModeOptions: SelectOption[] = [
+  { value: "all_nics", label: "all_nics" },
+  { value: "single_nic", label: "single_nic" }
+];
+
+const booleanOptions: SelectOption[] = [
+  { value: "true", label: "true" },
+  { value: "false", label: "false" }
+];
+
+const filterTypeOptions: SelectOption[] = [
+  { value: "all", label: "all" },
+  ...ruleTypeOptions
+];
+
+const filterEnabledOptions: SelectOption[] = [
+  { value: "all", label: "all" },
+  { value: "enabled", label: "enabled" },
+  { value: "disabled", label: "disabled" }
+];
+
+const pageSizeOptions: SelectOption[] = [
+  { value: "10", label: "10 / 页" },
+  { value: "20", label: "20 / 页" },
+  { value: "50", label: "50 / 页" }
+];
+
 function toLocalTime(value: string | null) {
   if (!value) return "-";
   const date = new Date(value);
@@ -77,9 +126,64 @@ function toLocalTime(value: string | null) {
   return date.toLocaleString();
 }
 
+function AppSelect(props: AppSelectProps) {
+  const selectedOption = () => props.options.find((option) => option.value === props.value) ?? null;
+
+  return (
+    <KSelect.Root<SelectOption>
+      options={props.options}
+      optionValue="value"
+      optionTextValue="label"
+      value={selectedOption()}
+      onChange={(option) => {
+        if (option) props.onChange(option.value);
+      }}
+      itemComponent={(itemProps) => (
+        <KSelect.Item item={itemProps.item} class="kb-select-item">
+          <KSelect.ItemLabel>{itemProps.item.rawValue.label}</KSelect.ItemLabel>
+          <KSelect.ItemIndicator class="kb-select-item-indicator">✓</KSelect.ItemIndicator>
+        </KSelect.Item>
+      )}
+      disabled={props.disabled}
+      placeholder={props.placeholder ?? "请选择"}
+    >
+      <KSelect.Trigger class={`kb-select-trigger ${props.triggerClass ?? ""}`}>
+        <KSelect.Value<SelectOption>>{(state) => state.selectedOption()?.label}</KSelect.Value>
+        <KSelect.Icon class="kb-select-icon">▾</KSelect.Icon>
+      </KSelect.Trigger>
+      <KSelect.Portal>
+        <KSelect.Content class="kb-select-content">
+          <KSelect.Listbox class="kb-select-listbox" />
+        </KSelect.Content>
+      </KSelect.Portal>
+    </KSelect.Root>
+  );
+}
+
+function renderEllipsisCell(text: string | null | undefined) {
+  const content = (text ?? "").trim() || "-";
+  return (
+    <KTooltip.Root openDelay={180}>
+      <KTooltip.Trigger as="div" class="table-cell-ellipsis">
+        {content}
+      </KTooltip.Trigger>
+      <KTooltip.Portal>
+        <KTooltip.Content class="kb-tooltip-content">
+          {content}
+          <KTooltip.Arrow class="kb-tooltip-arrow" />
+        </KTooltip.Content>
+      </KTooltip.Portal>
+    </KTooltip.Root>
+  );
+}
+
 export function RulesPage() {
   const [form, setForm] = createStore<FormState>({ ...defaultForm });
   const [editingId, setEditingId] = createSignal<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = createSignal(false);
+  const [selectedRuleIds, setSelectedRuleIds] = createSignal<Set<string>>(new Set<string>());
+  const [pageIndex, setPageIndex] = createSignal(0);
+  const [pageSize, setPageSize] = createSignal(10);
   const [message, setMessage] = createSignal<{ type: "info" | "error"; text: string } | null>(
     null
   );
@@ -90,6 +194,12 @@ export function RulesPage() {
     type: "all",
     enabled: "all"
   });
+  const shouldLoadTopology = createMemo(
+    () =>
+      isModalOpen() &&
+      (form.bind_mode === "single_nic" ||
+        ((form.type === "tcp_fwd" || form.type === "udp_fwd") && form.target_kind !== "static"))
+  );
 
   const rulesQuery = createQuery(() => ({
     queryKey: ["rules"],
@@ -99,10 +209,7 @@ export function RulesPage() {
     queryKey: ["runtime"],
     queryFn: getRuntimeStatus
   }));
-  const topologyQuery = createQuery(() => ({
-    queryKey: ["topology"],
-    queryFn: scanTopology
-  }));
+  const topologyQuery = createQuery(() => createTopologyQueryOptions(shouldLoadTopology()));
 
   const runtimeMap = createMemo(() => {
     const map = new Map<string, { state: RuntimeState; last_error: string | null; last_apply_at: string | null }>();
@@ -118,7 +225,7 @@ export function RulesPage() {
 
   const rows = createMemo<RuleRow[]>(() => {
     return (rulesQuery.data ?? []).map((rule) => {
-      const runtime = runtimeMap().get(rule.id);
+      const runtime = runtimeMap()?.get(rule.id);
       return {
         ...rule,
         runtime_state: runtime?.state ?? "unknown",
@@ -140,11 +247,64 @@ export function RulesPage() {
       return true;
     });
   });
+  const pageCount = createMemo(() => {
+    const total = filteredRows().length;
+    return total === 0 ? 1 : Math.ceil(total / pageSize());
+  });
+  const pagedRows = createMemo(() => {
+    const start = pageIndex() * pageSize();
+    return filteredRows().slice(start, start + pageSize());
+  });
+  const selectedCount = createMemo(() => selectedRuleIds().size);
+  const isCurrentPageFullySelected = createMemo(() => {
+    const rowsInPage = pagedRows();
+    return rowsInPage.length > 0 && rowsInPage.every((rule) => selectedRuleIds().has(rule.id));
+  });
 
-  const adapterOptions = createMemo(() => topologyQuery.data?.adapters ?? []);
+  const adapterOptions = createMemo<SelectOption[]>(() => {
+    const items = (topologyQuery.data?.adapters ?? []).map((adapter) => ({
+      value: adapter.id,
+      label: `${adapter.name} (${adapter.id})`
+    }));
+    return [{ value: "", label: "请选择网卡" }, ...items];
+  });
+  const targetPreview = createMemo<string | null>(() => {
+    const ref = form.target_ref.trim().toLowerCase();
+    if (!ref || !topologyQuery.data) return null;
+    if (form.target_kind === "wsl") {
+      const item = topologyQuery.data.wsl.find((value) => value.distro.toLowerCase() === ref);
+      return item?.ip ?? null;
+    }
+    if (form.target_kind === "hyperv") {
+      const item = topologyQuery.data.hyperv.find((value) => value.vm_name.toLowerCase() === ref);
+      return item?.ip ?? null;
+    }
+    return null;
+  });
+  const targetRefOptions = createMemo<SelectOption[]>(() => {
+    let base: SelectOption[] = [];
+    if (form.target_kind === "wsl") {
+      base = (topologyQuery.data?.wsl ?? []).map((item) => ({
+        value: item.distro,
+        label: item.distro
+      }));
+    } else if (form.target_kind === "hyperv") {
+      base = (topologyQuery.data?.hyperv ?? []).map((item) => ({
+        value: item.vm_name,
+        label: item.vm_name
+      }));
+    }
+    if (!form.target_ref.trim()) return base;
+    const exists = base.some((item) => item.value === form.target_ref.trim());
+    if (exists) return base;
+    return [{ value: form.target_ref.trim(), label: `${form.target_ref.trim()} (当前值)` }, ...base];
+  });
+
   const isProxyType = createMemo(() => form.type === "http_proxy" || form.type === "socks5_proxy");
   const isSingleNic = createMemo(() => form.bind_mode === "single_nic");
   const isEditing = createMemo(() => editingId() !== null);
+  const statusError = createMemo(() => rulesQuery.error ?? runtimeQuery.error ?? topologyQuery.error ?? null);
+  const isStatusLoading = createMemo(() => rulesQuery.isPending || runtimeQuery.isPending || topologyQuery.isPending);
 
   createEffect(() => {
     if (isProxyType() && form.target_kind !== "static") {
@@ -153,40 +313,132 @@ export function RulesPage() {
   });
 
   createEffect(() => {
+    if (form.target_kind === "static") {
+      if (form.target_ref) {
+        setForm("target_ref", "");
+      }
+      setGlobalTargetContext("static", "");
+      return;
+    }
+    const options = targetRefOptions();
+    if (options.length === 0) {
+      if (form.target_ref) {
+        setForm("target_ref", "");
+      }
+      setGlobalTargetContext(form.target_kind, "");
+      return;
+    }
+    const selected = form.target_ref.trim();
+    const matched = options.some((option) => option.value === selected);
+    const next = matched ? selected : options[0]!.value;
+    if (next !== form.target_ref) {
+      setForm("target_ref", next);
+    }
+    setGlobalTargetContext(form.target_kind, next);
+  });
+
+  createEffect(() => {
     if (!isSingleNic() && form.nic_id) {
       setForm("nic_id", "");
     }
   });
 
+  createEffect(() => {
+    const _name = filter.name;
+    const _type = filter.type;
+    const _enabled = filter.enabled;
+    setPageIndex(0);
+    setSelectedRuleIds(new Set<string>());
+  });
+
+  createEffect(() => {
+    const maxPageIndex = pageCount() - 1;
+    if (pageIndex() > maxPageIndex) {
+      setPageIndex(maxPageIndex);
+    }
+  });
+
+  createEffect(() => {
+    const validIds = new Set(filteredRows().map((rule) => rule.id));
+    setSelectedRuleIds((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (validIds.has(id)) next.add(id);
+      }
+      return next;
+    });
+  });
+
+  function isRuleSelected(id: string) {
+    return selectedRuleIds().has(id);
+  }
+
+  function setRuleSelected(id: string, checked: boolean) {
+    setSelectedRuleIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function setCurrentPageSelected(checked: boolean) {
+    const ids = pagedRows().map((rule) => rule.id);
+    setSelectedRuleIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
+
   const columns: ColumnDef<RuleRow>[] = [
-    { header: "名称", accessorKey: "name" },
-    { header: "类型", accessorKey: "type" },
+    {
+      id: "select",
+      header: () => (
+        <input
+          class="row-check"
+          type="checkbox"
+          checked={isCurrentPageFullySelected()}
+          onChange={(e) => setCurrentPageSelected(e.currentTarget.checked)}
+        />
+      ),
+      cell: (ctx) => (
+        <input
+          class="row-check"
+          type="checkbox"
+          checked={isRuleSelected(ctx.row.original.id)}
+          onChange={(e) => setRuleSelected(ctx.row.original.id, e.currentTarget.checked)}
+        />
+      )
+    },
+    { header: "名称", cell: (ctx) => renderEllipsisCell(ctx.row.original.name) },
+    { header: "类型", cell: (ctx) => renderEllipsisCell(ctx.row.original.type) },
     {
       header: "监听",
-      cell: (ctx) => `${ctx.row.original.listen_host}:${ctx.row.original.listen_port}`
+      cell: (ctx) => renderEllipsisCell(`${ctx.row.original.listen_host}:${ctx.row.original.listen_port}`)
     },
     {
       header: "目标",
       cell: (ctx) => {
         const row = ctx.row.original;
-        return `${row.target_kind}:${row.target_ref ?? row.target_host ?? "-"}:${row.target_port ?? "-"}`;
+        return renderEllipsisCell(`${row.target_kind}:${row.target_ref ?? row.target_host ?? "-"}:${row.target_port ?? "-"}`);
       }
     },
     {
-      header: "启用",
-      cell: (ctx) => (ctx.row.original.enabled ? "true" : "false")
-    },
-    {
       header: "运行态",
-      accessorKey: "runtime_state"
+      cell: (ctx) => renderEllipsisCell(ctx.row.original.runtime_state)
     },
     {
       header: "最近应用",
-      cell: (ctx) => toLocalTime(ctx.row.original.last_apply_at)
+      cell: (ctx) => renderEllipsisCell(toLocalTime(ctx.row.original.last_apply_at))
     },
     {
       header: "错误",
-      cell: (ctx) => ctx.row.original.last_error ?? "-"
+      cell: (ctx) => renderEllipsisCell(ctx.row.original.last_error ?? "-")
     },
     {
       header: "操作",
@@ -194,14 +446,31 @@ export function RulesPage() {
         const row = ctx.row.original;
         return (
           <div class="row-actions">
-            <button onClick={() => handleEdit(row)}>编辑</button>
-            <button onClick={() => handleToggle(row.id, !row.enabled)}>
-              {row.enabled ? "禁用" : "启用"}
-            </button>
-            <button class="secondary" onClick={() => handleDelete(row.id)}>
-              删除
-            </button>
+            <KButton.Root class="kb-btn ghost small" onClick={() => handleEdit(row)}>
+              ✏️
+            </KButton.Root>
+            <KButton.Root class="kb-btn danger small" onClick={() => handleDelete(row.id)}>
+              ❌
+            </KButton.Root>
           </div>
+        );
+      }
+    },
+    {
+      header: "开关",
+      cell: (ctx) => {
+        const row = ctx.row.original;
+        return (
+          <KSwitch.Root
+            checked={row.enabled}
+            onChange={(checked) => void handleToggle(row.id, checked)}
+            class="kb-switch small row-enable-switch"
+          >
+            <KSwitch.Input aria-label={`${row.name} 启用开关`} />
+            <KSwitch.Control class="kb-switch-control">
+              <KSwitch.Thumb class="kb-switch-thumb" />
+            </KSwitch.Control>
+          </KSwitch.Root>
         );
       }
     }
@@ -209,7 +478,7 @@ export function RulesPage() {
 
   const table = createSolidTable({
     get data() {
-      return filteredRows();
+      return pagedRows();
     },
     columns,
     getCoreRowModel: getCoreRowModel()
@@ -217,11 +486,35 @@ export function RulesPage() {
 
   function resetForm() {
     setEditingId(null);
-    setForm({ ...defaultForm });
+    setForm({
+      ...defaultForm,
+      target_kind: getGlobalTargetKind(),
+      target_ref: getGlobalTargetRef()
+    });
+  }
+
+  function openCreateModal() {
+    resetForm();
+    setMessage(null);
+    setIsModalOpen(true);
+  }
+
+  function closeFormModal() {
+    setIsModalOpen(false);
+    resetForm();
+  }
+
+  function handleDialogOpenChange(open: boolean) {
+    if (open) {
+      setIsModalOpen(true);
+      return;
+    }
+    closeFormModal();
   }
 
   function handleEdit(rule: RuleRow) {
     setEditingId(rule.id);
+    setMessage(null);
     setForm({
       name: rule.name,
       type: rule.type,
@@ -238,18 +531,16 @@ export function RulesPage() {
       fw_private: true,
       fw_public: false
     });
-    setMessage({
-      type: "info",
-      text: "编辑模式：当前后端 patch 不支持修改 type/target_kind/firewall。"
-    });
+    setGlobalTargetContext(rule.target_kind, rule.target_ref ?? "");
+    setIsModalOpen(true);
   }
 
   async function refreshAll() {
-    await Promise.all([
-      rulesQuery.refetch(),
-      runtimeQuery.refetch(),
-      topologyQuery.refetch()
-    ]);
+    const jobs: Promise<unknown>[] = [rulesQuery.refetch(), runtimeQuery.refetch()];
+    if (shouldLoadTopology()) {
+      jobs.push(topologyQuery.refetch());
+    }
+    await Promise.all(jobs);
   }
 
   function validateForm(excludeId: string | null) {
@@ -274,9 +565,6 @@ export function RulesPage() {
       }
       if ((form.target_kind === "wsl" || form.target_kind === "hyperv") && !form.target_ref.trim()) {
         return `${form.target_kind} 目标必须填写 target_ref。`;
-      }
-      if (form.target_kind !== "static") {
-        return "WSL/Hyper-V 动态解析在 M2 实现，M1 请先使用 static 目标。";
       }
     }
 
@@ -343,16 +631,34 @@ export function RulesPage() {
       if (editingId()) {
         const patch = toPatch();
         await updateRule(editingId()!, patch);
-        setDebugOutput(JSON.stringify({ updated_rule_id: editingId(), patch }, null, 2));
-        setMessage({ type: "info", text: `规则更新成功，ID=${editingId()}` });
+        if (patch.enabled) {
+          const result = await applyRules();
+          setDebugOutput(JSON.stringify({ updated_rule_id: editingId(), patch, auto_apply: result }, null, 2));
+          setMessage({
+            type: "info",
+            text: `规则更新并自动应用成功，ID=${editingId()}, applied=${result.applied}, failed=${result.failed.length}`
+          });
+        } else {
+          setDebugOutput(JSON.stringify({ updated_rule_id: editingId(), patch }, null, 2));
+          setMessage({ type: "info", text: `规则更新成功，ID=${editingId()}` });
+        }
       } else {
         const req = toCreateRequest();
         const id = await createRule(req);
-        setDebugOutput(JSON.stringify({ created_rule_id: id, request: req }, null, 2));
-        setMessage({ type: "info", text: `规则创建成功，ID=${id}` });
+        if (req.rule.enabled) {
+          const result = await applyRules();
+          setDebugOutput(JSON.stringify({ created_rule_id: id, request: req, auto_apply: result }, null, 2));
+          setMessage({
+            type: "info",
+            text: `规则创建并自动应用成功，ID=${id}, applied=${result.applied}, failed=${result.failed.length}`
+          });
+        } else {
+          setDebugOutput(JSON.stringify({ created_rule_id: id, request: req }, null, 2));
+          setMessage({ type: "info", text: `规则创建成功，ID=${id}` });
+        }
       }
 
-      resetForm();
+      closeFormModal();
       await refreshAll();
     } catch (err) {
       const text = String(err);
@@ -364,7 +670,7 @@ export function RulesPage() {
   async function handleDelete(id: string) {
     try {
       await deleteRule(id);
-      if (editingId() === id) resetForm();
+      if (editingId() === id) closeFormModal();
       await refreshAll();
       setMessage({ type: "info", text: `已删除规则 ${id}` });
       setDebugOutput(JSON.stringify({ deleted_rule_id: id }, null, 2));
@@ -376,12 +682,103 @@ export function RulesPage() {
   async function handleToggle(id: string, enabled: boolean) {
     try {
       await enableRule(id, enabled);
+      const result = await applyRules();
       await refreshAll();
-      setMessage({ type: "info", text: `规则 ${id} 已${enabled ? "启用" : "禁用"}` });
-      setDebugOutput(JSON.stringify({ toggled_rule_id: id, enabled }, null, 2));
+      setMessage({
+        type: "info",
+        text: `规则 ${id} 已${enabled ? "启用" : "禁用"}并自动应用，applied=${result.applied}, failed=${result.failed.length}`
+      });
+      setDebugOutput(JSON.stringify({ toggled_rule_id: id, enabled, auto_apply: result }, null, 2));
     } catch (err) {
       setMessage({ type: "error", text: String(err) });
     }
+  }
+
+  async function handleBatchEnable(enabled: boolean) {
+    const ids = [...selectedRuleIds()];
+    if (ids.length === 0) {
+      setMessage({ type: "error", text: "请先选择至少一条规则。" });
+      return;
+    }
+
+    const failed: string[] = [];
+    for (const id of ids) {
+      try {
+        await enableRule(id, enabled);
+      } catch (err) {
+        failed.push(`${id}: ${String(err)}`);
+      }
+    }
+
+    try {
+      const result = await applyRules();
+      await refreshAll();
+      if (failed.length > 0) {
+        setMessage({
+          type: "error",
+          text: `批量${enabled ? "启用" : "禁用"}部分失败（${failed.length}/${ids.length}）。`
+        });
+      } else {
+        setMessage({
+          type: "info",
+          text: `已批量${enabled ? "启用" : "禁用"} ${ids.length} 条规则，applied=${result.applied}, failed=${result.failed.length}`
+        });
+      }
+      setDebugOutput(
+        JSON.stringify(
+          {
+            action: enabled ? "batch_enable" : "batch_disable",
+            total: ids.length,
+            failed,
+            auto_apply: result
+          },
+          null,
+          2
+        )
+      );
+      setSelectedRuleIds(new Set<string>());
+    } catch (err) {
+      setMessage({ type: "error", text: String(err) });
+    }
+  }
+
+  async function handleBatchDelete() {
+    const ids = [...selectedRuleIds()];
+    if (ids.length === 0) {
+      setMessage({ type: "error", text: "请先选择至少一条规则。" });
+      return;
+    }
+    const confirmed = window.confirm(`确认删除选中的 ${ids.length} 条规则？该操作不可撤销。`);
+    if (!confirmed) return;
+
+    const failed: string[] = [];
+    for (const id of ids) {
+      try {
+        await deleteRule(id);
+        if (editingId() === id) closeFormModal();
+      } catch (err) {
+        failed.push(`${id}: ${String(err)}`);
+      }
+    }
+
+    await refreshAll();
+    if (failed.length > 0) {
+      setMessage({ type: "error", text: `批量删除部分失败（${failed.length}/${ids.length}）。` });
+    } else {
+      setMessage({ type: "info", text: `已批量删除 ${ids.length} 条规则。` });
+    }
+    setDebugOutput(
+      JSON.stringify(
+        {
+          action: "batch_delete",
+          total: ids.length,
+          failed
+        },
+        null,
+        2
+      )
+    );
+    setSelectedRuleIds(new Set<string>());
   }
 
   async function runApply() {
@@ -417,39 +814,72 @@ export function RulesPage() {
 
   return (
     <div class="page">
-      <section class="panel">
+      <section class="panel main-panel">
         <div class="panel-title">
           <h2>Rules</h2>
           <span class="muted">
-            {filteredRows().length} / {rows().length}
+            {filteredRows().length} / {rows().length}，已选 {selectedCount()}
           </span>
         </div>
 
-        <div class="toolbar">
-          <input
-            placeholder="名称关键词"
-            value={filter.name}
-            onInput={(e) => setFilter("name", e.currentTarget.value)}
+        <div class="toolbar toolbar-kobalte">
+          <KTextField.Root class="kb-text-inline" value={filter.name} onChange={(value) => setFilter("name", value)}>
+            <KTextField.Input class="kb-input" placeholder="名称关键词" />
+          </KTextField.Root>
+          <AppSelect
+            value={filter.type}
+            onChange={(value) => setFilter("type", value)}
+            options={filterTypeOptions}
+            triggerClass="kb-select-compact"
           />
-          <select value={filter.type} onInput={(e) => setFilter("type", e.currentTarget.value)}>
-            <option value="all">all</option>
-            <option value="tcp_fwd">tcp_fwd</option>
-            <option value="udp_fwd">udp_fwd</option>
-            <option value="http_proxy">http_proxy</option>
-            <option value="socks5_proxy">socks5_proxy</option>
-          </select>
-          <select value={filter.enabled} onInput={(e) => setFilter("enabled", e.currentTarget.value)}>
-            <option value="all">all</option>
-            <option value="enabled">enabled</option>
-            <option value="disabled">disabled</option>
-          </select>
-          <button class="secondary" onClick={() => refreshAll()}>
+          <AppSelect
+            value={filter.enabled}
+            onChange={(value) => setFilter("enabled", value)}
+            options={filterEnabledOptions}
+            triggerClass="kb-select-compact"
+          />
+          <KButton.Root class="kb-btn ghost" onClick={() => refreshAll()}>
             刷新
-          </button>
+          </KButton.Root>
+        </div>
+
+        <div class="actions top-actions">
+          <KButton.Root class="kb-btn accent" onClick={openCreateModal}>新建规则</KButton.Root>
+          <KButton.Root class="kb-btn ghost" onClick={runApply}>应用规则</KButton.Root>
+          <KButton.Root class="kb-btn ghost" onClick={runStop}>停止规则</KButton.Root>
+          <KButton.Root class="kb-btn ghost" onClick={loadLogs}>查看日志</KButton.Root>
+          <KButton.Root
+            class="kb-btn ghost"
+            disabled={selectedCount() === 0}
+            onClick={() => handleBatchEnable(true)}
+          >
+            批量启用
+          </KButton.Root>
+          <KButton.Root
+            class="kb-btn ghost"
+            disabled={selectedCount() === 0}
+            onClick={() => handleBatchEnable(false)}
+          >
+            批量禁用
+          </KButton.Root>
+          <KButton.Root
+            class="kb-btn danger"
+            disabled={selectedCount() === 0}
+            onClick={handleBatchDelete}
+          >
+            批量删除
+          </KButton.Root>
+          <KButton.Root
+            class="kb-btn ghost"
+            disabled={selectedCount() === 0}
+            onClick={() => setSelectedRuleIds(new Set<string>())}
+          >
+            清空勾选
+          </KButton.Root>
         </div>
 
         <div class="table-wrap">
-          <table>
+          <table class="rules-table">
             <thead>
               <For each={table.getHeaderGroups()}>
                 {(group) => (
@@ -472,7 +902,7 @@ export function RulesPage() {
                 when={table.getRowModel().rows.length > 0}
                 fallback={
                   <tr>
-                    <td colspan={9} class="muted">
+                    <td colspan={10} class="muted">
                       暂无数据
                     </td>
                   </tr>
@@ -480,7 +910,7 @@ export function RulesPage() {
               >
                 <For each={table.getRowModel().rows}>
                   {(row) => (
-                    <tr>
+                    <tr class={isRuleSelected(row.original.id) ? "row-selected" : undefined}>
                       <For each={row.getVisibleCells()}>
                         {(cell) => <td>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>}
                       </For>
@@ -491,168 +921,34 @@ export function RulesPage() {
             </tbody>
           </table>
         </div>
-      </section>
 
-      <section class="panel">
-        <div class="panel-title">
-          <h2>{isEditing() ? "编辑规则" : "新建规则"}</h2>
-          <Show when={isEditing()}>
-            <button class="secondary" onClick={resetForm}>
-              取消编辑
-            </button>
-          </Show>
-        </div>
-
-        <div class="form-grid">
-          <label>
-            名称
-            <input value={form.name} onInput={(e) => setForm("name", e.currentTarget.value)} />
-          </label>
-          <label>
-            类型
-            <select
-              value={form.type}
-              disabled={isEditing()}
-              onInput={(e) => setForm("type", e.currentTarget.value as RuleType)}
-            >
-              <option value="tcp_fwd">tcp_fwd</option>
-              <option value="udp_fwd">udp_fwd</option>
-              <option value="http_proxy">http_proxy</option>
-              <option value="socks5_proxy">socks5_proxy</option>
-            </select>
-          </label>
-          <label>
-            监听地址
-            <input
-              value={form.listen_host}
-              onInput={(e) => setForm("listen_host", e.currentTarget.value)}
-            />
-          </label>
-          <label>
-            监听端口
-            <input
-              type="number"
-              min="1"
-              max="65535"
-              value={form.listen_port}
-              onInput={(e) => setForm("listen_port", e.currentTarget.value)}
-            />
-          </label>
-          <label>
-            目标类型
-            <select
-              value={form.target_kind}
-              disabled={isEditing() || isProxyType()}
-              onInput={(e) => setForm("target_kind", e.currentTarget.value as FormState["target_kind"])}
-            >
-              <option value="static">static</option>
-              <option value="wsl">wsl</option>
-              <option value="hyperv">hyperv</option>
-            </select>
-          </label>
-          <label>
-            目标引用
-            <input
-              value={form.target_ref}
-              disabled={isProxyType() || form.target_kind === "static"}
-              onInput={(e) => setForm("target_ref", e.currentTarget.value)}
-            />
-          </label>
-          <label>
-            目标主机
-            <input
-              value={form.target_host}
-              disabled={isProxyType() || form.target_kind !== "static"}
-              onInput={(e) => setForm("target_host", e.currentTarget.value)}
-            />
-          </label>
-          <label>
-            目标端口
-            <input
-              type="number"
-              min="1"
-              max="65535"
-              value={form.target_port}
-              disabled={isProxyType()}
-              onInput={(e) => setForm("target_port", e.currentTarget.value)}
-            />
-          </label>
-          <label>
-            绑定模式
-            <select
-              value={form.bind_mode}
-              onInput={(e) => setForm("bind_mode", e.currentTarget.value as BindMode)}
-            >
-              <option value="all_nics">all_nics</option>
-              <option value="single_nic">single_nic</option>
-            </select>
-          </label>
-          <label>
-            网卡
-            <select
-              value={form.nic_id}
-              disabled={!isSingleNic()}
-              onInput={(e) => setForm("nic_id", e.currentTarget.value)}
-            >
-              <option value="">请选择网卡</option>
-              <For each={adapterOptions()}>
-                {(item) => <option value={item.id}>{item.name} ({item.id})</option>}
-              </For>
-            </select>
-          </label>
-          <label>
-            启用
-            <select
-              value={String(form.enabled)}
-              onInput={(e) => setForm("enabled", e.currentTarget.value === "true")}
-            >
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </select>
-          </label>
-        </div>
-
-        <div class="checks">
-          <label>
-            <input
-              type="checkbox"
-              checked={form.fw_domain}
-              disabled={isEditing()}
-              onInput={(e) => setForm("fw_domain", e.currentTarget.checked)}
-            />
-            Domain
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={form.fw_private}
-              disabled={isEditing()}
-              onInput={(e) => setForm("fw_private", e.currentTarget.checked)}
-            />
-            Private
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={form.fw_public}
-              disabled={isEditing()}
-              onInput={(e) => setForm("fw_public", e.currentTarget.checked)}
-            />
-            Public
-          </label>
-        </div>
-
-        <div class="actions">
-          <button onClick={submitForm}>{isEditing() ? "保存修改" : "创建规则"}</button>
-          <button class="secondary" onClick={runApply}>
-            应用规则
-          </button>
-          <button class="secondary" onClick={runStop}>
-            停止规则
-          </button>
-          <button class="secondary" onClick={loadLogs}>
-            查看日志
-          </button>
+        <div class="pagination-bar">
+          <span class="muted">
+            第 {Math.min(pageIndex() + 1, pageCount())} / {pageCount()} 页
+          </span>
+          <AppSelect
+            value={String(pageSize())}
+            onChange={(value) => {
+              setPageSize(Number(value));
+              setPageIndex(0);
+            }}
+            options={pageSizeOptions}
+            triggerClass="kb-select-compact page-size-select"
+          />
+          <KButton.Root
+            class="kb-btn ghost"
+            disabled={pageIndex() <= 0}
+            onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
+          >
+            上一页
+          </KButton.Root>
+          <KButton.Root
+            class="kb-btn ghost"
+            disabled={pageIndex() >= pageCount() - 1}
+            onClick={() => setPageIndex((value) => Math.min(pageCount() - 1, value + 1))}
+          >
+            下一页
+          </KButton.Root>
         </div>
 
         <Show when={message()}>
@@ -673,22 +969,46 @@ export function RulesPage() {
           <div>rules: {rulesQuery.data?.length ?? 0}</div>
           <div>runtime: {runtimeQuery.data?.length ?? 0}</div>
           <div>adapters: {topologyQuery.data?.adapters.length ?? 0}</div>
-          <Switch>
-            <Match when={rulesQuery.isPending || runtimeQuery.isPending || topologyQuery.isPending}>
-              <div>loading...</div>
-            </Match>
-            <Match when={rulesQuery.error || runtimeQuery.error || topologyQuery.error}>
-              <div class="error">
-                {(rulesQuery.error ?? runtimeQuery.error ?? topologyQuery.error)?.toString()}
-              </div>
-            </Match>
-            <Match when={true}>
-              <div>ready</div>
-            </Match>
-          </Switch>
+          <Show
+            when={isStatusLoading()}
+            fallback={
+              <Show when={statusError()} fallback={<div>ready</div>}>
+                {(err) => <div class="error">{String(err())}</div>}
+              </Show>
+            }
+          >
+            <div>loading...</div>
+          </Show>
         </div>
       </section>
+
+      <RuleFormModal
+        open={isModalOpen()}
+        isEditing={isEditing()}
+        form={form}
+        setForm={setForm}
+        message={message()}
+        isProxyType={isProxyType()}
+        isSingleNic={isSingleNic()}
+        targetPreview={targetPreview()}
+        topologyTimestamp={topologyQuery.data?.timestamp ?? null}
+        ruleTypeOptions={ruleTypeOptions}
+        targetKindOptions={targetKindOptions}
+        bindModeOptions={bindModeOptions}
+        adapterOptions={adapterOptions()}
+        targetRefOptions={targetRefOptions()}
+        onOpenChange={handleDialogOpenChange}
+        onTargetKindChange={(targetKind) => {
+          setForm("target_kind", targetKind);
+          setGlobalTargetContext(targetKind, form.target_ref);
+        }}
+        onTargetRefChange={(value) => {
+          setForm("target_ref", value);
+          setGlobalTargetContext(form.target_kind, value);
+        }}
+        onSubmit={submitForm}
+        onCancel={closeFormModal}
+      />
     </div>
   );
 }
-

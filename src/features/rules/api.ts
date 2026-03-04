@@ -7,6 +7,7 @@ import type {
   RuntimeStatusItem,
   StopRulesResult,
   TailLogsResult,
+  HyperVProbeDebug,
   TopologySnapshot
 } from "../../lib/types";
 
@@ -50,3 +51,6 @@ export function scanTopology() {
   return invokeBridge<TopologySnapshot>("scan_topology");
 }
 
+export function debugHyperVProbe() {
+  return invokeBridge<HyperVProbeDebug>("debug_hyperv_probe");
+}

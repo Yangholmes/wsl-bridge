@@ -5,7 +5,15 @@ import { RouterProvider } from "@tanstack/solid-router";
 import { router } from "./router";
 import "./styles.css";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+      staleTime: 5000
+    }
+  }
+});
 
 render(
   () => (
@@ -15,4 +23,3 @@ render(
   ),
   document.getElementById("app")!
 );
-
