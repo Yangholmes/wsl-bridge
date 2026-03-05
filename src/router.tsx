@@ -1,32 +1,66 @@
+import { lazy, Suspense } from "solid-js";
 import { createRootRoute, createRoute, createRouter, Link, Outlet } from "@tanstack/solid-router";
+import { useI18n } from "./i18n/context";
 
-import { RulesPage } from "./features/rules/RulesPage";
-import { RuntimePage } from "./features/runtime/RuntimePage";
-import { TopologyPage } from "./features/topology/TopologyPage";
+const DashboardPage = lazy(() =>
+  import("./features/dashboard/DashboardPage").then((module) => ({ default: module.DashboardPage }))
+);
+const RulesPage = lazy(() =>
+  import("./features/rules/RulesPage").then((module) => ({ default: module.RulesPage }))
+);
+const RuntimePage = lazy(() =>
+  import("./features/runtime/RuntimePage").then((module) => ({ default: module.RuntimePage }))
+);
+const TopologyPage = lazy(() =>
+  import("./features/topology/TopologyPage").then((module) => ({ default: module.TopologyPage }))
+);
+const LogsPage = lazy(() =>
+  import("./features/logs/LogsPage").then((module) => ({ default: module.LogsPage }))
+);
+const SettingsPage = lazy(() =>
+  import("./features/settings/SettingsPage").then((module) => ({ default: module.SettingsPage }))
+);
+
+function PageLoadingFallback() {
+  return (
+    <section class="panel">
+      <div class="skeleton-title" />
+      <div class="skeleton-line wide" />
+      <div class="skeleton-line" />
+      <div class="skeleton-line" />
+    </section>
+  );
+}
+
+function withSuspense(component: () => any) {
+  return () => <Suspense fallback={<PageLoadingFallback />}>{component()}</Suspense>;
+}
 
 function RootLayout() {
+  const { t } = useI18n();
+
   return (
     <div class="app-layout">
       <aside class="sidebar">
-        <div class="brand">WSL Bridge</div>
+        <div class="brand">{t("app.name")}</div>
         <nav class="nav">
-          <Link to="/" class="nav-item">
-            Dashboard
+          <Link to="/dashboard" class="nav-item">
+            {t("nav.dashboard")}
           </Link>
           <Link to="/rules" class="nav-item">
-            Rules
+            {t("nav.rules")}
           </Link>
           <Link to="/runtime" class="nav-item">
-            Runtime
+            {t("nav.runtime")}
           </Link>
           <Link to="/topology" class="nav-item">
-            Topology
+            {t("nav.topology")}
           </Link>
           <Link to="/logs" class="nav-item">
-            Logs
+            {t("nav.logs")}
           </Link>
           <Link to="/settings" class="nav-item">
-            Settings
+            {t("nav.settings")}
           </Link>
         </nav>
       </aside>
@@ -37,23 +71,16 @@ function RootLayout() {
   );
 }
 
-function Placeholder(props: { title: string; text: string }) {
-  return (
-    <section class="panel">
-      <h2>{props.title}</h2>
-      <p class="muted">{props.text}</p>
-    </section>
-  );
-}
-
 const rootRoute = createRootRoute({
   component: RootLayout,
   errorComponent: (props) => {
+    const { t } = useI18n();
     // 在控制台打印完整的 error 对象，查看 stack 堆栈
     console.error(props.error)
+    console.log(props)
     return (
       <div>
-        <button onClick={() => props.reset()}>重试</button>
+        <button onClick={() => props.reset()}>{t("common.retry")}</button>
       </div>
     );
   },
@@ -62,51 +89,48 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: () => (
-    <Placeholder
-      title="Dashboard"
-      text="M2 已完成：支持动态目标解析、拓扑探测、运行态错误定位与网卡变化自动重绑。"
-    />
-  )
+  component: withSuspense(() => <DashboardPage />)
+});
+
+const dashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/dashboard",
+  component: withSuspense(() => <DashboardPage />)
 });
 
 const rulesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/rules",
-  component: RulesPage
+  component: withSuspense(() => <RulesPage />)
 });
 
 const runtimeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/runtime",
-  component: RuntimePage
+  component: withSuspense(() => <RuntimePage />)
 });
 
 const topologyRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/topology",
-  component: TopologyPage
+  component: withSuspense(() => <TopologyPage />)
 });
 
 const logsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/logs",
-  component: () => <Placeholder title="Logs" text="M3 将补充日志筛选与导出。" />
+  component: withSuspense(() => <LogsPage />)
 });
 
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
-  component: () => (
-    <Placeholder
-      title="Settings"
-      text="当前可通过环境变量配置 DB 路径与防火墙模式，详见 README。"
-    />
-  )
+  component: withSuspense(() => <SettingsPage />)
 });
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  dashboardRoute,
   rulesRoute,
   runtimeRoute,
   topologyRoute,

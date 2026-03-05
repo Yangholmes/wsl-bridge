@@ -78,6 +78,35 @@ export type TailLogsResult = {
   next_cursor: number;
 };
 
+export type LogQueryRequest = {
+  level?: string | null;
+  module?: string | null;
+  rule_id?: string | null;
+  keyword?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  limit?: number | null;
+  newest_first?: boolean | null;
+};
+
+export type LogQueryResult = {
+  total: number;
+  events: AuditLog[];
+};
+
+export type RuleLogStatsRequest = {
+  rule_ids?: string[] | null;
+  since_minutes?: number | null;
+};
+
+export type RuleLogStatsItem = {
+  rule_id: string;
+  total: number;
+  errors: number;
+  last_time: string | null;
+  last_error: string | null;
+};
+
 export type AuditLog = {
   id: number;
   time: string;

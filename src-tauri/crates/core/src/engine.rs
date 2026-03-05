@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::path::Path;
 
@@ -8,9 +8,10 @@ use thiserror::Error;
 use tracing::warn;
 use uuid::Uuid;
 use wsl_bridge_shared::{
-    ApplyRulesResult, AuditLog, BindMode, CreateRuleRequest, FirewallPolicy, NewProxyRule,
-    ProxyRule, RulePatch, RuleType, RuntimeState, RuntimeStatusItem, StopRulesResult,
-    TailLogsResult, TargetKind, TopologySnapshot,
+    ApplyRulesResult, AuditLog, BindMode, CreateRuleRequest, FirewallPolicy, LogQueryRequest,
+    LogQueryResult, NewProxyRule, ProxyRule, RuleLogStatsItem, RuleLogStatsRequest, RulePatch,
+    RuleType, RuntimeState, RuntimeStatusItem, StopRulesResult, TailLogsResult, TargetKind,
+    TopologySnapshot,
 };
 
 use crate::firewall::{apply_firewall, cleanup_firewall, FirewallMode, FirewallRuleRuntime};
@@ -57,8 +58,9 @@ struct EngineStore {
 struct ActiveRuleRuntime {
     forwarder: ForwarderHandle,
     firewall: FirewallRuleRuntime,
+    rule_type: RuleType,
     listen_addr: SocketAddr,
-    target_addr: SocketAddr,
+    target_addr: Option<SocketAddr>,
 }
 
 #[derive(Debug)]
@@ -336,25 +338,8 @@ impl RuleEngine {
             let forward_kind = match rule.rule_type {
                 RuleType::TcpFwd => ForwarderKind::Tcp,
                 RuleType::UdpFwd => ForwarderKind::Udp,
-                _ => {
-                    let err = format!("rule type {:?} is not in M1 runtime scope", rule.rule_type);
-                    set_runtime_status(
-                        &mut store,
-                        &rule.id,
-                        RuntimeState::Error,
-                        Some(err.clone()),
-                        now,
-                    );
-                    failed.push(rule.id.clone());
-                    append_log(
-                        &mut store,
-                        "error",
-                        "engine",
-                        "rule_apply_failed",
-                        &format!("rule_id={},reason={err}", rule.id),
-                    );
-                    continue;
-                }
+                RuleType::HttpProxy => ForwarderKind::HttpProxy,
+                RuleType::Socks5Proxy => ForwarderKind::Socks5Proxy,
             };
 
             let listen_addr = match self.resolve_listen_addr(&rule) {
@@ -403,26 +388,29 @@ impl RuleEngine {
             }
             seen_listens.insert(listen_addr, rule.id.clone());
 
-            let target_addr = match self.resolve_target_addr(&rule) {
-                Ok(addr) => addr,
-                Err(err) => {
-                    set_runtime_status(
-                        &mut store,
-                        &rule.id,
-                        RuntimeState::Error,
-                        Some(err.clone()),
-                        now,
-                    );
-                    failed.push(rule.id.clone());
-                    append_log(
-                        &mut store,
-                        "error",
-                        "engine",
-                        "rule_apply_failed",
-                        &format!("rule_id={},reason={err}", rule.id),
-                    );
-                    continue;
-                }
+            let target_addr = match rule.rule_type {
+                RuleType::TcpFwd | RuleType::UdpFwd => match self.resolve_target_addr(&rule) {
+                    Ok(addr) => Some(addr),
+                    Err(err) => {
+                        set_runtime_status(
+                            &mut store,
+                            &rule.id,
+                            RuntimeState::Error,
+                            Some(err.clone()),
+                            now,
+                        );
+                        failed.push(rule.id.clone());
+                        append_log(
+                            &mut store,
+                            "error",
+                            "engine",
+                            "rule_apply_failed",
+                            &format!("rule_id={},reason={err}", rule.id),
+                        );
+                        continue;
+                    }
+                },
+                RuleType::HttpProxy | RuleType::Socks5Proxy => None,
             };
 
             let firewall_policy = store
@@ -487,7 +475,11 @@ impl RuleEngine {
                 "rule_applied",
                 &format!(
                     "rule_id={},listen={},target={}",
-                    rule.id, listen_addr, target_addr
+                    rule.id,
+                    listen_addr,
+                    target_addr
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "-".to_owned())
                 ),
             );
 
@@ -496,6 +488,7 @@ impl RuleEngine {
                 ActiveRuleRuntime {
                     forwarder,
                     firewall: firewall_runtime,
+                    rule_type: rule.rule_type,
                     listen_addr,
                     target_addr,
                 },
@@ -562,6 +555,152 @@ impl RuleEngine {
         }
     }
 
+    pub fn query_logs(&self, req: LogQueryRequest) -> LogQueryResult {
+        let store = self.store.read();
+        let level = req
+            .level
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty());
+        let module = req
+            .module
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty());
+        let rule_id = req
+            .rule_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty());
+        let keyword = req
+            .keyword
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(|v| v.to_lowercase());
+        let start_time = req.start_time;
+        let end_time = req.end_time;
+
+        let mut events = store
+            .logs
+            .iter()
+            .filter(|log| {
+                if let Some(level) = level {
+                    if !log.level.eq_ignore_ascii_case(level) {
+                        return false;
+                    }
+                }
+                if let Some(module) = module {
+                    if !log.module.eq_ignore_ascii_case(module) {
+                        return false;
+                    }
+                }
+                if let Some(rule_id) = rule_id {
+                    if !log_matches_rule_id(log, rule_id) {
+                        return false;
+                    }
+                }
+                if let Some(start) = start_time {
+                    if log.time < start {
+                        return false;
+                    }
+                }
+                if let Some(end) = end_time {
+                    if log.time > end {
+                        return false;
+                    }
+                }
+                if let Some(keyword) = keyword.as_deref() {
+                    let hay = format!(
+                        "{} {} {} {}",
+                        log.level.to_lowercase(),
+                        log.module.to_lowercase(),
+                        log.event.to_lowercase(),
+                        log.detail.to_lowercase()
+                    );
+                    if !hay.contains(keyword) {
+                        return false;
+                    }
+                }
+                true
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let total = events.len();
+        if req.newest_first.unwrap_or(false) {
+            events.reverse();
+        }
+        if let Some(limit) = req.limit {
+            events.truncate(limit);
+        }
+
+        LogQueryResult { total, events }
+    }
+
+    pub fn get_rule_log_stats(&self, req: RuleLogStatsRequest) -> Vec<RuleLogStatsItem> {
+        #[derive(Default)]
+        struct Acc {
+            total: usize,
+            errors: usize,
+            last_time: Option<chrono::DateTime<Utc>>,
+            last_error: Option<String>,
+        }
+
+        let since = req
+            .since_minutes
+            .map(|minutes| Utc::now() - chrono::Duration::minutes(i64::from(minutes)));
+
+        let mut allow_set = HashSet::<String>::new();
+        let mut map = HashMap::<String, Acc>::new();
+        if let Some(rule_ids) = req.rule_ids {
+            for rule_id in rule_ids {
+                let clean = rule_id.trim();
+                if !clean.is_empty() {
+                    allow_set.insert(clean.to_owned());
+                    map.entry(clean.to_owned()).or_default();
+                }
+            }
+        }
+
+        let store = self.store.read();
+        for log in &store.logs {
+            if let Some(since) = since {
+                if log.time < since {
+                    continue;
+                }
+            }
+
+            let Some(rule_id) = extract_rule_id(log) else {
+                continue;
+            };
+            if !allow_set.is_empty() && !allow_set.contains(&rule_id) {
+                continue;
+            }
+            let acc = map.entry(rule_id).or_default();
+
+            acc.total += 1;
+            if log.level.eq_ignore_ascii_case("error") {
+                acc.errors += 1;
+                acc.last_error = Some(log.detail.clone());
+            }
+            acc.last_time = Some(log.time);
+        }
+
+        let mut items = map
+            .into_iter()
+            .map(|(rule_id, acc)| RuleLogStatsItem {
+                rule_id,
+                total: acc.total,
+                errors: acc.errors,
+                last_time: acc.last_time,
+                last_error: acc.last_error,
+            })
+            .collect::<Vec<_>>();
+        items.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+        items
+    }
+
     pub fn reconcile_runtime_topology(&self) -> Option<ApplyRulesResult> {
         let active_snapshot = {
             let active = self.active.lock();
@@ -571,7 +710,10 @@ impl RuleEngine {
             active
                 .iter()
                 .map(|(rule_id, runtime)| {
-                    (rule_id.clone(), (runtime.listen_addr, runtime.target_addr))
+                    (
+                        rule_id.clone(),
+                        (runtime.rule_type, runtime.listen_addr, runtime.target_addr),
+                    )
                 })
                 .collect::<HashMap<_, _>>()
         };
@@ -582,7 +724,7 @@ impl RuleEngine {
         };
 
         let mut changed = Vec::new();
-        for (rule_id, (old_listen, old_target)) in active_snapshot {
+        for (rule_id, (old_type, old_listen, old_target)) in active_snapshot {
             let Some(rule) = rules.get(&rule_id) else {
                 changed.push(format!("rule_removed={rule_id}"));
                 continue;
@@ -599,17 +741,23 @@ impl RuleEngine {
                     continue;
                 }
             };
-            let new_target = match self.resolve_target_addr(rule) {
-                Ok(value) => value,
-                Err(err) => {
-                    changed.push(format!("target_resolve_failed={rule_id}:{err}"));
-                    continue;
-                }
+            let new_target = match rule.rule_type {
+                RuleType::TcpFwd | RuleType::UdpFwd => match self.resolve_target_addr(rule) {
+                    Ok(value) => Some(value),
+                    Err(err) => {
+                        changed.push(format!("target_resolve_failed={rule_id}:{err}"));
+                        continue;
+                    }
+                },
+                RuleType::HttpProxy | RuleType::Socks5Proxy => None,
             };
 
-            if new_listen != old_listen || new_target != old_target {
+            if new_listen != old_listen || new_target != old_target || old_type != rule.rule_type {
                 changed.push(format!(
-                    "rule_id={rule_id},listen={old_listen}->{new_listen},target={old_target}->{new_target}"
+                    "rule_id={rule_id},listen={old_listen}->{new_listen},target={}->{},type={old_type:?}->{:?}",
+                    old_target.map(|v| v.to_string()).unwrap_or_else(|| "-".to_owned()),
+                    new_target.map(|v| v.to_string()).unwrap_or_else(|| "-".to_owned()),
+                    rule.rule_type
                 ));
             }
         }
@@ -789,6 +937,13 @@ impl RuleEngine {
                 ));
             }
         }
+        if rule.rule_type == RuleType::HttpProxy || rule.rule_type == RuleType::Socks5Proxy {
+            if rule.target_kind != TargetKind::Static {
+                return Err(EngineError::InvalidRule(
+                    "http/socks5 proxy requires target_kind=static".to_owned(),
+                ));
+            }
+        }
         Ok(())
     }
 }
@@ -826,6 +981,30 @@ fn set_runtime_status(
     item.last_apply_at = Some(at);
 }
 
+fn extract_rule_id(log: &AuditLog) -> Option<String> {
+    extract_rule_id_from_text(&log.detail)
+}
+
+fn log_matches_rule_id(log: &AuditLog, rule_id: &str) -> bool {
+    extract_rule_id(log).as_deref() == Some(rule_id)
+        || log.detail.contains(rule_id)
+        || log.event.contains(rule_id)
+        || log.module.contains(rule_id)
+}
+
+fn extract_rule_id_from_text(text: &str) -> Option<String> {
+    let marker = "rule_id=";
+    let start = text.find(marker)?;
+    let value = &text[start + marker.len()..];
+    let end = value.find([',', ' ', '|']).unwrap_or(value.len());
+    let rule_id = value[..end].trim();
+    if rule_id.is_empty() {
+        None
+    } else {
+        Some(rule_id.to_owned())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::env;
@@ -837,7 +1016,8 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use wsl_bridge_shared::{
-        BindMode, CreateRuleRequest, NewProxyRule, RulePatch, RuleType, TargetKind,
+        BindMode, CreateRuleRequest, LogQueryRequest, NewProxyRule, RuleLogStatsRequest, RulePatch,
+        RuleType, TargetKind,
     };
 
     use super::RuleEngine;
@@ -907,6 +1087,46 @@ mod tests {
         let _ = engine.apply_rules();
         let result = engine.stop_rules();
         assert_eq!(result.stopped, 1);
+    }
+
+    #[test]
+    fn query_logs_by_rule_id_works() {
+        let engine = RuleEngine::new();
+        let id = engine
+            .create_rule(test_rule("log-query", 38125))
+            .expect("create");
+        let _ = engine.apply_rules();
+        let result = engine.query_logs(LogQueryRequest {
+            rule_id: Some(id.clone()),
+            newest_first: Some(true),
+            ..LogQueryRequest::default()
+        });
+        assert!(result.total >= 1);
+        assert!(
+            result
+                .events
+                .iter()
+                .any(|item| item.detail.contains(&format!("rule_id={id}"))),
+            "expected events containing rule_id"
+        );
+        let _ = engine.stop_rules();
+    }
+
+    #[test]
+    fn rule_log_stats_works() {
+        let engine = RuleEngine::new();
+        let id = engine
+            .create_rule(test_rule("log-stats", 38126))
+            .expect("create");
+        let _ = engine.apply_rules();
+        let items = engine.get_rule_log_stats(RuleLogStatsRequest {
+            rule_ids: Some(vec![id.clone()]),
+            since_minutes: Some(60),
+        });
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].rule_id, id);
+        assert!(items[0].total >= 1);
+        let _ = engine.stop_rules();
     }
 
     #[test]
@@ -1026,6 +1246,125 @@ mod tests {
         let mut buf = [0u8; 16];
         let (len, _) = client.recv_from(&mut buf).expect("recv");
         assert_eq!(&buf[..len], b"pong");
+
+        let _ = engine.stop_rules();
+        let _ = server.join();
+    }
+
+    #[test]
+    fn http_proxy_connect_works() {
+        let target_port = free_tcp_port();
+        let proxy_port = free_tcp_port();
+
+        let server = thread::spawn(move || {
+            let listener = TcpListener::bind(("127.0.0.1", target_port)).expect("target bind");
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buf = [0u8; 4];
+            stream.read_exact(&mut buf).expect("read");
+            stream.write_all(&buf).expect("write");
+        });
+
+        let engine = RuleEngine::new();
+        let req = CreateRuleRequest {
+            rule: NewProxyRule {
+                name: "http-proxy-connect".to_owned(),
+                rule_type: RuleType::HttpProxy,
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port: proxy_port,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: None,
+                target_port: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            },
+            firewall: None,
+        };
+        let _id = engine.create_rule(req).expect("create rule");
+        let result = engine.apply_rules();
+        assert_eq!(result.failed.len(), 0);
+
+        let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).expect("connect proxy");
+        let connect_req = format!(
+            "CONNECT 127.0.0.1:{target_port} HTTP/1.1\r\nHost: 127.0.0.1:{target_port}\r\n\r\n"
+        );
+        client
+            .write_all(connect_req.as_bytes())
+            .expect("send connect");
+        let mut resp = [0u8; 128];
+        let n = client.read(&mut resp).expect("read connect resp");
+        let text = String::from_utf8_lossy(&resp[..n]);
+        assert!(text.contains("200"));
+
+        client.write_all(b"ping").expect("send payload");
+        let mut echoed = [0u8; 4];
+        client.read_exact(&mut echoed).expect("read echoed");
+        assert_eq!(&echoed, b"ping");
+
+        let _ = engine.stop_rules();
+        let _ = server.join();
+    }
+
+    #[test]
+    fn socks5_connect_works() {
+        let target_port = free_tcp_port();
+        let proxy_port = free_tcp_port();
+
+        let server = thread::spawn(move || {
+            let listener = TcpListener::bind(("127.0.0.1", target_port)).expect("target bind");
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buf = [0u8; 4];
+            stream.read_exact(&mut buf).expect("read");
+            stream.write_all(&buf).expect("write");
+        });
+
+        let engine = RuleEngine::new();
+        let req = CreateRuleRequest {
+            rule: NewProxyRule {
+                name: "socks5-connect".to_owned(),
+                rule_type: RuleType::Socks5Proxy,
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port: proxy_port,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: None,
+                target_port: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            },
+            firewall: None,
+        };
+        let _id = engine.create_rule(req).expect("create rule");
+        let result = engine.apply_rules();
+        assert_eq!(result.failed.len(), 0);
+
+        let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).expect("connect proxy");
+        client
+            .write_all(&[0x05, 0x01, 0x00])
+            .expect("send greeting");
+        let mut greeting_resp = [0u8; 2];
+        client
+            .read_exact(&mut greeting_resp)
+            .expect("read greeting response");
+        assert_eq!(greeting_resp, [0x05, 0x00]);
+
+        let mut connect_req = vec![0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1];
+        connect_req.extend_from_slice(&target_port.to_be_bytes());
+        client.write_all(&connect_req).expect("send connect");
+
+        let mut connect_resp = [0u8; 10];
+        client
+            .read_exact(&mut connect_resp)
+            .expect("read connect response");
+        assert_eq!(connect_resp[0], 0x05);
+        assert_eq!(connect_resp[1], 0x00);
+
+        client.write_all(b"pong").expect("send payload");
+        let mut echoed = [0u8; 4];
+        client.read_exact(&mut echoed).expect("read echoed");
+        assert_eq!(&echoed, b"pong");
 
         let _ = engine.stop_rules();
         let _ = server.join();

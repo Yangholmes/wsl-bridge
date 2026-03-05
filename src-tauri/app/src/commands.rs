@@ -3,7 +3,8 @@
 use anyhow::Result;
 use wsl_bridge_core::HyperVProbeDebug;
 use wsl_bridge_shared::{
-    ApplyRulesResult, CreateRuleRequest, ProxyRule, RulePatch, RuntimeStatusItem, StopRulesResult,
+    ApplyRulesResult, CreateRuleRequest, LogQueryRequest, LogQueryResult, ProxyRule,
+    RuleLogStatsItem, RuleLogStatsRequest, RulePatch, RuntimeStatusItem, StopRulesResult,
     TailLogsResult, TopologySnapshot,
 };
 
@@ -53,4 +54,12 @@ pub fn get_runtime_status(state: &AppState) -> Vec<RuntimeStatusItem> {
 
 pub fn tail_logs(state: &AppState, cursor: usize) -> TailLogsResult {
     state.engine.tail_logs(cursor)
+}
+
+pub fn query_logs(state: &AppState, req: LogQueryRequest) -> LogQueryResult {
+    state.engine.query_logs(req)
+}
+
+pub fn get_rule_log_stats(state: &AppState, req: RuleLogStatsRequest) -> Vec<RuleLogStatsItem> {
+    state.engine.get_rule_log_stats(req)
 }

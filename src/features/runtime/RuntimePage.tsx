@@ -1,10 +1,12 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
-import { createQuery } from "@tanstack/solid-query";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { queryOptions, useQuery } from "@tanstack/solid-query";
 import * as KButton from "@kobalte/core/button";
 import * as KTooltip from "@kobalte/core/tooltip";
 
-import { getRuntimeStatus, listRules, tailLogs } from "../rules/api";
-import type { AuditLog, RuntimeState } from "../../lib/types";
+import { getRuleLogStats, getRuntimeStatus, listRules, queryLogs } from "../rules/api";
+import { appQueryClient } from "../../lib/queryClient";
+import type { AuditLog, ProxyRule, RuntimeState, RuleLogStatsItem, RuntimeStatusItem } from "../../lib/types";
+import { useI18n } from "../../i18n/context";
 
 type RuntimeRow = {
   rule_id: string;
@@ -14,11 +16,27 @@ type RuntimeRow = {
   last_error: string | null;
 };
 
+type ReplayWindow = "15m" | "1h" | "6h" | "24h" | "all";
+
 function toLocalTime(value: string | null) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function replayWindowToMinutes(value: ReplayWindow): number | null {
+  if (value === "15m") return 15;
+  if (value === "1h") return 60;
+  if (value === "6h") return 360;
+  if (value === "24h") return 1440;
+  return null;
+}
+
+function replayWindowStartIso(value: ReplayWindow): string | null {
+  const minutes = replayWindowToMinutes(value);
+  if (!minutes) return null;
+  return new Date(Date.now() - minutes * 60_000).toISOString();
 }
 
 function renderEllipsisCell(text: string | null | undefined) {
@@ -39,24 +57,34 @@ function renderEllipsisCell(text: string | null | undefined) {
 }
 
 export function RuntimePage() {
+  const { t } = useI18n();
   const [stateFilter, setStateFilter] = createSignal<"all" | RuntimeState>("all");
+  const [replayWindow, setReplayWindow] = createSignal<ReplayWindow>("1h");
+  const [onlyErrors, setOnlyErrors] = createSignal(false);
   const [relatedLogs, setRelatedLogs] = createSignal<AuditLog[]>([]);
   const [selectedRuleId, setSelectedRuleId] = createSignal<string | null>(null);
   const [message, setMessage] = createSignal<string | null>(null);
+  const [statsItems, setStatsItems] = createSignal<RuleLogStatsItem[]>([]);
 
-  const rulesQuery = createQuery(() => ({
-    queryKey: ["rules", "runtime-page"],
-    queryFn: listRules,
-    staleTime: 15000,
-    refetchOnWindowFocus: false
-  }));
+  const rulesQuery = useQuery(() =>
+    queryOptions<ProxyRule[]>({
+      queryKey: ["rules", "runtime-page"],
+      queryFn: listRules,
+      staleTime: 15000,
+      refetchOnWindowFocus: false
+    }),
+    () => appQueryClient
+  );
 
-  const runtimeQuery = createQuery(() => ({
-    queryKey: ["runtime", "runtime-page"],
-    queryFn: getRuntimeStatus,
-    refetchInterval: 5000,
-    refetchOnWindowFocus: false
-  }));
+  const runtimeQuery = useQuery(() =>
+    queryOptions<RuntimeStatusItem[]>({
+      queryKey: ["runtime", "runtime-page"],
+      queryFn: getRuntimeStatus,
+      refetchInterval: 5000,
+      refetchOnWindowFocus: false
+    }),
+    () => appQueryClient
+  );
 
   const rows = createMemo<RuntimeRow[]>(() => {
     const rules = new Map((rulesQuery.data ?? []).map((item) => [item.id, item]));
@@ -71,27 +99,99 @@ export function RuntimePage() {
     return items;
   });
 
+  const statsRuleIds = createMemo(() => rows().map((item) => item.rule_id));
+
+  async function refreshStats() {
+    const ids = statsRuleIds();
+    if (ids.length === 0) {
+      setStatsItems([]);
+      return;
+    }
+    const result = await getRuleLogStats({
+      rule_ids: ids,
+      since_minutes: replayWindowToMinutes(replayWindow())
+    });
+    setStatsItems(result);
+  }
+
+  createEffect(() => {
+    const _window = replayWindow();
+    const _idsKey = statsRuleIds().join(",");
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const ids = statsRuleIds();
+        if (ids.length === 0) {
+          if (!cancelled) setStatsItems([]);
+          return;
+        }
+        const result = await getRuleLogStats({
+          rule_ids: ids,
+          since_minutes: replayWindowToMinutes(replayWindow())
+        });
+        if (!cancelled) setStatsItems(result);
+      } catch {
+        if (!cancelled) setStatsItems([]);
+      }
+    };
+
+    void run();
+    const timer = window.setInterval(() => void run(), 5000);
+    onCleanup(() => {
+      cancelled = true;
+      clearInterval(timer);
+    });
+  });
+
+  const statsMap = createMemo(() => {
+    const map = new Map<string, RuleLogStatsItem>();
+    for (const item of statsItems()) {
+      map.set(item.rule_id, item);
+    }
+    return map;
+  });
+
   const filteredRows = createMemo(() => {
     if (stateFilter() === "all") return rows();
     return rows().filter((item) => item.state === stateFilter());
   });
 
+  const runtimeSummary = createMemo(() => {
+    const all = rows();
+    return {
+      total: all.length,
+      running: all.filter((item) => item.state === "running").length,
+      error: all.filter((item) => item.state === "error").length,
+      stopped: all.filter((item) => item.state === "stopped").length
+    };
+  });
+  const isTableLoading = createMemo(
+    () => (rulesQuery.isPending || runtimeQuery.isPending) && rows().length === 0
+  );
+
   async function refreshAll() {
-    await Promise.all([rulesQuery.refetch(), runtimeQuery.refetch()]);
+    await Promise.all([rulesQuery.refetch(), runtimeQuery.refetch(), refreshStats()]);
   }
 
   async function loadRelatedLogs(ruleId: string) {
     try {
       setSelectedRuleId(ruleId);
-      const result = await tailLogs(0);
-      const events = result.events.filter(
-        (event) =>
-          event.detail.includes(ruleId) ||
-          event.event.includes(ruleId) ||
-          event.module.includes(ruleId)
+      const result = await queryLogs({
+        rule_id: ruleId,
+        level: onlyErrors() ? "error" : null,
+        start_time: replayWindowStartIso(replayWindow()),
+        newest_first: true,
+        limit: 240
+      });
+      setRelatedLogs(result.events);
+      setMessage(
+        t("runtime.relatedLogMessage", {
+          ruleId,
+          total: result.total,
+          shown: result.events.length
+        })
       );
-      setRelatedLogs(events.slice(-120));
-      setMessage(`rule_id=${ruleId}，关联日志 ${events.length} 条`);
     } catch (err) {
       setMessage(String(err));
     }
@@ -101,64 +201,116 @@ export function RuntimePage() {
     <div class="page">
       <section class="panel">
         <div class="panel-title">
-          <h2>Runtime</h2>
-          <div class="runtime-tools">
-            <select
-              class="kb-input runtime-filter"
-              value={stateFilter()}
-              onInput={(e) => setStateFilter(e.currentTarget.value as "all" | RuntimeState)}
-            >
-              <option value="all">all</option>
-              <option value="running">running</option>
-              <option value="stopped">stopped</option>
-              <option value="error">error</option>
-            </select>
-            <KButton.Root class="kb-btn ghost" onClick={refreshAll}>
-              刷新
-            </KButton.Root>
-          </div>
+          <h2>{t("runtime.title")}</h2>
+        </div>
+        <div class="runtime-tools runtime-tools-row">
+          <select
+            class="kb-input runtime-filter"
+            value={stateFilter()}
+            onInput={(e) => setStateFilter(e.currentTarget.value as "all" | RuntimeState)}
+          >
+            <option value="all">{t("common.all")}</option>
+            <option value="running">{t("common.running")}</option>
+            <option value="stopped">{t("common.stopped")}</option>
+            <option value="error">{t("common.error")}</option>
+          </select>
+          <select
+            class="kb-input runtime-filter"
+            value={replayWindow()}
+            onInput={(e) => setReplayWindow(e.currentTarget.value as ReplayWindow)}
+          >
+            <option value="15m">{t("runtime.replay15m")}</option>
+            <option value="1h">{t("runtime.replay1h")}</option>
+            <option value="6h">{t("runtime.replay6h")}</option>
+            <option value="24h">{t("runtime.replay24h")}</option>
+            <option value="all">{t("runtime.replayAll")}</option>
+          </select>
+          <label class="kb-checkbox">
+            <input
+              type="checkbox"
+              checked={onlyErrors()}
+              onChange={(e) => setOnlyErrors(e.currentTarget.checked)}
+            />
+            <span class="kb-checkbox-label">{t("runtime.onlyErrors")}</span>
+          </label>
+          <KButton.Root class="kb-btn ghost" onClick={refreshAll}>
+            {t("common.refresh")}
+          </KButton.Root>
+        </div>
+
+        <div class="hint info runtime-summary">
+          {t("runtime.summary", {
+            total: runtimeSummary().total,
+            running: runtimeSummary().running,
+            error: runtimeSummary().error,
+            stopped: runtimeSummary().stopped
+          })}
         </div>
 
         <div class="table-wrap">
           <table class="rules-table">
             <thead>
               <tr>
-                <th>规则</th>
-                <th>状态</th>
-                <th>最近应用</th>
-                <th>错误</th>
-                <th>操作</th>
+                <th>{t("runtime.tableRule")}</th>
+                <th>{t("runtime.tableState")}</th>
+                <th>{t("runtime.tableLastApply")}</th>
+                <th>{t("runtime.tableError")}</th>
+                <th>{t("runtime.tableLogCount")}</th>
+                <th>{t("runtime.tableErrorCount")}</th>
+                <th>{t("runtime.tableLastErrorLog")}</th>
+                <th>{t("runtime.tableAction")}</th>
               </tr>
             </thead>
             <tbody>
               <Show
-                when={filteredRows().length > 0}
+                when={!isTableLoading()}
                 fallback={
-                  <tr>
-                    <td colspan={5} class="muted">
-                      暂无运行态数据
-                    </td>
-                  </tr>
+                  <For each={[1, 2, 3, 4]}>
+                    {() => (
+                      <tr>
+                        <td colspan={8}>
+                          <div class="skeleton-line" />
+                        </td>
+                      </tr>
+                    )}
+                  </For>
                 }
               >
-                <For each={filteredRows()}>
-                  {(item) => (
-                    <tr class={item.state === "error" ? "runtime-row-error" : undefined}>
-                      <td>{renderEllipsisCell(item.name)}</td>
-                      <td>{renderEllipsisCell(item.state)}</td>
-                      <td>{renderEllipsisCell(toLocalTime(item.last_apply_at))}</td>
-                      <td>{renderEllipsisCell(item.last_error ?? "-")}</td>
-                      <td>
-                        <KButton.Root
-                          class="kb-btn ghost"
-                          onClick={() => loadRelatedLogs(item.rule_id)}
-                        >
-                          查看关联日志
-                        </KButton.Root>
+                <Show
+                  when={filteredRows().length > 0}
+                  fallback={
+                    <tr>
+                      <td colspan={8} class="muted">
+                        {t("runtime.noRuntimeData")}
                       </td>
                     </tr>
-                  )}
-                </For>
+                  }
+                >
+                  <For each={filteredRows()}>
+                    {(item) => {
+                      const stats = () => statsMap().get(item.rule_id);
+                      return (
+                        <tr class={item.state === "error" ? "runtime-row-error" : undefined}>
+                          <td>{renderEllipsisCell(item.name)}</td>
+                          <td>{renderEllipsisCell(t(`common.${item.state}`))}</td>
+                          <td>{renderEllipsisCell(toLocalTime(item.last_apply_at))}</td>
+                          <td>{renderEllipsisCell(item.last_error ?? "-")}</td>
+                          <td>{renderEllipsisCell(String(stats()?.total ?? 0))}</td>
+                          <td>{renderEllipsisCell(String(stats()?.errors ?? 0))}</td>
+                          <td>{renderEllipsisCell(stats()?.last_error ?? "-")}</td>
+                          <td>
+                            <KButton.Root
+                              class="kb-btn ghost small"
+                              onClick={() => loadRelatedLogs(item.rule_id)}
+                            >
+                              {t("runtime.viewRelatedLogs")}
+                            </KButton.Root>
+                          </td>
+                        </tr>
+                      );
+                    }}
+                  </For>
+                </Show>
               </Show>
             </tbody>
           </table>
@@ -170,28 +322,28 @@ export function RuntimePage() {
       </section>
 
       <section class="panel">
-        <h2>关联日志 {selectedRuleId() ? `(${selectedRuleId()})` : ""}</h2>
+        <h2>{t("runtime.relatedLogsTitle", { suffix: selectedRuleId() ? `(${selectedRuleId()})` : "" })}</h2>
         <div class="table-wrap">
           <table class="rules-table">
             <thead>
               <tr>
-                <th>时间</th>
-                <th>级别</th>
-                <th>模块</th>
-                <th>事件</th>
-                <th>详情</th>
+                <th>{t("runtime.tableTime")}</th>
+                <th>{t("runtime.tableLevel")}</th>
+                <th>{t("runtime.tableModule")}</th>
+                <th>{t("runtime.tableEvent")}</th>
+                <th>{t("runtime.tableDetail")}</th>
               </tr>
             </thead>
             <tbody>
               <Show
                 when={relatedLogs().length > 0}
                 fallback={
-                  <tr>
-                    <td colspan={5} class="muted">
-                      请在上方运行态列表中选择规则以查看关联日志
-                    </td>
-                  </tr>
-                }
+                    <tr>
+                      <td colspan={5} class="muted">
+                        {t("runtime.pickRuleHint")}
+                      </td>
+                    </tr>
+                  }
               >
                 <For each={relatedLogs()}>
                   {(log) => (

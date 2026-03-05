@@ -6,7 +6,7 @@ import {
   Show
 } from "solid-js";
 import { createStore } from "solid-js/store";
-import { createQuery } from "@tanstack/solid-query";
+import { queryOptions, useQuery } from "@tanstack/solid-query";
 import {
   createSolidTable,
   flexRender,
@@ -18,6 +18,7 @@ import * as KSelect from "@kobalte/core/select";
 import * as KSwitch from "@kobalte/core/switch";
 import * as KTextField from "@kobalte/core/text-field";
 import * as KTooltip from "@kobalte/core/tooltip";
+import { appQueryClient } from "../../lib/queryClient";
 
 import {
   applyRules,
@@ -41,6 +42,7 @@ import type {
   BindMode,
   CreateRuleRequest,
   ProxyRule,
+  RuntimeStatusItem,
   RuleType,
   RuntimeState,
   RulePatch,
@@ -201,15 +203,24 @@ export function RulesPage() {
         ((form.type === "tcp_fwd" || form.type === "udp_fwd") && form.target_kind !== "static"))
   );
 
-  const rulesQuery = createQuery(() => ({
+  const rulesQuery = useQuery(() =>
+    queryOptions<ProxyRule[]>({
     queryKey: ["rules"],
     queryFn: listRules
-  }));
-  const runtimeQuery = createQuery(() => ({
+    }),
+    () => appQueryClient
+  );
+  const runtimeQuery = useQuery(() =>
+    queryOptions<RuntimeStatusItem[]>({
     queryKey: ["runtime"],
     queryFn: getRuntimeStatus
-  }));
-  const topologyQuery = createQuery(() => createTopologyQueryOptions(shouldLoadTopology()));
+    }),
+    () => appQueryClient
+  );
+  const topologyQuery = useQuery(
+    () => createTopologyQueryOptions(shouldLoadTopology()),
+    () => appQueryClient
+  );
 
   const runtimeMap = createMemo(() => {
     const map = new Map<string, { state: RuntimeState; last_error: string | null; last_apply_at: string | null }>();
@@ -305,6 +316,9 @@ export function RulesPage() {
   const isEditing = createMemo(() => editingId() !== null);
   const statusError = createMemo(() => rulesQuery.error ?? runtimeQuery.error ?? topologyQuery.error ?? null);
   const isStatusLoading = createMemo(() => rulesQuery.isPending || runtimeQuery.isPending || topologyQuery.isPending);
+  const isTableLoading = createMemo(
+    () => (rulesQuery.isPending || runtimeQuery.isPending) && rows().length === 0
+  );
 
   createEffect(() => {
     if (isProxyType() && form.target_kind !== "static") {
@@ -899,24 +913,39 @@ export function RulesPage() {
             </thead>
             <tbody>
               <Show
-                when={table.getRowModel().rows.length > 0}
+                when={!isTableLoading()}
                 fallback={
-                  <tr>
-                    <td colspan={10} class="muted">
-                      暂无数据
-                    </td>
-                  </tr>
+                  <For each={[1, 2, 3, 4, 5]}>
+                    {() => (
+                      <tr>
+                        <td colspan={10}>
+                          <div class="skeleton-line" />
+                        </td>
+                      </tr>
+                    )}
+                  </For>
                 }
               >
-                <For each={table.getRowModel().rows}>
-                  {(row) => (
-                    <tr class={isRuleSelected(row.original.id) ? "row-selected" : undefined}>
-                      <For each={row.getVisibleCells()}>
-                        {(cell) => <td>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>}
-                      </For>
+                <Show
+                  when={table.getRowModel().rows.length > 0}
+                  fallback={
+                    <tr>
+                      <td colspan={10} class="muted">
+                        暂无数据
+                      </td>
                     </tr>
-                  )}
-                </For>
+                  }
+                >
+                  <For each={table.getRowModel().rows}>
+                    {(row) => (
+                      <tr class={isRuleSelected(row.original.id) ? "row-selected" : undefined}>
+                        <For each={row.getVisibleCells()}>
+                          {(cell) => <td>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>}
+                        </For>
+                      </tr>
+                    )}
+                  </For>
+                </Show>
               </Show>
             </tbody>
           </table>
@@ -959,11 +988,6 @@ export function RulesPage() {
       </section>
 
       <section class="panel">
-        <h2>Debug Output</h2>
-        <pre>{debugOutput()}</pre>
-      </section>
-
-      <section class="panel">
         <h2>状态</h2>
         <div class="status-grid">
           <div>rules: {rulesQuery.data?.length ?? 0}</div>
@@ -980,6 +1004,11 @@ export function RulesPage() {
             <div>loading...</div>
           </Show>
         </div>
+      </section>
+
+      <section class="panel">
+        <h2>Debug Output</h2>
+        <pre>{debugOutput()}</pre>
       </section>
 
       <RuleFormModal

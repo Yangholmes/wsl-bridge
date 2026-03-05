@@ -8,6 +8,9 @@ dependencies:
   '@kobalte/core':
     specifier: ^0.13.11
     version: 0.13.11(solid-js@1.9.11)
+  '@solid-primitives/i18n':
+    specifier: ^2.2.1
+    version: 2.2.1(solid-js@1.9.11)
   '@tanstack/solid-query':
     specifier: ^5.90.3
     version: 5.90.23(solid-js@1.9.11)
@@ -814,6 +817,14 @@ packages:
       solid-js: ^1.6.12
     dependencies:
       '@solid-primitives/utils': 6.4.0(solid-js@1.9.11)
+      solid-js: 1.9.11
+    dev: false
+
+  /@solid-primitives/i18n@2.2.1(solid-js@1.9.11):
+    resolution: {integrity: sha512-TnTnE2Ku11MGYZ1JzhJ8pYscwg1fr9MteoYxPwsfxWfh9Jp5K7RRJncJn9BhOHvNLwROjqOHZ46PT7sPHqbcXw==}
+    peerDependencies:
+      solid-js: ^1.6.12
+    dependencies:
       solid-js: 1.9.11
     dev: false
 

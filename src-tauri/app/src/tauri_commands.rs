@@ -2,7 +2,8 @@
 use wsl_bridge_core::HyperVProbeDebug;
 #[cfg(feature = "tauri")]
 use wsl_bridge_shared::{
-    ApplyRulesResult, CreateRuleRequest, ProxyRule, RulePatch, RuntimeStatusItem, StopRulesResult,
+    ApplyRulesResult, CreateRuleRequest, LogQueryRequest, LogQueryResult, ProxyRule,
+    RuleLogStatsItem, RuleLogStatsRequest, RulePatch, RuntimeStatusItem, StopRulesResult,
     TailLogsResult, TopologySnapshot,
 };
 
@@ -92,4 +93,19 @@ pub fn get_runtime_status(state: tauri::State<'_, AppState>) -> Vec<RuntimeStatu
 #[tauri::command]
 pub fn tail_logs(state: tauri::State<'_, AppState>, cursor: usize) -> TailLogsResult {
     commands::tail_logs(&state, cursor)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn query_logs(state: tauri::State<'_, AppState>, req: LogQueryRequest) -> LogQueryResult {
+    commands::query_logs(&state, req)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn get_rule_log_stats(
+    state: tauri::State<'_, AppState>,
+    req: RuleLogStatsRequest,
+) -> Vec<RuleLogStatsItem> {
+    commands::get_rule_log_stats(&state, req)
 }

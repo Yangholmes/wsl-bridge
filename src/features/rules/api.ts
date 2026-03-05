@@ -2,7 +2,11 @@ import { invokeBridge } from "../../lib/bridge";
 import type {
   ApplyRulesResult,
   CreateRuleRequest,
+  LogQueryRequest,
+  LogQueryResult,
   ProxyRule,
+  RuleLogStatsItem,
+  RuleLogStatsRequest,
   RulePatch,
   RuntimeStatusItem,
   StopRulesResult,
@@ -45,6 +49,14 @@ export function getRuntimeStatus() {
 
 export function tailLogs(cursor = 0) {
   return invokeBridge<TailLogsResult>("tail_logs", { cursor });
+}
+
+export function queryLogs(req: LogQueryRequest) {
+  return invokeBridge<LogQueryResult>("query_logs", { req });
+}
+
+export function getRuleLogStats(req: RuleLogStatsRequest) {
+  return invokeBridge<RuleLogStatsItem[]>("get_rule_log_stats", { req });
 }
 
 export function scanTopology() {

@@ -10,6 +10,11 @@ WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在
 - UI/UX 设计：已完成（见 `docs/wsl-bridge-uiux-design.md`）。
 - M1：已完成（单应用骨架 + 规则管理 + TCP/UDP 转发 + 防火墙 Profile 基础能力）。
 - M2：已完成（WSL/Hyper-V 拓扑探测 + 动态目标解析 + Runtime/Topology 页面 + 网卡变化自动重绑）。
+- M3：已完成（HTTP/SOCKS5 运行时执行器 + Runtime/Logs 深度联动：聚合、错误检索、回放范围控制）。
+- M3 收尾稳定性：已完成（`@tanstack/solid-query` 用法统一为 `useQuery + queryOptions`，并修复 Runtime 路由切换 `defaultQueryOptions` 异常）。
+- M4 前置 UI 优化：已完成（左右独立滚动、Win11 侧栏高亮导航、关键页面骨架屏、Dashboard 第一版）。
+- M4 前置 UI 第二轮：已完成（右侧顶层去卡片化、Runtime 筛选行重排、Topology 调试 Modal、滚动条 Win11 风格统一）。
+- i18n：已完成（`@solid-primitives/i18n`，支持简体中文/English/繁體中文(香港)/日本語，Settings 可即时切换语言）。
 
 ## 仓库结构
 
@@ -18,6 +23,7 @@ WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在
 ├─ docs/
 │  ├─ wsl-bridge-design.md
 │  ├─ wsl-bridge-uiux-design.md
+│  ├─ dashboard-开发计划.md
 │  └─ 开发日志.md
 ├─ src/                   # Solid + Kobalte + TanStack 前端源码
 ├─ dist/                  # 前端构建产物（pnpm build 后生成）
@@ -49,6 +55,13 @@ WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在
 
 - TCP 转发执行器（真实监听 + 双向转发）
 - UDP 转发执行器（真实监听 + datagram 转发）
+- HTTP 代理执行器（M3 第一阶段）：
+  - 普通 HTTP 请求转发
+  - `CONNECT` 隧道
+- SOCKS5 代理执行器（M3 第一阶段）：
+  - 无认证握手
+  - `CONNECT`
+  - `UDP ASSOCIATE`
 - 绑定模式：
   - `all_nics`
   - `single_nic`（按网卡 ID 解析本机地址）
@@ -99,8 +112,19 @@ WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在
 - 新增 M2 页面：
   - Runtime：运行态列表、错误高亮、按规则查看关联日志
   - Topology：WSL / Hyper-V / 网卡三块拓扑信息
+- 新增 M3 页面能力：
+  - Runtime：回放范围切换、按规则日志聚合（日志数/错误数/最近错误）与仅错误检索
+  - Logs：后端过滤查询（级别/模块/关键词/rule_id/时间范围）、实时刷新、CSV 导出、展示条数控制
+  - Dashboard：应用状态、规则汇总、风险提示、快捷操作、最近错误日志
 - 网卡下拉来源于 `scan_topology()` 适配器列表
 - Topology 查询采用懒加载与共享缓存策略，降低 Rules/Topology 切页重复扫描频率
+- 路由与页面加载采用懒加载 + 骨架屏，降低切页白屏体感
+- 字体使用 Windows 自带优先栈（`Segoe UI Variable Text / Segoe UI / Microsoft YaHei UI`）
+- 多语言能力：
+  - 使用 `@solid-primitives/i18n` 驱动
+  - 语言包按语言独立文件管理：`src/i18n/locales/*.ts`
+  - 默认跟随系统语言（可在 Settings 覆盖）
+  - 语言切换即时生效，无需重启应用
 
 ## 存储与环境变量
 
@@ -135,6 +159,7 @@ pnpm tauri dev
 - 校验 Tauri command 与 Rust 引擎真实行为
 - 校验 SQLite、防火墙、TCP/UDP 执行路径
 - 校验单网卡/全网卡与运行态联动
+- 校验多语言切换：进入 `Settings`，通过 emoji + 下拉单选切换语言并观察页面即时更新
 
 ### 2. 打包最终产物
 
@@ -160,5 +185,4 @@ pnpm tauri build
 
 ## 后续路线图
 
-1. M3：HTTP 代理、SOCKS5、日志与运行态联动增强。
-2. M4：安装打包、签名发布、兼容性与稳定性验收。
+1. M4：安装打包、签名发布、兼容性与稳定性验收。

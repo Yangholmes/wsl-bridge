@@ -60,7 +60,9 @@ fn main() {
             tauri_commands::apply_rules,
             tauri_commands::stop_rules,
             tauri_commands::get_runtime_status,
-            tauri_commands::tail_logs
+            tauri_commands::tail_logs,
+            tauri_commands::query_logs,
+            tauri_commands::get_rule_log_stats
         ])
         .run(tauri::generate_context!())
         .expect("failed to run tauri app");

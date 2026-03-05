@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@kobalte/core": "^0.13.11",
+    "@solid-primitives/i18n": "^2.2.1",
     "@tanstack/solid-query": "^5.90.3",
     "@tanstack/solid-router": "^1.140.1",
     "@tanstack/solid-table": "^8.21.3",

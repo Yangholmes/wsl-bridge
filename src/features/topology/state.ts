@@ -1,7 +1,8 @@
 import { createSignal } from "solid-js";
+import { queryOptions } from "@tanstack/solid-query";
 
 import { scanTopology } from "../rules/api";
-import type { TargetKind } from "../../lib/types";
+import type { TargetKind, TopologySnapshot } from "../../lib/types";
 
 const [globalTargetKind, setGlobalTargetKind] = createSignal<TargetKind>("static");
 const [globalTargetRef, setGlobalTargetRef] = createSignal("");
@@ -20,7 +21,7 @@ export function setGlobalTargetContext(kind: TargetKind, ref: string) {
 }
 
 export function createTopologyQueryOptions(enabled: boolean) {
-  return {
+  return queryOptions<TopologySnapshot>({
     queryKey: ["topology"] as const,
     queryFn: scanTopology,
     enabled,
@@ -29,5 +30,5 @@ export function createTopologyQueryOptions(enabled: boolean) {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchOnMount: false
-  };
+  });
 }

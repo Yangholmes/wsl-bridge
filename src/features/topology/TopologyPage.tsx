@@ -1,10 +1,14 @@
 import { createSignal, For, Show } from "solid-js";
-import { createQuery } from "@tanstack/solid-query";
+import { queryOptions, useQuery } from "@tanstack/solid-query";
 import * as KButton from "@kobalte/core/button";
+import * as KDialog from "@kobalte/core/dialog";
 import * as KTooltip from "@kobalte/core/tooltip";
 
 import { debugHyperVProbe } from "../rules/api";
+import { appQueryClient } from "../../lib/queryClient";
 import { createTopologyQueryOptions, getGlobalTargetKind, getGlobalTargetRef } from "./state";
+import type { HyperVProbeDebug } from "../../lib/types";
+import { useI18n } from "../../i18n/context";
 
 function toLocalTime(value: string | null) {
   if (!value) return "-";
@@ -31,55 +35,70 @@ function renderEllipsisCell(text: string | null | undefined) {
 }
 
 export function TopologyPage() {
+  const { t } = useI18n();
   const [debugOpen, setDebugOpen] = createSignal(false);
 
-  const topologyQuery = createQuery(() => createTopologyQueryOptions(true));
+  const topologyQuery = useQuery(() => createTopologyQueryOptions(true), () => appQueryClient);
 
-  const hypervProbeQuery = createQuery(() => ({
-    queryKey: ["topology", "hyperv-probe"],
-    queryFn: debugHyperVProbe,
-    enabled: debugOpen(),
-    staleTime: 10000,
-    refetchOnWindowFocus: false
-  }));
+  const hypervProbeQuery = useQuery(() =>
+    queryOptions<HyperVProbeDebug>({
+      queryKey: ["topology", "hyperv-probe"],
+      queryFn: debugHyperVProbe,
+      enabled: debugOpen(),
+      staleTime: 10000,
+      refetchOnWindowFocus: false
+    }),
+    () => appQueryClient
+  );
+  const isScanning = () => topologyQuery.isFetching;
 
   return (
     <div class="page">
-      <section class="panel">
+      <section class="page-shell">
         <div class="panel-title">
-          <h2>Topology</h2>
+          <h2>{t("topology.title")}</h2>
           <div class="runtime-tools">
-            <span class="muted">目标上下文：{getGlobalTargetKind()} / {getGlobalTargetRef() || "-"}</span>
-            <span class="muted">最近扫描：{toLocalTime(topologyQuery.data?.timestamp ?? null)}</span>
-            <KButton.Root class="kb-btn ghost" onClick={() => topologyQuery.refetch()}>
-              重新扫描
+            <span class="muted">
+              {t("topology.targetContext", {
+                kind: getGlobalTargetKind(),
+                ref: getGlobalTargetRef() || t("common.none")
+              })}
+            </span>
+            <span class="muted">{t("topology.lastScanned", { value: toLocalTime(topologyQuery.data?.timestamp ?? null) })}</span>
+            <KButton.Root
+              class="kb-btn ghost"
+              onClick={() => topologyQuery.refetch()}
+              disabled={isScanning()}
+            >
+              {isScanning() ? t("common.scanning") : t("common.rescan")}
             </KButton.Root>
           </div>
         </div>
 
         <div class="topology-grid">
           <section class="panel topology-subpanel">
-            <h2>WSL</h2>
+            <h2>{t("topology.wslTitle")}</h2>
             <div class="table-wrap">
               <table class="rules-table">
                 <thead>
                   <tr>
-                    <th>Distro</th>
-                    <th>Mode</th>
-                    <th>IP</th>
+                    <th>{t("topology.tableDistro")}</th>
+                    <th>{t("topology.tableMode")}</th>
+                    <th>{t("topology.tableIp")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <Show
-                    when={(topologyQuery.data?.wsl.length ?? 0) > 0}
-                    fallback={
-                      <tr>
-                        <td colspan={3} class="muted">
-                          无 WSL 拓扑数据
-                        </td>
-                      </tr>
-                    }
-                  >
+                  <Show when={!isScanning()} fallback={<TopologySkeletonRows colspan={3} rows={4} />}>
+                    <Show
+                      when={(topologyQuery.data?.wsl.length ?? 0) > 0}
+                      fallback={
+                        <tr>
+                          <td colspan={3} class="muted">
+                            {t("topology.noWslData")}
+                          </td>
+                        </tr>
+                      }
+                    >
                     <For each={topologyQuery.data?.wsl ?? []}>
                       {(item) => (
                         <tr>
@@ -89,6 +108,7 @@ export function TopologyPage() {
                         </tr>
                       )}
                     </For>
+                    </Show>
                   </Show>
                 </tbody>
               </table>
@@ -96,30 +116,31 @@ export function TopologyPage() {
           </section>
 
           <section class="panel topology-subpanel">
-            <h2>Hyper-V</h2>
+            <h2>{t("topology.hypervTitle")}</h2>
             <Show when={topologyQuery.data?.hyperv_error}>
-              {(err) => <div class="hint error">Hyper-V：{String(err())} 请以管理员身份启动应用后重试。</div>}
+              {(err) => <div class="hint error">{t("topology.adminRequired", { error: String(err()) })}</div>}
             </Show>
             <div class="table-wrap">
               <table class="rules-table">
                 <thead>
                   <tr>
-                    <th>VM</th>
-                    <th>vSwitch</th>
-                    <th>IP</th>
+                    <th>{t("topology.tableVm")}</th>
+                    <th>{t("topology.tableSwitch")}</th>
+                    <th>{t("topology.tableIp")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <Show
-                    when={(topologyQuery.data?.hyperv.length ?? 0) > 0}
-                    fallback={
-                      <tr>
-                        <td colspan={3} class="muted">
-                          无 Hyper-V 拓扑数据
-                        </td>
-                      </tr>
-                    }
-                  >
+                  <Show when={!isScanning()} fallback={<TopologySkeletonRows colspan={3} rows={4} />}>
+                    <Show
+                      when={(topologyQuery.data?.hyperv.length ?? 0) > 0}
+                      fallback={
+                        <tr>
+                          <td colspan={3} class="muted">
+                            {t("topology.noHypervData")}
+                          </td>
+                        </tr>
+                      }
+                    >
                     <For each={topologyQuery.data?.hyperv ?? []}>
                       {(item) => (
                         <tr>
@@ -129,71 +150,42 @@ export function TopologyPage() {
                         </tr>
                       )}
                     </For>
+                    </Show>
                   </Show>
                 </tbody>
               </table>
             </div>
-            <details
-              class="topology-debug-details"
-              onToggle={(e) => setDebugOpen((e.currentTarget as HTMLDetailsElement).open)}
-            >
-              <summary>Hyper-V 原始探测结果（调试）</summary>
-              <Show when={hypervProbeQuery.isPending}>
-                <div class="muted topology-debug-block">加载调试信息中...</div>
-              </Show>
-              <Show when={hypervProbeQuery.error}>
-                {(err) => <div class="hint error topology-debug-block">{String(err())}</div>}
-              </Show>
-              <Show when={hypervProbeQuery.data}>
-                {(debug) => (
-                  <div class="topology-debug-block">
-                    <div class="muted">最近调试：{toLocalTime(debug().timestamp)}</div>
-                    <div>最终识别 VM：{debug().selected_vm_names.join(", ") || "-"}</div>
-                    <For each={debug().steps}>
-                      {(step) => (
-                        <section class="panel topology-debug-step">
-                          <h2>{step.source}</h2>
-                          <div class="muted">executable: {step.executable || "-"}</div>
-                          <div>
-                            status: {step.ok ? "ok" : "failed"} (code={step.status_code})
-                          </div>
-                          <div>parsed vm names: {step.parsed_vm_names.join(", ") || "-"}</div>
-                          <div class="muted">stdout</div>
-                          <pre>{step.raw_stdout || "-"}</pre>
-                          <div class="muted">stderr</div>
-                          <pre>{step.raw_stderr || "-"}</pre>
-                        </section>
-                      )}
-                    </For>
-                  </div>
-                )}
-              </Show>
-            </details>
+            <div class="topology-debug-actions">
+              <KButton.Root class="kb-btn ghost small" onClick={() => setDebugOpen(true)}>
+                {t("topology.debugButton")}
+              </KButton.Root>
+            </div>
           </section>
 
           <section class="panel topology-subpanel">
-            <h2>Adapters</h2>
+            <h2>{t("topology.adaptersTitle")}</h2>
             <div class="table-wrap">
               <table class="rules-table">
                 <thead>
                   <tr>
-                    <th>名称</th>
-                    <th>ID</th>
-                    <th>IPv4</th>
-                    <th>IPv6</th>
+                    <th>{t("topology.tableName")}</th>
+                    <th>{t("topology.tableId")}</th>
+                    <th>{t("topology.tableIpv4")}</th>
+                    <th>{t("topology.tableIpv6")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <Show
-                    when={(topologyQuery.data?.adapters.length ?? 0) > 0}
-                    fallback={
-                      <tr>
-                        <td colspan={4} class="muted">
-                          无网卡数据
-                        </td>
-                      </tr>
-                    }
-                  >
+                  <Show when={!isScanning()} fallback={<TopologySkeletonRows colspan={4} rows={4} />}>
+                    <Show
+                      when={(topologyQuery.data?.adapters.length ?? 0) > 0}
+                      fallback={
+                        <tr>
+                          <td colspan={4} class="muted">
+                            {t("topology.noAdaptersData")}
+                          </td>
+                        </tr>
+                      }
+                    >
                     <For each={topologyQuery.data?.adapters ?? []}>
                       {(item) => (
                         <tr>
@@ -204,6 +196,7 @@ export function TopologyPage() {
                         </tr>
                       )}
                     </For>
+                    </Show>
                   </Show>
                 </tbody>
               </table>
@@ -211,6 +204,70 @@ export function TopologyPage() {
           </section>
         </div>
       </section>
+      <KDialog.Root open={debugOpen()} onOpenChange={setDebugOpen}>
+        <KDialog.Portal>
+          <KDialog.Overlay class="kb-dialog-overlay" />
+          <KDialog.Content class="kb-dialog-content topology-debug-modal">
+            <div class="panel-title">
+              <KDialog.Title as="h2">{t("topology.debugTitle")}</KDialog.Title>
+            </div>
+            <Show when={hypervProbeQuery.isPending}>
+              <div class="topology-debug-block">
+                <div class="skeleton-line wide" />
+                <For each={[1, 2, 3, 4, 5, 6]}>
+                  {() => <div class="skeleton-line" />}
+                </For>
+              </div>
+            </Show>
+            <Show when={hypervProbeQuery.error}>
+              {(err) => <div class="hint error topology-debug-block">{String(err())}</div>}
+            </Show>
+            <Show when={hypervProbeQuery.data}>
+              {(debug) => (
+                <div class="topology-debug-block">
+                  <div class="muted">{t("topology.latestDebug", { value: toLocalTime(debug().timestamp) })}</div>
+                  <div>{t("topology.selectedVm", { value: debug().selected_vm_names.join(", ") || t("common.none") })}</div>
+                  <For each={debug().steps}>
+                    {(step) => (
+                      <section class="panel topology-debug-step">
+                        <h2>{step.source}</h2>
+                        <div class="muted">{t("topology.executable", { value: step.executable || t("common.none") })}</div>
+                        <div>
+                          {t("topology.status", { value: step.ok ? "ok" : "failed", code: step.status_code })}
+                        </div>
+                        <div>{t("topology.parsedVmNames", { value: step.parsed_vm_names.join(", ") || t("common.none") })}</div>
+                        <div class="muted">{t("topology.stdout")}</div>
+                        <pre>{step.raw_stdout || t("common.none")}</pre>
+                        <div class="muted">{t("topology.stderr")}</div>
+                        <pre>{step.raw_stderr || t("common.none")}</pre>
+                      </section>
+                    )}
+                  </For>
+                </div>
+              )}
+            </Show>
+            <div class="actions modal-actions">
+              <KButton.Root class="kb-btn ghost" onClick={() => setDebugOpen(false)}>
+                {t("common.close")}
+              </KButton.Root>
+            </div>
+          </KDialog.Content>
+        </KDialog.Portal>
+      </KDialog.Root>
     </div>
+  );
+}
+
+function TopologySkeletonRows(props: { colspan: number; rows: number }) {
+  return (
+    <For each={Array.from({ length: props.rows })}>
+      {() => (
+        <tr>
+          <td colspan={props.colspan}>
+            <div class="skeleton-line" />
+          </td>
+        </tr>
+      )}
+    </For>
   );
 }

@@ -184,3 +184,36 @@ pub struct TailLogsResult {
     pub events: Vec<AuditLog>,
     pub next_cursor: usize,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct LogQueryRequest {
+    pub level: Option<String>,
+    pub module: Option<String>,
+    pub rule_id: Option<String>,
+    pub keyword: Option<String>,
+    pub start_time: Option<DateTime<Utc>>,
+    pub end_time: Option<DateTime<Utc>>,
+    pub limit: Option<usize>,
+    pub newest_first: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LogQueryResult {
+    pub total: usize,
+    pub events: Vec<AuditLog>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct RuleLogStatsRequest {
+    pub rule_ids: Option<Vec<String>>,
+    pub since_minutes: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuleLogStatsItem {
+    pub rule_id: String,
+    pub total: usize,
+    pub errors: usize,
+    pub last_time: Option<DateTime<Utc>>,
+    pub last_error: Option<String>,
+}
