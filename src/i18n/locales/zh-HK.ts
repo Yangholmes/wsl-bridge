@@ -3,12 +3,12 @@ export const dict = {
     name: "WSL Bridge"
   },
   nav: {
-    dashboard: "Dashboard",
-    rules: "Rules",
-    runtime: "Runtime",
-    topology: "Topology",
-    logs: "Logs",
-    settings: "Settings"
+    dashboard: "儀表板",
+    rules: "規則",
+    runtime: "執行階段",
+    topology: "拓撲",
+    logs: "日誌",
+    settings: "設定"
   },
   common: {
     retry: "重試",
@@ -25,13 +25,10 @@ export const dict = {
     none: "-"
   },
   settings: {
-    title: "Settings",
+    title: "設定",
     subtitle: "調整應用程式偏好設定。",
     languageTitle: "語言",
-    languageLabel: "介面語言",
-    languageHelp: "預設會跟隨系統語言。切換後即時生效，毋須重新啟動。",
-    currentLanguage: "目前語言：{{ locale }}",
-    systemLanguage: "系統語言：{{ locale }}"
+    languageLabel: "介面語言"
   },
   locale: {
     "zh-CN": "簡體中文",
@@ -40,7 +37,7 @@ export const dict = {
     "ja-JP": "日本語"
   },
   dashboard: {
-    title: "Dashboard",
+    title: "儀表板",
     refreshOverview: "重新整理概覽",
     appStatus: "應用狀態",
     lastTopologyScan: "最近拓撲掃描：{{ value }}",
@@ -65,12 +62,12 @@ export const dict = {
     topologyScanned: "拓撲掃描完成。"
   },
   topology: {
-    title: "Topology",
+    title: "拓撲",
     targetContext: "目標內容：{{ kind }} / {{ ref }}",
     lastScanned: "最近掃描：{{ value }}",
     wslTitle: "WSL",
     hypervTitle: "Hyper-V",
-    adaptersTitle: "Adapters",
+    adaptersTitle: "網卡",
     noWslData: "沒有 WSL 拓撲資料",
     noHypervData: "沒有 Hyper-V 拓撲資料",
     noAdaptersData: "沒有網卡資料",
@@ -82,10 +79,10 @@ export const dict = {
     executable: "執行檔：{{ value }}",
     status: "狀態：{{ value }} (code={{ code }})",
     parsedVmNames: "解析 VM 名稱：{{ value }}",
-    stdout: "stdout",
-    stderr: "stderr",
-    tableDistro: "Distro",
-    tableMode: "Mode",
+    stdout: "標準輸出",
+    stderr: "標準錯誤",
+    tableDistro: "發行版",
+    tableMode: "模式",
     tableIp: "IP",
     tableVm: "VM",
     tableSwitch: "vSwitch",
@@ -95,7 +92,7 @@ export const dict = {
     tableIpv6: "IPv6"
   },
   runtime: {
-    title: "Runtime",
+    title: "執行階段",
     onlyErrors: "只顯示錯誤日誌",
     summary: "最近狀態：總計 {{ total }}，運行中 {{ running }}，錯誤 {{ error }}，停止 {{ stopped }}",
     noRuntimeData: "暫無運行態資料",
@@ -123,7 +120,7 @@ export const dict = {
     relatedLogMessage: "rule_id={{ ruleId }}，匹配 {{ total }} 條，顯示 {{ shown }} 條"
   },
   logs: {
-    title: "Logs",
+    title: "日誌",
     autoRefresh: "即時重新整理",
     exportCsv: "匯出 CSV",
     levelAll: "全部級別",
@@ -137,7 +134,7 @@ export const dict = {
     show600: "顯示 600 條",
     show1000: "顯示 1000 條",
     ruleIdPlaceholder: "rule_id（可選）",
-    keywordPlaceholder: "關鍵字搜尋（event/detail/module）",
+    keywordPlaceholder: "關鍵字搜尋（事件/詳情/模組）",
     matchTotalHint: "目前篩選匹配總數：{{ total }}（按時間倒序）",
     tableTime: "時間",
     tableLevel: "級別",

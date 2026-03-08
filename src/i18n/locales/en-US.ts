@@ -28,10 +28,7 @@ export const dict = {
     title: "Settings",
     subtitle: "Adjust application preferences.",
     languageTitle: "Language",
-    languageLabel: "UI language",
-    languageHelp: "Default follows the system language. Changes apply immediately without restart.",
-    currentLanguage: "Current language: {{ locale }}",
-    systemLanguage: "System language: {{ locale }}"
+    languageLabel: "UI language"
   },
   locale: {
     "zh-CN": "Simplified Chinese",

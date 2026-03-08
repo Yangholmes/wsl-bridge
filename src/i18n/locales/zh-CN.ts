@@ -3,12 +3,12 @@ export const dict = {
     name: "WSL Bridge"
   },
   nav: {
-    dashboard: "Dashboard",
-    rules: "Rules",
-    runtime: "Runtime",
-    topology: "Topology",
-    logs: "Logs",
-    settings: "Settings"
+    dashboard: "仪表盘",
+    rules: "规则",
+    runtime: "运行时",
+    topology: "拓扑",
+    logs: "日志",
+    settings: "设置"
   },
   common: {
     retry: "重试",
@@ -25,13 +25,10 @@ export const dict = {
     none: "-"
   },
   settings: {
-    title: "Settings",
+    title: "设置",
     subtitle: "调整应用偏好配置。",
     languageTitle: "语言",
-    languageLabel: "界面语言",
-    languageHelp: "默认跟随系统语言。切换后即时生效，无需重启应用。",
-    currentLanguage: "当前语言：{{ locale }}",
-    systemLanguage: "系统语言：{{ locale }}"
+    languageLabel: "界面语言"
   },
   locale: {
     "zh-CN": "简体中文",
@@ -40,7 +37,7 @@ export const dict = {
     "ja-JP": "日本語"
   },
   dashboard: {
-    title: "Dashboard",
+    title: "仪表盘",
     refreshOverview: "刷新概览",
     appStatus: "应用状态",
     lastTopologyScan: "最近拓扑扫描：{{ value }}",
@@ -65,12 +62,12 @@ export const dict = {
     topologyScanned: "拓扑扫描完成。"
   },
   topology: {
-    title: "Topology",
+    title: "拓扑",
     targetContext: "目标上下文：{{ kind }} / {{ ref }}",
     lastScanned: "最近扫描：{{ value }}",
     wslTitle: "WSL",
     hypervTitle: "Hyper-V",
-    adaptersTitle: "Adapters",
+    adaptersTitle: "网卡",
     noWslData: "无 WSL 拓扑数据",
     noHypervData: "无 Hyper-V 拓扑数据",
     noAdaptersData: "无网卡数据",
@@ -82,10 +79,10 @@ export const dict = {
     executable: "执行程序：{{ value }}",
     status: "状态：{{ value }} (code={{ code }})",
     parsedVmNames: "解析到的 VM 名称：{{ value }}",
-    stdout: "stdout",
-    stderr: "stderr",
-    tableDistro: "Distro",
-    tableMode: "Mode",
+    stdout: "标准输出",
+    stderr: "标准错误",
+    tableDistro: "发行版",
+    tableMode: "模式",
     tableIp: "IP",
     tableVm: "VM",
     tableSwitch: "vSwitch",
@@ -95,7 +92,7 @@ export const dict = {
     tableIpv6: "IPv6"
   },
   runtime: {
-    title: "Runtime",
+    title: "运行时",
     onlyErrors: "仅错误日志",
     summary: "最近状态：总计 {{ total }}，运行中 {{ running }}，错误 {{ error }}，停止 {{ stopped }}",
     noRuntimeData: "暂无运行态数据",
@@ -123,7 +120,7 @@ export const dict = {
     relatedLogMessage: "rule_id={{ ruleId }}，匹配 {{ total }} 条，展示 {{ shown }} 条"
   },
   logs: {
-    title: "Logs",
+    title: "日志",
     autoRefresh: "实时刷新",
     exportCsv: "导出 CSV",
     levelAll: "全部级别",
@@ -137,7 +134,7 @@ export const dict = {
     show600: "显示 600 条",
     show1000: "显示 1000 条",
     ruleIdPlaceholder: "rule_id（可选）",
-    keywordPlaceholder: "关键词搜索（event/detail/module）",
+    keywordPlaceholder: "关键词搜索（事件/详情/模块）",
     matchTotalHint: "当前筛选匹配总数：{{ total }}（按时间倒序）",
     tableTime: "时间",
     tableLevel: "级别",

@@ -60,7 +60,7 @@ body {
 
 .app-layout {
   display: grid;
-  grid-template-columns: 292px 1fr;
+  grid-template-columns: 13em 1fr;
   height: 100dvh;
   gap: 20px;
   padding: 18px;
@@ -386,7 +386,7 @@ tbody tr:hover {
 
 .kb-select-trigger {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   text-align: left;
 }
@@ -418,7 +418,7 @@ tbody tr:hover {
 
 .kb-select-item {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   gap: 8px;
   border-radius: 8px;
