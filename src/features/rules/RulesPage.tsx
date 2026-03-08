@@ -18,6 +18,7 @@ import * as KSelect from "@kobalte/core/select";
 import * as KSwitch from "@kobalte/core/switch";
 import * as KTextField from "@kobalte/core/text-field";
 import * as KTooltip from "@kobalte/core/tooltip";
+import { useI18n } from "../../i18n/context";
 import { appQueryClient } from "../../lib/queryClient";
 
 import {
@@ -115,10 +116,10 @@ const filterEnabledOptions: SelectOption[] = [
   { value: "disabled", label: "disabled" }
 ];
 
-const pageSizeOptions: SelectOption[] = [
-  { value: "10", label: "10 / 页" },
-  { value: "20", label: "20 / 页" },
-  { value: "50", label: "50 / 页" }
+const getPageSizeOptions = (t: ReturnType<typeof useI18n>["t"]): SelectOption[] => [
+  { value: "10", label: t("rules.pageSize10") },
+  { value: "20", label: t("rules.pageSize20") },
+  { value: "50", label: t("rules.pageSize50") }
 ];
 
 function toLocalTime(value: string | null) {
@@ -128,7 +129,7 @@ function toLocalTime(value: string | null) {
   return date.toLocaleString();
 }
 
-function AppSelect(props: AppSelectProps) {
+function AppSelect(props: AppSelectProps & { placeholderText?: string }) {
   const selectedOption = () => props.options.find((option) => option.value === props.value) ?? null;
 
   return (
@@ -147,7 +148,7 @@ function AppSelect(props: AppSelectProps) {
         </KSelect.Item>
       )}
       disabled={props.disabled}
-      placeholder={props.placeholder ?? "请选择"}
+      placeholder={props.placeholderText ?? ""}
     >
       <KSelect.Trigger class={`kb-select-trigger ${props.triggerClass ?? ""}`}>
         <KSelect.Value<SelectOption>>{(state) => state.selectedOption()?.label}</KSelect.Value>
@@ -180,6 +181,7 @@ function renderEllipsisCell(text: string | null | undefined) {
 }
 
 export function RulesPage() {
+  const { t } = useI18n();
   const [form, setForm] = createStore<FormState>({ ...defaultForm });
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [isModalOpen, setIsModalOpen] = createSignal(false);
@@ -277,7 +279,7 @@ export function RulesPage() {
       value: adapter.id,
       label: `${adapter.name} (${adapter.id})`
     }));
-    return [{ value: "", label: "请选择网卡" }, ...items];
+    return [{ value: "", label: t("rules.placeholderSelectNic") }, ...items];
   });
   const targetPreview = createMemo<string | null>(() => {
     const ref = form.target_ref.trim().toLowerCase();
@@ -308,7 +310,7 @@ export function RulesPage() {
     if (!form.target_ref.trim()) return base;
     const exists = base.some((item) => item.value === form.target_ref.trim());
     if (exists) return base;
-    return [{ value: form.target_ref.trim(), label: `${form.target_ref.trim()} (当前值)` }, ...base];
+    return [{ value: form.target_ref.trim(), label: `${form.target_ref.trim()} ${t("rules.currentValue")}` }, ...base];
   });
 
   const isProxyType = createMemo(() => form.type === "http_proxy" || form.type === "socks5_proxy");
@@ -429,33 +431,39 @@ export function RulesPage() {
         />
       )
     },
-    { header: "名称", cell: (ctx) => renderEllipsisCell(ctx.row.original.name) },
-    { header: "类型", cell: (ctx) => renderEllipsisCell(ctx.row.original.type) },
+    { id: "name", header: () => t("rules.tableName"), cell: (ctx) => renderEllipsisCell(ctx.row.original.name) },
+    { id: "type", header: () => t("rules.tableType"), cell: (ctx) => renderEllipsisCell(ctx.row.original.type) },
     {
-      header: "监听",
+      id: "listen",
+      header: () => t("rules.tableListen"),
       cell: (ctx) => renderEllipsisCell(`${ctx.row.original.listen_host}:${ctx.row.original.listen_port}`)
     },
     {
-      header: "目标",
+      id: "target",
+      header: () => t("rules.tableTarget"),
       cell: (ctx) => {
         const row = ctx.row.original;
         return renderEllipsisCell(`${row.target_kind}:${row.target_ref ?? row.target_host ?? "-"}:${row.target_port ?? "-"}`);
       }
     },
     {
-      header: "运行态",
+      id: "runtime",
+      header: () => t("rules.tableRuntime"),
       cell: (ctx) => renderEllipsisCell(ctx.row.original.runtime_state)
     },
     {
-      header: "最近应用",
+      id: "lastApply",
+      header: () => t("rules.tableLastApply"),
       cell: (ctx) => renderEllipsisCell(toLocalTime(ctx.row.original.last_apply_at))
     },
     {
-      header: "错误",
+      id: "error",
+      header: () => t("rules.tableError"),
       cell: (ctx) => renderEllipsisCell(ctx.row.original.last_error ?? "-")
     },
     {
-      header: "操作",
+      id: "action",
+      header: () => t("rules.tableAction"),
       cell: (ctx) => {
         const row = ctx.row.original;
         return (
@@ -471,7 +479,8 @@ export function RulesPage() {
       }
     },
     {
-      header: "开关",
+      id: "switch",
+      header: () => t("rules.tableSwitch"),
       cell: (ctx) => {
         const row = ctx.row.original;
         return (
@@ -480,7 +489,7 @@ export function RulesPage() {
             onChange={(checked) => void handleToggle(row.id, checked)}
             class="kb-switch small row-enable-switch"
           >
-            <KSwitch.Input aria-label={`${row.name} 启用开关`} />
+            <KSwitch.Input aria-label={`${row.name} ${t("rules.tableSwitch")}`} />
             <KSwitch.Control class="kb-switch-control">
               <KSwitch.Thumb class="kb-switch-thumb" />
             </KSwitch.Control>
@@ -558,27 +567,27 @@ export function RulesPage() {
   }
 
   function validateForm(excludeId: string | null) {
-    if (!form.name.trim()) return "名称不能为空。";
-    if (!form.listen_host.trim()) return "监听地址不能为空。";
+    if (!form.name.trim()) return t("rules.validationNameEmpty");
+    if (!form.listen_host.trim()) return t("rules.validationListenHostEmpty");
     const listenPort = Number(form.listen_port);
     if (!Number.isInteger(listenPort) || listenPort < 1 || listenPort > 65535) {
-      return "监听端口必须是 1-65535 的整数。";
+      return t("rules.validationListenPortRange");
     }
-    if (isSingleNic() && !form.nic_id) return "single_nic 模式必须选择网卡。";
+    if (isSingleNic() && !form.nic_id) return t("rules.validationSingleNicRequired");
     if (!form.fw_domain && !form.fw_private && !form.fw_public) {
-      return "至少启用一个防火墙 Profile。";
+      return t("rules.validationFirewallRequired");
     }
 
     if (!isProxyType()) {
       const targetPort = Number(form.target_port);
       if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) {
-        return "目标端口必须是 1-65535 的整数。";
+        return t("rules.validationTargetPortRange");
       }
       if (form.target_kind === "static" && !form.target_host.trim()) {
-        return "static 目标必须填写 target_host。";
+        return t("rules.validationStaticHostRequired");
       }
       if ((form.target_kind === "wsl" || form.target_kind === "hyperv") && !form.target_ref.trim()) {
-        return `${form.target_kind} 目标必须填写 target_ref。`;
+        return t("rules.validationDynamicRefRequired", { kind: form.target_kind });
       }
     }
 
@@ -589,7 +598,7 @@ export function RulesPage() {
         r.listen_port === Number(form.listen_port)
     );
     if (conflict) {
-      return `监听冲突：${conflict.listen_host}:${conflict.listen_port} 已被 ${conflict.name} 占用。`;
+      return t("rules.validationListenConflict", { host: conflict.listen_host, port: conflict.listen_port, name: conflict.name });
     }
     return null;
   }
@@ -650,11 +659,11 @@ export function RulesPage() {
           setDebugOutput(JSON.stringify({ updated_rule_id: editingId(), patch, auto_apply: result }, null, 2));
           setMessage({
             type: "info",
-            text: `规则更新并自动应用成功，ID=${editingId()}, applied=${result.applied}, failed=${result.failed.length}`
+            text: t("rules.successUpdated", { id: editingId()!, applied: result.applied, failed: result.failed.length })
           });
         } else {
           setDebugOutput(JSON.stringify({ updated_rule_id: editingId(), patch }, null, 2));
-          setMessage({ type: "info", text: `规则更新成功，ID=${editingId()}` });
+          setMessage({ type: "info", text: t("rules.successUpdated", { id: editingId() ?? "", applied: 0, failed: 0 }) });
         }
       } else {
         const req = toCreateRequest();
@@ -664,11 +673,11 @@ export function RulesPage() {
           setDebugOutput(JSON.stringify({ created_rule_id: id, request: req, auto_apply: result }, null, 2));
           setMessage({
             type: "info",
-            text: `规则创建并自动应用成功，ID=${id}, applied=${result.applied}, failed=${result.failed.length}`
+            text: t("rules.successCreated", { id, applied: result.applied, failed: result.failed.length })
           });
         } else {
           setDebugOutput(JSON.stringify({ created_rule_id: id, request: req }, null, 2));
-          setMessage({ type: "info", text: `规则创建成功，ID=${id}` });
+          setMessage({ type: "info", text: t("rules.successCreated", { id, applied: 0, failed: 0 }) });
         }
       }
 
@@ -686,7 +695,7 @@ export function RulesPage() {
       await deleteRule(id);
       if (editingId() === id) closeFormModal();
       await refreshAll();
-      setMessage({ type: "info", text: `已删除规则 ${id}` });
+      setMessage({ type: "info", text: t("rules.successDeleted", { id }) });
       setDebugOutput(JSON.stringify({ deleted_rule_id: id }, null, 2));
     } catch (err) {
       setMessage({ type: "error", text: String(err) });
@@ -700,7 +709,7 @@ export function RulesPage() {
       await refreshAll();
       setMessage({
         type: "info",
-        text: `规则 ${id} 已${enabled ? "启用" : "禁用"}并自动应用，applied=${result.applied}, failed=${result.failed.length}`
+        text: t("rules.successToggled", { id, action: enabled ? t("common.enabled") : t("common.disabled"), applied: result.applied, failed: result.failed.length })
       });
       setDebugOutput(JSON.stringify({ toggled_rule_id: id, enabled, auto_apply: result }, null, 2));
     } catch (err) {
@@ -711,7 +720,7 @@ export function RulesPage() {
   async function handleBatchEnable(enabled: boolean) {
     const ids = [...selectedRuleIds()];
     if (ids.length === 0) {
-      setMessage({ type: "error", text: "请先选择至少一条规则。" });
+      setMessage({ type: "error", text: t("rules.errorNoSelection") });
       return;
     }
 
@@ -730,12 +739,12 @@ export function RulesPage() {
       if (failed.length > 0) {
         setMessage({
           type: "error",
-          text: `批量${enabled ? "启用" : "禁用"}部分失败（${failed.length}/${ids.length}）。`
+          text: t("rules.errorBatchEnable", { action: enabled ? t("common.enabled") : t("common.disabled"), failed: failed.length, total: ids.length })
         });
       } else {
         setMessage({
           type: "info",
-          text: `已批量${enabled ? "启用" : "禁用"} ${ids.length} 条规则，applied=${result.applied}, failed=${result.failed.length}`
+          text: t("rules.successBatchEnable", { action: enabled ? t("common.enabled") : t("common.disabled"), count: ids.length, applied: result.applied, failed: result.failed.length })
         });
       }
       setDebugOutput(
@@ -759,10 +768,10 @@ export function RulesPage() {
   async function handleBatchDelete() {
     const ids = [...selectedRuleIds()];
     if (ids.length === 0) {
-      setMessage({ type: "error", text: "请先选择至少一条规则。" });
+      setMessage({ type: "error", text: t("rules.errorNoSelection") });
       return;
     }
-    const confirmed = window.confirm(`确认删除选中的 ${ids.length} 条规则？该操作不可撤销。`);
+    const confirmed = window.confirm(t("rules.confirmBatchDelete", { count: ids.length }));
     if (!confirmed) return;
 
     const failed: string[] = [];
@@ -777,9 +786,9 @@ export function RulesPage() {
 
     await refreshAll();
     if (failed.length > 0) {
-      setMessage({ type: "error", text: `批量删除部分失败（${failed.length}/${ids.length}）。` });
+      setMessage({ type: "error", text: t("rules.errorBatchDelete", { failed: failed.length, total: ids.length }) });
     } else {
-      setMessage({ type: "info", text: `已批量删除 ${ids.length} 条规则。` });
+      setMessage({ type: "info", text: t("rules.successBatchDelete", { count: ids.length }) });
     }
     setDebugOutput(
       JSON.stringify(
@@ -800,7 +809,7 @@ export function RulesPage() {
       const result = await applyRules();
       await refreshAll();
       setDebugOutput(JSON.stringify(result, null, 2));
-      setMessage({ type: "info", text: `已应用规则，applied=${result.applied}, failed=${result.failed.length}` });
+      setMessage({ type: "info", text: t("rules.successApplied", { applied: result.applied, failed: result.failed.length }) });
     } catch (err) {
       setMessage({ type: "error", text: String(err) });
     }
@@ -811,7 +820,7 @@ export function RulesPage() {
       const result = await stopRules();
       await refreshAll();
       setDebugOutput(JSON.stringify(result, null, 2));
-      setMessage({ type: "info", text: `已停止规则，stopped=${result.stopped}` });
+      setMessage({ type: "info", text: t("rules.successStopped", { stopped: result.stopped }) });
     } catch (err) {
       setMessage({ type: "error", text: String(err) });
     }
@@ -830,15 +839,15 @@ export function RulesPage() {
     <div class="page">
       <section class="panel main-panel">
         <div class="panel-title">
-          <h2>Rules</h2>
+          <h2>{t("rules.title")}</h2>
           <span class="muted">
-            {filteredRows().length} / {rows().length}，已选 {selectedCount()}
+            {filteredRows().length} / {rows().length}，{t("rules.selected")} {selectedCount()}
           </span>
         </div>
 
         <div class="toolbar toolbar-kobalte">
           <KTextField.Root class="kb-text-inline" value={filter.name} onChange={(value) => setFilter("name", value)}>
-            <KTextField.Input class="kb-input" placeholder="名称关键词" />
+            <KTextField.Input class="kb-input" placeholder={t("rules.placeholderNameKeyword")} />
           </KTextField.Root>
           <AppSelect
             value={filter.type}
@@ -853,42 +862,42 @@ export function RulesPage() {
             triggerClass="kb-select-compact"
           />
           <KButton.Root class="kb-btn ghost" onClick={() => refreshAll()}>
-            刷新
+            {t("rules.btnRefresh")}
           </KButton.Root>
         </div>
 
         <div class="actions top-actions">
-          <KButton.Root class="kb-btn accent" onClick={openCreateModal}>新建规则</KButton.Root>
-          <KButton.Root class="kb-btn ghost" onClick={runApply}>应用规则</KButton.Root>
-          <KButton.Root class="kb-btn ghost" onClick={runStop}>停止规则</KButton.Root>
-          <KButton.Root class="kb-btn ghost" onClick={loadLogs}>查看日志</KButton.Root>
+          <KButton.Root class="kb-btn accent" onClick={openCreateModal}>{t("rules.btnNewRule")}</KButton.Root>
+          <KButton.Root class="kb-btn ghost" onClick={runApply}>{t("rules.btnApply")}</KButton.Root>
+          <KButton.Root class="kb-btn ghost" onClick={runStop}>{t("rules.btnStop")}</KButton.Root>
+          <KButton.Root class="kb-btn ghost" onClick={loadLogs}>{t("rules.btnViewLogs")}</KButton.Root>
           <KButton.Root
             class="kb-btn ghost"
             disabled={selectedCount() === 0}
             onClick={() => handleBatchEnable(true)}
           >
-            批量启用
+            {t("rules.btnBatchEnable")}
           </KButton.Root>
           <KButton.Root
             class="kb-btn ghost"
             disabled={selectedCount() === 0}
             onClick={() => handleBatchEnable(false)}
           >
-            批量禁用
+            {t("rules.btnBatchDisable")}
           </KButton.Root>
           <KButton.Root
             class="kb-btn danger"
             disabled={selectedCount() === 0}
             onClick={handleBatchDelete}
           >
-            批量删除
+            {t("rules.btnBatchDelete")}
           </KButton.Root>
           <KButton.Root
             class="kb-btn ghost"
             disabled={selectedCount() === 0}
             onClick={() => setSelectedRuleIds(new Set<string>())}
           >
-            清空勾选
+            {t("rules.btnClearSelection")}
           </KButton.Root>
         </div>
 
@@ -931,7 +940,7 @@ export function RulesPage() {
                   fallback={
                     <tr>
                       <td colspan={10} class="muted">
-                        暂无数据
+                        {t("rules.noData")}
                       </td>
                     </tr>
                   }
@@ -953,7 +962,7 @@ export function RulesPage() {
 
         <div class="pagination-bar">
           <span class="muted">
-            第 {Math.min(pageIndex() + 1, pageCount())} / {pageCount()} 页
+            {t("rules.pageInfo", { current: Math.min(pageIndex() + 1, pageCount()), total: pageCount() })}
           </span>
           <AppSelect
             value={String(pageSize())}
@@ -961,7 +970,7 @@ export function RulesPage() {
               setPageSize(Number(value));
               setPageIndex(0);
             }}
-            options={pageSizeOptions}
+            options={getPageSizeOptions(t)}
             triggerClass="kb-select-compact page-size-select"
           />
           <KButton.Root
@@ -969,14 +978,14 @@ export function RulesPage() {
             disabled={pageIndex() <= 0}
             onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
           >
-            上一页
+            {t("rules.prevPage")}
           </KButton.Root>
           <KButton.Root
             class="kb-btn ghost"
             disabled={pageIndex() >= pageCount() - 1}
             onClick={() => setPageIndex((value) => Math.min(pageCount() - 1, value + 1))}
           >
-            下一页
+            {t("rules.nextPage")}
           </KButton.Root>
         </div>
 
@@ -988,7 +997,7 @@ export function RulesPage() {
       </section>
 
       <section class="panel">
-        <h2>状态</h2>
+        <h2>{t("rules.statusTitle")}</h2>
         <div class="status-grid">
           <div>rules: {rulesQuery.data?.length ?? 0}</div>
           <div>runtime: {runtimeQuery.data?.length ?? 0}</div>
@@ -1007,7 +1016,7 @@ export function RulesPage() {
       </section>
 
       <section class="panel">
-        <h2>Debug Output</h2>
+        <h2>{t("rules.debugOutput")}</h2>
         <pre>{debugOutput()}</pre>
       </section>
 

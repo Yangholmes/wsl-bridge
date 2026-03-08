@@ -6,6 +6,7 @@ import * as KDialog from "@kobalte/core/dialog";
 import * as KSelect from "@kobalte/core/select";
 import * as KSwitch from "@kobalte/core/switch";
 import * as KTextField from "@kobalte/core/text-field";
+import { useI18n } from "../../../i18n/context";
 
 import type { BindMode, RuleType, TargetKind } from "../../../lib/types";
 
@@ -88,7 +89,7 @@ function AppSelect(props: AppSelectProps) {
         </KSelect.Item>
       )}
       disabled={props.disabled}
-      placeholder={props.placeholder ?? "请选择"}
+      placeholder={props.placeholder ?? ""}
     >
       <KSelect.Trigger class={`kb-select-trigger ${props.triggerClass ?? ""}`}>
         <KSelect.Value<SelectOption>>{(state) => state.selectedOption()?.label}</KSelect.Value>
@@ -104,6 +105,8 @@ function AppSelect(props: AppSelectProps) {
 }
 
 export function RuleFormModal(props: RuleFormModalProps) {
+  const { t } = useI18n();
+
   return (
     <Show when={props.open}>
       <KDialog.Root open={props.open} onOpenChange={props.onOpenChange}>
@@ -111,14 +114,14 @@ export function RuleFormModal(props: RuleFormModalProps) {
           <KDialog.Overlay class="kb-dialog-overlay" />
           <KDialog.Content class="kb-dialog-content">
             <div class="panel-title">
-              <KDialog.Title>{props.isEditing ? "编辑规则" : "新建规则"}</KDialog.Title>
+              <KDialog.Title>{props.isEditing ? t("rules.formEditTitle") : t("rules.formCreateTitle")}</KDialog.Title>
               <div class="modal-title-actions">
                 <KSwitch.Root
                   checked={props.form.enabled}
                   onChange={(checked) => props.setForm("enabled", checked)}
                   class="kb-switch modal-header-switch"
                 >
-                  <KSwitch.Input aria-label="启用规则" />
+                  <KSwitch.Input aria-label={t("rules.formEnableRule")} />
                   <KSwitch.Control class="kb-switch-control">
                     <KSwitch.Thumb class="kb-switch-thumb" />
                   </KSwitch.Control>
@@ -128,7 +131,7 @@ export function RuleFormModal(props: RuleFormModalProps) {
 
             <Show when={props.isEditing}>
               <KDialog.Description class="hint info">
-                编辑模式：当前后端 patch 不支持修改 type/target_kind/firewall。
+                {t("rules.formEditHint")}
               </KDialog.Description>
             </Show>
 
@@ -138,12 +141,12 @@ export function RuleFormModal(props: RuleFormModalProps) {
                 value={props.form.name}
                 onChange={(value) => props.setForm("name", value)}
               >
-                <KTextField.Label>名称</KTextField.Label>
+                <KTextField.Label>{t("rules.formName")}</KTextField.Label>
                 <KTextField.Input class="kb-input" />
               </KTextField.Root>
 
               <div class="kb-field">
-                <label class="kb-label">类型</label>
+                <label class="kb-label">{t("rules.formType")}</label>
                 <AppSelect
                   value={props.form.type}
                   onChange={(value) => props.setForm("type", value as RuleType)}
@@ -157,7 +160,7 @@ export function RuleFormModal(props: RuleFormModalProps) {
                 value={props.form.listen_host}
                 onChange={(value) => props.setForm("listen_host", value)}
               >
-                <KTextField.Label>监听地址</KTextField.Label>
+                <KTextField.Label>{t("rules.formListenHost")}</KTextField.Label>
                 <KTextField.Input class="kb-input" />
               </KTextField.Root>
 
@@ -166,12 +169,12 @@ export function RuleFormModal(props: RuleFormModalProps) {
                 value={props.form.listen_port}
                 onChange={(value) => props.setForm("listen_port", value)}
               >
-                <KTextField.Label>监听端口</KTextField.Label>
+                <KTextField.Label>{t("rules.formListenPort")}</KTextField.Label>
                 <KTextField.Input class="kb-input" type="number" min="1" max="65535" />
               </KTextField.Root>
 
               <div class="kb-field">
-                <label class="kb-label">目标类型</label>
+                <label class="kb-label">{t("rules.formTargetKind")}</label>
                 <AppSelect
                   value={props.form.target_kind}
                   onChange={(value) => props.onTargetKindChange(value as TargetKind)}
@@ -188,7 +191,7 @@ export function RuleFormModal(props: RuleFormModalProps) {
                     value={props.form.target_ref}
                     onChange={(value) => props.setForm("target_ref", value)}
                   >
-                    <KTextField.Label>目标引用</KTextField.Label>
+                    <KTextField.Label>{t("rules.formTargetRef")}</KTextField.Label>
                     <KTextField.Input
                       class="kb-input"
                       disabled={props.isProxyType || props.form.target_kind === "static"}
@@ -197,22 +200,22 @@ export function RuleFormModal(props: RuleFormModalProps) {
                 }
               >
                 <div class="kb-field">
-                  <label class="kb-label">目标引用</label>
+                  <label class="kb-label">{t("rules.formTargetRef")}</label>
                   <AppSelect
                     value={props.form.target_ref}
                     onChange={props.onTargetRefChange}
                     options={props.targetRefOptions}
                     disabled={props.isProxyType || props.targetRefOptions.length === 0}
-                    placeholder={props.targetRefOptions.length === 0 ? "未识别到可用目标" : "请选择目标"}
+                    placeholder={props.targetRefOptions.length === 0 ? t("rules.formNoTargetAvailable") : t("rules.formSelectTarget")}
                   />
                 </div>
               </Show>
 
               <Show when={!props.isProxyType && (props.form.target_kind === "wsl" || props.form.target_kind === "hyperv")}>
                 <div class="hint info target-preview">
-                  实时 IP 预览：{props.targetPreview ?? "未解析"}
+                  {t("rules.formIpPreview")}: {props.targetPreview ?? t("rules.formIpNotResolved")}
                   <br />
-                  最近扫描：{toLocalTime(props.topologyTimestamp)}
+                  {t("rules.formLastScan")}: {toLocalTime(props.topologyTimestamp)}
                 </div>
               </Show>
 
@@ -221,7 +224,7 @@ export function RuleFormModal(props: RuleFormModalProps) {
                 value={props.form.target_host}
                 onChange={(value) => props.setForm("target_host", value)}
               >
-                <KTextField.Label>目标主机</KTextField.Label>
+                <KTextField.Label>{t("rules.formTargetHost")}</KTextField.Label>
                 <KTextField.Input class="kb-input" disabled={props.isProxyType || props.form.target_kind !== "static"} />
               </KTextField.Root>
 
@@ -230,12 +233,12 @@ export function RuleFormModal(props: RuleFormModalProps) {
                 value={props.form.target_port}
                 onChange={(value) => props.setForm("target_port", value)}
               >
-                <KTextField.Label>目标端口</KTextField.Label>
+                <KTextField.Label>{t("rules.formTargetPort")}</KTextField.Label>
                 <KTextField.Input class="kb-input" type="number" min="1" max="65535" disabled={props.isProxyType} />
               </KTextField.Root>
 
               <div class="kb-field">
-                <label class="kb-label">绑定模式</label>
+                <label class="kb-label">{t("rules.formBindMode")}</label>
                 <AppSelect
                   value={props.form.bind_mode}
                   onChange={(value) => props.setForm("bind_mode", value as BindMode)}
@@ -244,7 +247,7 @@ export function RuleFormModal(props: RuleFormModalProps) {
               </div>
 
               <div class="kb-field">
-                <label class="kb-label">网卡</label>
+                <label class="kb-label">{t("rules.formNic")}</label>
                 <AppSelect
                   value={props.form.nic_id}
                   onChange={(value) => props.setForm("nic_id", value)}
@@ -282,10 +285,10 @@ export function RuleFormModal(props: RuleFormModalProps) {
 
             <div class="actions modal-actions">
               <KButton.Root class="kb-btn accent" onClick={props.onSubmit}>
-                {props.isEditing ? "保存修改" : "创建规则"}
+                {props.isEditing ? t("rules.formSaveChanges") : t("rules.formCreateRule")}
               </KButton.Root>
               <KButton.Root class="kb-btn ghost" onClick={props.onCancel}>
-                取消
+                {t("rules.formCancel")}
               </KButton.Root>
             </div>
 
