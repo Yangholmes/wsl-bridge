@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { queryOptions, useQuery } from "@tanstack/solid-query";
 import * as KButton from "@kobalte/core/button";
+import * as KSelect from "@kobalte/core/select";
 import * as KTooltip from "@kobalte/core/tooltip";
 
 import { getRuleLogStats, getRuntimeStatus, listRules, queryLogs } from "../rules/api";
@@ -16,7 +17,60 @@ type RuntimeRow = {
   last_error: string | null;
 };
 
+type SelectOption = { value: string; label: string };
+
 type ReplayWindow = "15m" | "1h" | "6h" | "24h" | "all";
+
+type SimpleSelectProps = {
+  value: string;
+  onChange: (value: string) => void;
+  options: SelectOption[];
+  class?: string;
+};
+
+function SimpleSelect(props: SimpleSelectProps) {
+  const selectedOption = () => props.options.find((opt) => opt.value === props.value) ?? null;
+
+  return (
+    <KSelect.Root<SelectOption>
+      options={props.options}
+      optionValue="value"
+      optionTextValue="label"
+      value={selectedOption()}
+      onChange={(opt) => opt && props.onChange(opt.value)}
+      itemComponent={(itemProps) => (
+        <KSelect.Item item={itemProps.item} class="kb-select-item">
+          <KSelect.ItemLabel>{itemProps.item.rawValue.label}</KSelect.ItemLabel>
+        </KSelect.Item>
+      )}
+    >
+      <KSelect.Trigger class={`kb-select-trigger ${props.class ?? ""}`}>
+        <KSelect.Value<SelectOption>>{(state) => state.selectedOption()?.label}</KSelect.Value>
+        <KSelect.Icon class="kb-select-icon">▾</KSelect.Icon>
+      </KSelect.Trigger>
+      <KSelect.Portal>
+        <KSelect.Content class="kb-select-content">
+          <KSelect.Listbox class="kb-select-listbox" />
+        </KSelect.Content>
+      </KSelect.Portal>
+    </KSelect.Root>
+  );
+}
+
+const stateFilterOptions: SelectOption[] = [
+  { value: "all", label: "all" },
+  { value: "running", label: "running" },
+  { value: "stopped", label: "stopped" },
+  { value: "error", label: "error" }
+];
+
+const replayWindowOptions: SelectOption[] = [
+  { value: "15m", label: "15m" },
+  { value: "1h", label: "1h" },
+  { value: "6h", label: "6h" },
+  { value: "24h", label: "24h" },
+  { value: "all", label: "all" }
+];
 
 function toLocalTime(value: string | null) {
   if (!value) return "-";
@@ -204,27 +258,18 @@ export function RuntimePage() {
           <h2>{t("runtime.title")}</h2>
         </div>
         <div class="runtime-tools runtime-tools-row">
-          <select
+          <SimpleSelect
             class="kb-input runtime-filter"
             value={stateFilter()}
-            onInput={(e) => setStateFilter(e.currentTarget.value as "all" | RuntimeState)}
-          >
-            <option value="all">{t("common.all")}</option>
-            <option value="running">{t("common.running")}</option>
-            <option value="stopped">{t("common.stopped")}</option>
-            <option value="error">{t("common.error")}</option>
-          </select>
-          <select
+            onChange={(v) => setStateFilter(v as "all" | RuntimeState)}
+            options={stateFilterOptions}
+          />
+          <SimpleSelect
             class="kb-input runtime-filter"
             value={replayWindow()}
-            onInput={(e) => setReplayWindow(e.currentTarget.value as ReplayWindow)}
-          >
-            <option value="15m">{t("runtime.replay15m")}</option>
-            <option value="1h">{t("runtime.replay1h")}</option>
-            <option value="6h">{t("runtime.replay6h")}</option>
-            <option value="24h">{t("runtime.replay24h")}</option>
-            <option value="all">{t("runtime.replayAll")}</option>
-          </select>
+            onChange={(v) => setReplayWindow(v as ReplayWindow)}
+            options={replayWindowOptions}
+          />
           <label class="kb-checkbox">
             <input
               type="checkbox"

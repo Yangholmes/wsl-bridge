@@ -30,7 +30,12 @@ export const dict = {
     title: "Settings",
     subtitle: "Adjust application preferences.",
     languageTitle: "Language",
-    languageLabel: "UI language"
+    languageLabel: "UI language",
+    themeTitle: "Theme",
+    themeLabel: "Appearance",
+    themeLight: "Light",
+    themeDark: "Dark",
+    themeAuto: "Auto (System)"
   },
   locale: {
     "zh-CN": "Simplified Chinese",

@@ -2,10 +2,11 @@ import * as KSelect from "@kobalte/core/select";
 
 import { useI18n } from "../../i18n/context";
 import { SUPPORTED_LOCALES, type AppLocale } from "../../i18n/locale";
+import { useTheme, type ThemeMode } from "../../lib/theme";
 import FlagCn from "../../assets/flag-cn.svg?url";
 import FlagUs from "../../assets/flag-us.svg?url";
 import FlagHk from "../../assets/flag-hk.svg?url";
-import FlagJp from "../../assets/flag-jp.svg";
+import FlagJp from "../../assets/flag-jp.svg?url";
 
 const LOCALE_FLAG: Record<AppLocale, string> = {
   "zh-CN": FlagCn,
@@ -19,8 +20,21 @@ const localeOptions: { value: AppLocale; label: string }[] = SUPPORTED_LOCALES.m
   label: locale
 }));
 
+const THEME_ICONS: Record<ThemeMode, string> = {
+  light: "☀️",
+  dark: "🌙",
+  auto: "⚙️"
+};
+
+const themeOptions: { value: ThemeMode; labelKey: string }[] = [
+  { value: "light", labelKey: "settings.themeLight" },
+  { value: "dark", labelKey: "settings.themeDark" },
+  { value: "auto", labelKey: "settings.themeAuto" }
+];
+
 export function SettingsPage() {
   const { locale, setLocale, t } = useI18n();
+  const { mode: themeMode, setMode: setThemeMode } = useTheme();
 
   return (
     <div class="page">
@@ -29,6 +43,41 @@ export function SettingsPage() {
           <h2>{t("settings.title")}</h2>
         </div>
         <div class="muted">{t("settings.subtitle")}</div>
+      </section>
+
+      <section class="panel">
+        <h2>{t("settings.themeTitle")}</h2>
+        <div class="settings-lang-row">
+          <label class="kb-label">{t("settings.themeLabel")}</label>
+          <KSelect.Root<{ value: ThemeMode; labelKey: string }>
+            value={themeOptions.find((opt) => opt.value === themeMode())}
+            onChange={(option) => option && setThemeMode(option.value)}
+            options={themeOptions}
+            optionValue="value"
+            optionTextValue="labelKey"
+            itemComponent={(itemProps) => (
+              <KSelect.Item item={itemProps.item} class="kb-select-item">
+                <span style="margin-right:6px">{THEME_ICONS[itemProps.item.rawValue.value]}</span>
+                <KSelect.ItemLabel>{t(itemProps.item.rawValue.labelKey)}</KSelect.ItemLabel>
+              </KSelect.Item>
+            )}
+          >
+            <KSelect.Trigger class="kb-input settings-language-select">
+              <KSelect.Value<{ value: ThemeMode; labelKey: string }>>{(state) => (
+                <>
+                  <span style="margin-right:6px">{THEME_ICONS[state.selectedOption()?.value ?? "auto"]}</span>
+                  {t(state.selectedOption()?.labelKey ?? "settings.themeAuto")}
+                </>
+              )}</KSelect.Value>
+              <KSelect.Icon class="kb-select-icon">▾</KSelect.Icon>
+            </KSelect.Trigger>
+            <KSelect.Portal>
+              <KSelect.Content class="kb-select-content">
+                <KSelect.Listbox class="kb-select-listbox" />
+              </KSelect.Content>
+            </KSelect.Portal>
+          </KSelect.Root>
+        </div>
       </section>
 
       <section class="panel">

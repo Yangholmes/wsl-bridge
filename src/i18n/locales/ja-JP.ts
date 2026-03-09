@@ -30,7 +30,12 @@ export const dict = {
     title: "設定",
     subtitle: "アプリの設定を変更します。",
     languageTitle: "言語",
-    languageLabel: "表示言語"
+    languageLabel: "表示言語",
+    themeTitle: "テーマ",
+    themeLabel: "外観",
+    themeLight: "ライト",
+    themeDark: "ダーク",
+    themeAuto: "自動（システムに従う）"
   },
   locale: {
     "zh-CN": "簡体字中国語",

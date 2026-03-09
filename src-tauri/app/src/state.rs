@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::{env, fs};
 use std::{thread, time::Duration};
+use std::path::PathBuf;
 
 use wsl_bridge_core::{EngineOptions, FirewallMode, RuleEngine};
 
@@ -10,12 +11,17 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[cfg(not(feature = "tauri"))]
     pub fn new() -> Self {
         Self::new_with_default_storage()
     }
 
+    #[cfg(not(feature = "tauri"))]
     pub fn new_with_default_storage() -> Self {
-        let path = db_path();
+        Self::new_with_storage_path(db_path())
+    }
+
+    pub fn new_with_storage_path(path: PathBuf) -> Self {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -40,6 +46,7 @@ impl AppState {
     }
 }
 
+#[cfg(not(feature = "tauri"))]
 fn db_path() -> std::path::PathBuf {
     if let Ok(explicit) = env::var("WSL_BRIDGE_DB_PATH") {
         return explicit.into();

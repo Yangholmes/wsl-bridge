@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import * as KButton from "@kobalte/core/button";
+import * as KSelect from "@kobalte/core/select";
 import * as KTooltip from "@kobalte/core/tooltip";
 
 import { queryLogs } from "../rules/api";
@@ -34,6 +35,44 @@ function renderEllipsisCell(text: string | null | undefined) {
         </KTooltip.Content>
       </KTooltip.Portal>
     </KTooltip.Root>
+  );
+}
+
+type SelectOption = { value: string; label: string };
+
+type SimpleSelectProps = {
+  value: string;
+  onChange: (value: string) => void;
+  options: SelectOption[];
+  class?: string;
+};
+
+function SimpleSelect(props: SimpleSelectProps) {
+  const selectedOption = () => props.options.find((opt) => opt.value === props.value) ?? null;
+
+  return (
+    <KSelect.Root<SelectOption>
+      options={props.options}
+      optionValue="value"
+      optionTextValue="label"
+      value={selectedOption()}
+      onChange={(opt) => opt && props.onChange(opt.value)}
+      itemComponent={(itemProps) => (
+        <KSelect.Item item={itemProps.item} class="kb-select-item">
+          <KSelect.ItemLabel>{itemProps.item.rawValue.label}</KSelect.ItemLabel>
+        </KSelect.Item>
+      )}
+    >
+      <KSelect.Trigger class={`kb-select-trigger ${props.class ?? ""}`}>
+        <KSelect.Value<SelectOption>>{(state) => state.selectedOption()?.label}</KSelect.Value>
+        <KSelect.Icon class="kb-select-icon">▾</KSelect.Icon>
+      </KSelect.Trigger>
+      <KSelect.Portal>
+        <KSelect.Content class="kb-select-content">
+          <KSelect.Listbox class="kb-select-listbox" />
+        </KSelect.Content>
+      </KSelect.Portal>
+    </KSelect.Root>
   );
 }
 
@@ -120,6 +159,28 @@ export function LogsPage() {
     return ["all", ...[...set].sort((a, b) => a.localeCompare(b))];
   });
 
+  const levelOptions: SelectOption[] = [
+    { value: "all", label: "all" },
+    { value: "info", label: "info" },
+    { value: "warn", label: "warn" },
+    { value: "error", label: "error" }
+  ];
+
+  const replayWindowOptions: SelectOption[] = [
+    { value: "15m", label: "15m" },
+    { value: "1h", label: "1h" },
+    { value: "6h", label: "6h" },
+    { value: "24h", label: "24h" },
+    { value: "all", label: "all" }
+  ];
+
+  const limitOptions: SelectOption[] = [
+    { value: "100", label: "100" },
+    { value: "300", label: "300" },
+    { value: "600", label: "600" },
+    { value: "1000", label: "1000" }
+  ];
+
   createEffect(() => {
     if (timer) {
       clearInterval(timer);
@@ -162,34 +223,30 @@ export function LogsPage() {
       </div>
 
       <div class="logs-toolbar logs-toolbar-extended">
-        <select class="kb-input" value={levelFilter()} onInput={(e) => setLevelFilter(e.currentTarget.value)}>
-          <option value="all">{t("logs.levelAll")}</option>
-          <option value="info">info</option>
-          <option value="warn">warn</option>
-          <option value="error">error</option>
-        </select>
-        <select class="kb-input" value={moduleFilter()} onInput={(e) => setModuleFilter(e.currentTarget.value)}>
-          <For each={moduleOptions()}>
-            {(item) => <option value={item}>{item === "all" ? t("common.all") : item}</option>}
-          </For>
-        </select>
-        <select
+        <SimpleSelect
+          class="kb-input"
+          value={levelFilter()}
+          onChange={setLevelFilter}
+          options={levelOptions}
+        />
+        <SimpleSelect
+          class="kb-input"
+          value={moduleFilter()}
+          onChange={setModuleFilter}
+          options={moduleOptions().map((v) => ({ value: v, label: v === "all" ? v : v }))}
+        />
+        <SimpleSelect
           class="kb-input"
           value={replayWindow()}
-          onInput={(e) => setReplayWindow(e.currentTarget.value as ReplayWindow)}
-        >
-          <option value="15m">{t("logs.replay15m")}</option>
-          <option value="1h">{t("logs.replay1h")}</option>
-          <option value="6h">{t("logs.replay6h")}</option>
-          <option value="24h">{t("logs.replay24h")}</option>
-          <option value="all">{t("logs.replayAll")}</option>
-        </select>
-        <select class="kb-input" value={String(limit())} onInput={(e) => setLimit(Number(e.currentTarget.value))}>
-          <option value="100">{t("logs.show100")}</option>
-          <option value="300">{t("logs.show300")}</option>
-          <option value="600">{t("logs.show600")}</option>
-          <option value="1000">{t("logs.show1000")}</option>
-        </select>
+          onChange={(v) => setReplayWindow(v as ReplayWindow)}
+          options={replayWindowOptions}
+        />
+        <SimpleSelect
+          class="kb-input"
+          value={String(limit())}
+          onChange={(v) => setLimit(Number(v))}
+          options={limitOptions}
+        />
         <input
           class="kb-input"
           placeholder={t("logs.ruleIdPlaceholder")}

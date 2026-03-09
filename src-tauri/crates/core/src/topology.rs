@@ -6,8 +6,13 @@ use std::net::IpAddr;
 use serde::Deserialize;
 #[cfg(windows)]
 use std::{env, fs, path::PathBuf, process::Command};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use wsl_bridge_shared::{AdapterInfo, HyperVVmInfo, TargetKind, WslInfo};
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone)]
 pub struct HyperVScanResult {
@@ -424,10 +429,11 @@ fn powershell_candidates() -> Vec<String> {
 fn run_powershell_capture(script: &str) -> Option<PowerShellCapture> {
     let mut last_error = None;
     for executable in powershell_candidates() {
-        match Command::new(executable.as_str())
-            .args(["-NoProfile", "-NonInteractive", "-Command", script])
-            .output()
-        {
+        let mut command = Command::new(executable.as_str());
+        command
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["-NoProfile", "-NonInteractive", "-Command", script]);
+        match command.output() {
             Ok(output) => {
                 return Some(PowerShellCapture {
                     executable,
@@ -453,7 +459,12 @@ fn run_powershell_capture(script: &str) -> Option<PowerShellCapture> {
 
 #[cfg(windows)]
 fn run_command_bytes(executable: &str, args: &[&str]) -> Option<Vec<u8>> {
-    let output = Command::new(executable).args(args).output().ok()?;
+    let mut command = Command::new(executable);
+    let output = command
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(args)
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }

@@ -1,9 +1,13 @@
+#![cfg_attr(all(feature = "tauri", target_os = "windows"), windows_subsystem = "windows")]
+
 mod commands;
 mod state;
 mod tauri_commands;
 
 #[cfg(not(feature = "tauri"))]
 use wsl_bridge_shared::{BindMode, CreateRuleRequest, NewProxyRule, RuleType, TargetKind};
+#[cfg(feature = "tauri")]
+use tauri::Manager;
 
 #[cfg(not(feature = "tauri"))]
 fn main() {
@@ -45,10 +49,23 @@ fn main() {
 
 #[cfg(feature = "tauri")]
 fn main() {
-    let app_state = state::AppState::new();
-
     tauri::Builder::default()
-        .manage(app_state)
+        .setup(|app| {
+            let db_path = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|err| {
+                    eprintln!(
+                        "failed to resolve app data dir: {err}; fallback to current directory"
+                    );
+                    std::env::current_dir()
+                        .unwrap_or_else(|_| ".".into())
+                        .join("data")
+                })
+                .join("state.db");
+            app.manage(state::AppState::new_with_storage_path(db_path));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             tauri_commands::scan_topology,
             tauri_commands::debug_hyperv_probe,

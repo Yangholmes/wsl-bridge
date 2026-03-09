@@ -30,7 +30,12 @@ export const dict = {
     title: "設定",
     subtitle: "調整應用程式偏好設定。",
     languageTitle: "語言",
-    languageLabel: "介面語言"
+    languageLabel: "介面語言",
+    themeTitle: "主題",
+    themeLabel: "外觀",
+    themeLight: "淺色",
+    themeDark: "深色",
+    themeAuto: "自動跟隨系統"
   },
   locale: {
     "zh-CN": "簡體中文",

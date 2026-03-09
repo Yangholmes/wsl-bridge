@@ -1,6 +1,11 @@
 use std::process::Command;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use wsl_bridge_shared::{FirewallPolicy, ProxyRule, RuleType};
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FirewallMode {
@@ -69,7 +74,9 @@ pub fn apply_firewall(
                 "WSLBridge-{}-{}-{}-{}",
                 rule.id, profile, protocol, rule.listen_port
             );
-            let status = Command::new("netsh")
+            let mut command = Command::new("netsh");
+            let status = command
+                .creation_flags(CREATE_NO_WINDOW)
                 .args([
                     "advfirewall",
                     "firewall",
@@ -136,7 +143,9 @@ pub fn cleanup_firewall(mode: FirewallMode, names: &[String]) -> Result<(), Stri
     {
         let mut errors = Vec::new();
         for name in names {
-            match Command::new("netsh")
+            let mut command = Command::new("netsh");
+            match command
+                .creation_flags(CREATE_NO_WINDOW)
                 .args([
                     "advfirewall",
                     "firewall",
