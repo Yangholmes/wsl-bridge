@@ -150,7 +150,7 @@ body {
 }
 
 .nav-item[data-status="active"] {
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.50), rgba(59, 130, 246, 0.65));
+  background: var(--accent);
   color: #fff;
   font-weight: 600;
 }
@@ -439,6 +439,17 @@ tbody tr:hover {
   justify-content: flex-start;
   align-items: center;
   text-align: left;
+  cursor: pointer;
+}
+
+.kb-select-trigger:hover {
+  border-color: var(--accent);
+  background: var(--hover-bg);
+}
+
+.kb-select-trigger[data-expanded] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 100, 255, 0.15);
 }
 
 .kb-select-compact {
@@ -446,24 +457,41 @@ tbody tr:hover {
 }
 
 .kb-select-icon {
-  color: var(--sub);
-  margin-left: 8px;
+  color: var(--accent);
+  margin-left: auto;
+  transition: transform 0.2s ease;
+}
+
+.kb-select-trigger[data-expanded] .kb-select-icon {
+  transform: rotate(180deg);
 }
 
 .kb-select-content {
   z-index: 90;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 12px;
   min-width: 180px;
   overflow: hidden;
-  background: var(--select-bg);
+  background: var(--surface-strong);
   box-shadow: var(--shadow);
+  animation: selectExpand 0.15s ease;
+}
+
+@keyframes selectExpand {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .kb-select-listbox {
   max-height: 280px;
   overflow: auto;
-  padding: 6px;
+  padding: 4px;
 }
 
 .kb-select-item {
@@ -472,15 +500,21 @@ tbody tr:hover {
   align-items: center;
   gap: 8px;
   border-radius: 8px;
-  padding: 8px 9px;
+  padding: 9px 11px;
   color: var(--text);
   font-size: 13px;
   cursor: pointer;
+  transition: background 0.1s ease;
 }
 
 .kb-select-item[data-highlighted] {
   background: var(--hover-bg);
   color: var(--hover-text);
+}
+
+.kb-select-item[data-selected] {
+  background: var(--accent);
+  color: #fff;
 }
 
 .kb-btn.ghost {
