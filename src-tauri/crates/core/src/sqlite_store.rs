@@ -5,8 +5,8 @@ use chrono::{TimeZone, Utc};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use wsl_bridge_shared::{
-    AuditLog, BindMode, FirewallPolicy, ProxyRule, RuleType, RuntimeState, RuntimeStatusItem,
-    TargetKind,
+    AuditLog, BindMode, FirewallPolicy, McpServerConfig, ProxyRule, RuleType, RuntimeState,
+    RuntimeStatusItem, TargetKind,
 };
 
 use crate::engine::EngineError;
@@ -18,6 +18,7 @@ pub struct Snapshot {
     pub runtime: HashMap<String, RuntimeStatusItem>,
     pub logs: Vec<AuditLog>,
     pub log_seq: u64,
+    pub mcp_config: McpServerConfig,
 }
 
 #[derive(Debug)]
@@ -49,6 +50,7 @@ impl SqliteStore {
         let mut firewalls = HashMap::new();
         let mut runtime = HashMap::new();
         let mut logs = Vec::new();
+        let mut mcp_config = McpServerConfig::default();
 
         {
             let mut stmt = conn
@@ -152,6 +154,23 @@ impl SqliteStore {
             }
         }
 
+        {
+            let mut stmt = conn
+                .prepare("SELECT value FROM app_setting WHERE key = 'mcp_config'")
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            let mut rows = stmt
+                .query([])
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            if let Some(row) = rows
+                .next()
+                .map_err(|err| EngineError::Storage(err.to_string()))?
+            {
+                let raw: String = row.get(0).map_err(|err| EngineError::Storage(err.to_string()))?;
+                mcp_config = serde_json::from_str(&raw)
+                    .map_err(|err| EngineError::Storage(err.to_string()))?;
+            }
+        }
+
         let log_seq = logs.last().map(|item| item.id).unwrap_or(0);
 
         Ok(Snapshot {
@@ -160,6 +179,7 @@ impl SqliteStore {
             runtime,
             logs,
             log_seq,
+            mcp_config,
         })
     }
 
@@ -176,6 +196,8 @@ impl SqliteStore {
         tx.execute("DELETE FROM runtime_state", [])
             .map_err(|err| EngineError::Storage(err.to_string()))?;
         tx.execute("DELETE FROM audit_log", [])
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        tx.execute("DELETE FROM app_setting", [])
             .map_err(|err| EngineError::Storage(err.to_string()))?;
 
         let mut rules = snapshot.rules.values().cloned().collect::<Vec<_>>();
@@ -250,6 +272,16 @@ impl SqliteStore {
             .map_err(|err| EngineError::Storage(err.to_string()))?;
         }
 
+        tx.execute(
+            "INSERT INTO app_setting (key,value) VALUES (?1,?2)",
+            params![
+                "mcp_config",
+                serde_json::to_string(&snapshot.mcp_config)
+                    .map_err(|err| EngineError::Storage(err.to_string()))?
+            ],
+        )
+        .map_err(|err| EngineError::Storage(err.to_string()))?;
+
         tx.commit()
             .map_err(|err| EngineError::Storage(err.to_string()))?;
         Ok(())
@@ -301,6 +333,11 @@ impl SqliteStore {
                 module TEXT NOT NULL,
                 event TEXT NOT NULL,
                 detail TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS app_setting (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             );
             "#,
         )

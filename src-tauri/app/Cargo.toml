@@ -14,10 +14,12 @@ tauri = ["dep:tauri"]
 
 [dependencies]
 anyhow.workspace = true
+parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", optional = true , features = [] }
 tracing.workspace = true
+uuid.workspace = true
 wsl-bridge-core = { path = "../crates/core" }
 wsl-bridge-shared = { path = "../crates/shared" }
 

@@ -158,3 +158,34 @@ export type HyperVProbeDebug = {
   selected_vm_names: string[];
   steps: HyperVProbeStep[];
 };
+
+export type McpServerConfig = {
+  enabled: boolean;
+  server_name: string;
+  listen_port: number;
+  api_token: string;
+  expose_topology_read: boolean;
+  expose_rule_config: boolean;
+};
+
+export type McpToolDescriptor = {
+  name: string;
+  description: string;
+  enabled: boolean;
+};
+
+export type McpServerStatus = {
+  config: McpServerConfig;
+  base_url: string;
+  running: boolean;
+  last_error: string | null;
+  tools: McpToolDescriptor[];
+  client_presets: McpClientPreset[];
+};
+
+export type McpClientPreset = {
+  id: string;
+  label: string;
+  format: string;
+  content: string;
+};

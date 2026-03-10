@@ -135,7 +135,16 @@ flowchart TD
 - 主色：蓝灰 + 青色强调；风险操作使用橙/红色语义色。
 - 不使用紫色作为主品牌色。
 
-### 7.2 Token（建议）
+### 7.2 主题模式
+
+支持三种主题模式：
+- Light：浅色主题，白色背景 + 深色文字。
+- Dark：深色主题，深灰背景 + 浅色文字。
+- Auto：跟随系统设置自动切换。
+
+主题切换入口位于 Settings 页面，使用 Segmented Control 控件。
+
+### 7.3 Token（建议）
 
 ```css
 :root {
@@ -153,14 +162,37 @@ flowchart TD
   --space-12: 12px;
   --space-16: 16px;
 }
+
+/* Dark 主题 */
+[data-theme="dark"] {
+  --bg-canvas: #1a1a1a;
+  --bg-panel: #2d2d2d;
+  --text-primary: #f5f5f5;
+  --text-secondary: #a0a0a0;
+  --border-default: #404040;
+}
 ```
 
-### 7.3 排版
+### 7.4 排版
 
 - 标题：`20/28`、`16/24`
 - 正文：`14/22`
 - 表格：`13/20`
 - 中文优先字体建议：`"Noto Sans SC", "PingFang SC", sans-serif`
+
+### 7.5 UI 组件库
+
+基于 `@kobalte/core` 实现所有交互组件，确保一致的 Win11 视觉风格与可访问性：
+
+- `Select`：下拉选择器，用于类型筛选、目标选择等场景。
+- `Checkbox`：复选框，用于规则列表行选择、批量操作。
+- `Switch`：开关，用于启用/禁用状态切换。
+- `Dialog`：弹窗，用于规则编辑、确认对话框。
+- `TextField`：文本输入，用于名称、端口等表单字段。
+- `Tooltip`：提示，用于单元格省略内容的悬浮展示。
+- `Button`：按钮，用于所有操作触发。
+
+组件样式统一使用 CSS 变量，支持 Light/Dark 主题自动切换。
 
 ## 8. 组件清单
 

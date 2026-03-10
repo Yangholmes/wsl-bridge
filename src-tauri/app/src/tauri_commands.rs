@@ -2,9 +2,9 @@
 use wsl_bridge_core::HyperVProbeDebug;
 #[cfg(feature = "tauri")]
 use wsl_bridge_shared::{
-    ApplyRulesResult, CreateRuleRequest, LogQueryRequest, LogQueryResult, ProxyRule,
-    RuleLogStatsItem, RuleLogStatsRequest, RulePatch, RuntimeStatusItem, StopRulesResult,
-    TailLogsResult, TopologySnapshot,
+    ApplyRulesResult, CreateRuleRequest, LogQueryRequest, LogQueryResult, McpServerConfig,
+    McpServerStatus, ProxyRule, RuleLogStatsItem, RuleLogStatsRequest, RulePatch,
+    RuntimeStatusItem, StopRulesResult, TailLogsResult, TopologySnapshot,
 };
 
 #[cfg(feature = "tauri")]
@@ -108,4 +108,19 @@ pub fn get_rule_log_stats(
     req: RuleLogStatsRequest,
 ) -> Vec<RuleLogStatsItem> {
     commands::get_rule_log_stats(&state, req)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn get_mcp_server_status(state: tauri::State<'_, AppState>) -> McpServerStatus {
+    commands::get_mcp_server_status(&state)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn update_mcp_server_config(
+    state: tauri::State<'_, AppState>,
+    config: McpServerConfig,
+) -> Result<(), String> {
+    commands::update_mcp_server_config(&state, config).map_err(|err| err.to_string())
 }

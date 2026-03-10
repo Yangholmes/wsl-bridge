@@ -125,6 +125,55 @@ pub struct TopologySnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct McpServerConfig {
+    pub enabled: bool,
+    pub server_name: String,
+    pub listen_port: u16,
+    pub api_token: String,
+    pub expose_topology_read: bool,
+    pub expose_rule_config: bool,
+}
+
+impl Default for McpServerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            server_name: "wsl-bridge".to_owned(),
+            listen_port: 13746,
+            api_token: String::new(),
+            expose_topology_read: true,
+            expose_rule_config: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct McpToolDescriptor {
+    pub name: String,
+    pub description: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct McpServerStatus {
+    pub config: McpServerConfig,
+    pub base_url: String,
+    pub running: bool,
+    pub last_error: Option<String>,
+    pub tools: Vec<McpToolDescriptor>,
+    pub client_presets: Vec<McpClientPreset>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct McpClientPreset {
+    pub id: String,
+    pub label: String,
+    pub format: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CreateRuleRequest {
     pub rule: NewProxyRule,
     pub firewall: Option<NewFirewallPolicy>,

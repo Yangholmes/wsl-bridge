@@ -1,5 +1,6 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import * as KButton from "@kobalte/core/button";
+import * as KCheckbox from "@kobalte/core/checkbox";
 import * as KSelect from "@kobalte/core/select";
 import * as KTooltip from "@kobalte/core/tooltip";
 
@@ -205,14 +206,17 @@ export function LogsPage() {
       <div class="panel-title">
         <h2>{t("logs.title")}</h2>
         <div class="runtime-tools">
-          <label class="kb-checkbox">
-            <input
-              type="checkbox"
-              checked={autoTail()}
-              onChange={(e) => setAutoTail(e.currentTarget.checked)}
-            />
-            <span class="kb-checkbox-label">{t("logs.autoRefresh")}</span>
-          </label>
+          <KCheckbox.Root
+            checked={autoTail()}
+            onChange={setAutoTail}
+            class="kb-checkbox"
+          >
+            <KCheckbox.Input />
+            <KCheckbox.Control class="kb-checkbox-control">
+              <KCheckbox.Indicator class="kb-checkbox-indicator" />
+            </KCheckbox.Control>
+            <KCheckbox.Label class="kb-checkbox-label">{t("logs.autoRefresh")}</KCheckbox.Label>
+          </KCheckbox.Root>
           <KButton.Root class="kb-btn ghost" onClick={refreshLogs} disabled={loading()}>
             {t("common.refresh")}
           </KButton.Root>

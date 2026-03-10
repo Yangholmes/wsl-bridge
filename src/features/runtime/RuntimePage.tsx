@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { queryOptions, useQuery } from "@tanstack/solid-query";
 import * as KButton from "@kobalte/core/button";
+import * as KCheckbox from "@kobalte/core/checkbox";
 import * as KSelect from "@kobalte/core/select";
 import * as KTooltip from "@kobalte/core/tooltip";
 
@@ -270,14 +271,17 @@ export function RuntimePage() {
             onChange={(v) => setReplayWindow(v as ReplayWindow)}
             options={replayWindowOptions}
           />
-          <label class="kb-checkbox">
-            <input
-              type="checkbox"
-              checked={onlyErrors()}
-              onChange={(e) => setOnlyErrors(e.currentTarget.checked)}
-            />
-            <span class="kb-checkbox-label">{t("runtime.onlyErrors")}</span>
-          </label>
+          <KCheckbox.Root
+            checked={onlyErrors()}
+            onChange={setOnlyErrors}
+            class="kb-checkbox"
+          >
+            <KCheckbox.Input />
+            <KCheckbox.Control class="kb-checkbox-control">
+              <KCheckbox.Indicator class="kb-checkbox-indicator" />
+            </KCheckbox.Control>
+            <KCheckbox.Label class="kb-checkbox-label">{t("runtime.onlyErrors")}</KCheckbox.Label>
+          </KCheckbox.Root>
           <KButton.Root class="kb-btn ghost" onClick={refreshAll}>
             {t("common.refresh")}
           </KButton.Root>

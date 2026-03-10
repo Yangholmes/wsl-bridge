@@ -1,6 +1,7 @@
 #![cfg_attr(all(feature = "tauri", target_os = "windows"), windows_subsystem = "windows")]
 
 mod commands;
+mod mcp;
 mod state;
 mod tauri_commands;
 
@@ -79,7 +80,9 @@ fn main() {
             tauri_commands::get_runtime_status,
             tauri_commands::tail_logs,
             tauri_commands::query_logs,
-            tauri_commands::get_rule_log_stats
+            tauri_commands::get_rule_log_stats,
+            tauri_commands::get_mcp_server_status,
+            tauri_commands::update_mcp_server_config
         ])
         .run(tauri::generate_context!())
         .expect("failed to run tauri app");

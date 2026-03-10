@@ -9,9 +9,9 @@ use tracing::warn;
 use uuid::Uuid;
 use wsl_bridge_shared::{
     ApplyRulesResult, AuditLog, BindMode, CreateRuleRequest, FirewallPolicy, LogQueryRequest,
-    LogQueryResult, NewProxyRule, ProxyRule, RuleLogStatsItem, RuleLogStatsRequest, RulePatch,
-    RuleType, RuntimeState, RuntimeStatusItem, StopRulesResult, TailLogsResult, TargetKind,
-    TopologySnapshot,
+    LogQueryResult, McpServerConfig, NewFirewallPolicy, NewProxyRule, ProxyRule,
+    RuleLogStatsItem, RuleLogStatsRequest, RulePatch, RuleType, RuntimeState, RuntimeStatusItem,
+    StopRulesResult, TailLogsResult, TargetKind, TopologySnapshot,
 };
 
 use crate::firewall::{apply_firewall, cleanup_firewall, FirewallMode, FirewallRuleRuntime};
@@ -52,6 +52,7 @@ struct EngineStore {
     runtime: HashMap<String, RuntimeStatusItem>,
     logs: Vec<AuditLog>,
     log_seq: u64,
+    mcp_config: McpServerConfig,
 }
 
 #[derive(Debug)]
@@ -113,6 +114,7 @@ impl RuleEngine {
             runtime: snapshot.runtime,
             logs: snapshot.logs,
             log_seq: snapshot.log_seq,
+            mcp_config: snapshot.mcp_config,
         });
         Ok(Self {
             store,
@@ -146,6 +148,75 @@ impl RuleEngine {
         let mut rules = store.rules.values().cloned().collect::<Vec<_>>();
         rules.sort_by(|a, b| a.created_at.cmp(&b.created_at));
         rules
+    }
+
+    pub fn list_forward_rules_with_firewall(&self) -> Vec<(ProxyRule, FirewallPolicy)> {
+        let store = self.store.read();
+        let mut items = store
+            .rules
+            .values()
+            .filter(|rule| matches!(rule.rule_type, RuleType::TcpFwd | RuleType::UdpFwd))
+            .filter_map(|rule| {
+                store
+                    .firewalls
+                    .get(&rule.id)
+                    .cloned()
+                    .map(|firewall| (rule.clone(), firewall))
+            })
+            .collect::<Vec<_>>();
+        items.sort_by(|a, b| a.0.created_at.cmp(&b.0.created_at));
+        items
+    }
+
+    pub fn get_mcp_config(&self) -> McpServerConfig {
+        self.store.read().mcp_config.clone()
+    }
+
+    pub fn update_mcp_config(&self, config: McpServerConfig) -> Result<(), EngineError> {
+        let server_name = config.server_name.trim();
+        if server_name.is_empty() {
+            return Err(EngineError::InvalidRule(
+                "mcp server_name is required".to_owned(),
+            ));
+        }
+        if server_name
+            .chars()
+            .any(|ch| !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'))
+        {
+            return Err(EngineError::InvalidRule(
+                "mcp server_name only supports letters, numbers, - and _".to_owned(),
+            ));
+        }
+        if config.listen_port == 0 {
+            return Err(EngineError::InvalidRule(
+                "mcp listen_port must be > 0".to_owned(),
+            ));
+        }
+        if config.api_token.trim().is_empty() {
+            return Err(EngineError::InvalidRule(
+                "mcp api_token is required".to_owned(),
+            ));
+        }
+
+        let mut store = self.store.write();
+        store.mcp_config = McpServerConfig {
+            server_name: server_name.to_owned(),
+            api_token: config.api_token.trim().to_owned(),
+            ..config
+        };
+        let detail = format!(
+            "enabled={},server_name={},listen_port={}",
+            store.mcp_config.enabled, store.mcp_config.server_name, store.mcp_config.listen_port
+        );
+        append_log(
+            &mut store,
+            "info",
+            "engine",
+            "mcp_config_updated",
+            &detail,
+        );
+        self.persist_store(&store);
+        Ok(())
     }
 
     pub fn create_rule(&self, req: CreateRuleRequest) -> Result<String, EngineError> {
@@ -299,6 +370,35 @@ impl RuleEngine {
             "engine",
             "rule_toggled",
             &format!("rule_id={id},enabled={enabled}"),
+        );
+        self.persist_store(&store);
+        Ok(())
+    }
+
+    pub fn update_firewall_policy(
+        &self,
+        id: &str,
+        policy: NewFirewallPolicy,
+    ) -> Result<(), EngineError> {
+        let mut store = self.store.write();
+        if !store.rules.contains_key(id) {
+            return Err(EngineError::RuleNotFound(id.to_owned()));
+        }
+        let item = store
+            .firewalls
+            .entry(id.to_owned())
+            .or_insert_with(|| FirewallPolicy::default_allow(id.to_owned()));
+        item.allow_domain = policy.allow_domain;
+        item.allow_private = policy.allow_private;
+        item.allow_public = policy.allow_public;
+        item.direction = policy.direction.unwrap_or_else(|| "inbound".to_owned());
+        item.action = policy.action.unwrap_or_else(|| "allow".to_owned());
+        append_log(
+            &mut store,
+            "info",
+            "engine",
+            "rule_firewall_updated",
+            &format!("rule_id={id}"),
         );
         self.persist_store(&store);
         Ok(())
@@ -885,6 +985,7 @@ impl RuleEngine {
             runtime: store.runtime.clone(),
             logs: store.logs.clone(),
             log_seq: store.log_seq,
+            mcp_config: store.mcp_config.clone(),
         };
         if let Err(err) = sqlite.save_snapshot(&snapshot) {
             warn!("persist snapshot failed: {err}");

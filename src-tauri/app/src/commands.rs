@@ -3,12 +3,12 @@
 use anyhow::Result;
 use wsl_bridge_core::HyperVProbeDebug;
 use wsl_bridge_shared::{
-    ApplyRulesResult, CreateRuleRequest, LogQueryRequest, LogQueryResult, ProxyRule,
-    RuleLogStatsItem, RuleLogStatsRequest, RulePatch, RuntimeStatusItem, StopRulesResult,
-    TailLogsResult, TopologySnapshot,
+    ApplyRulesResult, CreateRuleRequest, LogQueryRequest, LogQueryResult, McpServerConfig,
+    McpServerStatus, ProxyRule, RuleLogStatsItem, RuleLogStatsRequest, RulePatch,
+    RuntimeStatusItem, StopRulesResult, TailLogsResult, TopologySnapshot,
 };
 
-use crate::state::AppState;
+use crate::{mcp, state::AppState};
 
 // These functions are intentionally plain Rust handlers.
 // In the next step they can be directly wrapped with #[tauri::command].
@@ -62,4 +62,17 @@ pub fn query_logs(state: &AppState, req: LogQueryRequest) -> LogQueryResult {
 
 pub fn get_rule_log_stats(state: &AppState, req: RuleLogStatsRequest) -> Vec<RuleLogStatsItem> {
     state.engine.get_rule_log_stats(req)
+}
+
+pub fn get_mcp_server_status(state: &AppState) -> McpServerStatus {
+    mcp::build_server_status(state)
+}
+
+pub fn update_mcp_server_config(state: &AppState, config: McpServerConfig) -> Result<()> {
+    state
+        .engine
+        .update_mcp_config(config.clone())
+        .map_err(anyhow::Error::from)?;
+    state.mcp_service.apply_config(&config);
+    Ok(())
 }

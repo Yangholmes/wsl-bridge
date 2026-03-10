@@ -17,6 +17,14 @@
   --select-bg: #fafcff;
   --hover-bg: rgba(10, 100, 255, 0.12);
   --hover-text: var(--text);
+  --hint-info-bg: rgba(10, 100, 255, 0.08);
+  --hint-info-line: rgba(10, 100, 255, 0.2);
+  --hint-info-text: #1e40af;
+  --hint-error-bg: rgba(220, 38, 38, 0.08);
+  --hint-error-line: rgba(220, 38, 38, 0.2);
+  --hint-error-text: #991b1b;
+  --checkbox-bg: rgba(255, 255, 255, 0.9);
+  --checkbox-mark: #ffffff;
 }
 
 [data-theme="dark"] {
@@ -38,6 +46,14 @@
   --select-bg: rgba(30, 41, 59, 0.98);
   --hover-bg: rgba(59, 130, 246, 0.25);
   --hover-text: #ffffff;
+  --hint-info-bg: rgba(59, 130, 246, 0.12);
+  --hint-info-line: rgba(59, 130, 246, 0.25);
+  --hint-info-text: #93c5fd;
+  --hint-error-bg: rgba(239, 68, 68, 0.12);
+  --hint-error-line: rgba(239, 68, 68, 0.25);
+  --hint-error-text: #fca5a5;
+  --checkbox-bg: rgba(255, 255, 255, 0.12);
+  --checkbox-mark: #ffffff;
 }
 
 * {
@@ -74,6 +90,8 @@ body,
 }
 
 body {
+  height: 100%;
+  overflow: hidden;
   margin: 0;
   color: var(--text);
   font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", sans-serif;
@@ -87,13 +105,14 @@ body {
 .app-layout {
   display: grid;
   grid-template-columns: 13em 1fr;
-  height: 100dvh;
+  height: 100%;
   gap: 20px;
   padding: 18px;
   overflow: hidden;
 }
 
 .sidebar {
+  height: 100%;
   padding: 12px 10px 12px 2px;
   border-right: 1px solid var(--line-soft);
   overflow-y: auto;
@@ -137,8 +156,8 @@ body {
 }
 
 .content {
+  height: 100%;
   min-width: 0;
-  min-height: 0;
   padding-right: 6px;
   overflow-y: auto;
   overflow-x: hidden;
@@ -275,9 +294,14 @@ tbody tr:hover {
 }
 
 .row-check {
+  display: grid;
+  place-items: center;
+}
+
+.row-check .kb-checkbox-control {
   width: 14px;
   height: 14px;
-  accent-color: var(--accent);
+  border-radius: 3px;
   cursor: pointer;
 }
 
@@ -673,52 +697,6 @@ tbody tr:hover {
   font-size: 13px;
 }
 
-.kb-checkbox-control {
-  position: relative;
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  border: 1px solid var(--line);
-  background: var(--input-bg);
-  display: grid;
-  place-items: center;
-  font-size: 12px;
-  color: transparent;
-  transition: background 0.16s ease, border-color 0.16s ease;
-}
-
-.kb-checkbox-indicator {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  display: block;
-  width: 9px;
-  height: 5px;
-  border-left: 2px solid #fff;
-  border-bottom: 2px solid #fff;
-  transform: translate(-50%, -58%) rotate(-45deg);
-}
-
-.kb-checkbox[data-checked] .kb-checkbox-control {
-  background: var(--accent);
-  border-color: var(--accent-strong);
-}
-
-.kb-checkbox-label {
-  font-size: 13px;
-  color: var(--text);
-}
-
-.kb-checkbox-label {
-  font-size: 13px;
-  color: var(--text);
-}
-
-.kb-checks {
-  margin-top: 12px;
-  gap: 16px;
-}
-
 .kb-checkbox {
   display: inline-flex;
   align-items: center;
@@ -731,11 +709,11 @@ tbody tr:hover {
   height: 18px;
   border-radius: 5px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--checkbox-bg);
   display: grid;
   place-items: center;
   font-size: 12px;
-  color: #fff;
+  color: var(--checkbox-mark);
   transition: background 0.16s ease, border-color 0.16s ease;
 }
 
@@ -746,8 +724,8 @@ tbody tr:hover {
   display: block;
   width: 9px;
   height: 5px;
-  border-left: 2px solid #fff;
-  border-bottom: 2px solid #fff;
+  border-left: 2px solid var(--checkbox-mark);
+  border-bottom: 2px solid var(--checkbox-mark);
   transform: translate(-50%, -58%) rotate(-45deg);
 }
 
@@ -758,7 +736,12 @@ tbody tr:hover {
 
 .kb-checkbox-label {
   font-size: 13px;
-  color: #20345f;
+  color: var(--text);
+}
+
+.kb-checks {
+  margin-top: 12px;
+  gap: 16px;
 }
 
 .kb-dialog-overlay {
@@ -804,19 +787,19 @@ tbody tr:hover {
   margin-top: 10px;
   padding: 10px 12px;
   font-size: 12px;
-  border: 1px solid transparent;
+  border: 1px solid;
 }
 
 .hint.error {
-  background: rgba(127, 29, 29, 0.2);
-  border-color: rgba(239, 68, 68, 0.25);
-  color: #fca5a5;
+  background: var(--hint-error-bg);
+  border-color: var(--hint-error-line);
+  color: var(--hint-error-text);
 }
 
 .hint.info {
-  background: rgba(29, 78, 216, 0.2);
-  border-color: rgba(59, 130, 246, 0.25);
-  color: #93c5fd;
+  background: var(--hint-info-bg);
+  border-color: var(--hint-info-line);
+  color: var(--hint-info-text);
 }
 
 .runtime-summary {
@@ -827,6 +810,60 @@ tbody tr:hover {
 .target-preview {
   margin-top: 0;
   grid-column: 1 / -1;
+}
+
+.settings-lang-row {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 320px);
+  gap: 12px;
+  align-items: center;
+}
+
+.settings-language-select {
+  min-width: 220px;
+}
+
+.settings-mcp-subtitle {
+  margin-top: 4px;
+}
+
+.settings-mcp-summary {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.settings-mcp-grid,
+.settings-mcp-paths {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 14px;
+}
+
+.settings-mcp-tools,
+.settings-mcp-tool-list {
+  margin-top: 14px;
+}
+
+.settings-mcp-token,
+.settings-mcp-client-header {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.settings-mcp-token-input,
+.settings-mcp-preset-select {
+  min-width: 280px;
+}
+
+.settings-mcp-config {
+  min-height: 220px;
+  resize: vertical;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  line-height: 1.5;
 }
 
 .status-grid {
@@ -904,6 +941,10 @@ pre {
     grid-template-columns: 1fr;
   }
 
+  .settings-mcp-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .toolbar {
     grid-template-columns: 1fr 1fr;
   }
@@ -916,15 +957,14 @@ pre {
 @media (max-width: 1024px) {
   .app-layout {
     grid-template-columns: 10em 1fr;
-    height: auto;
-    min-height: 100dvh;
+    height: 100%;
     gap: 12px;
     padding: 12px;
     overflow: visible;
   }
 
   body {
-    overflow: auto;
+    overflow: hidden;
   }
 
   .sidebar {
@@ -941,7 +981,7 @@ pre {
 
   .content {
     padding-right: 0;
-    overflow: visible;
+    overflow: auto;
   }
 
   .form-grid {
@@ -965,6 +1005,12 @@ pre {
   }
 
   .settings-lang-row {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-mcp-summary,
+  .settings-mcp-grid,
+  .settings-mcp-paths {
     grid-template-columns: 1fr;
   }
 

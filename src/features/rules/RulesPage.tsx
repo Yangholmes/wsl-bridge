@@ -14,6 +14,7 @@ import {
   type ColumnDef
 } from "@tanstack/solid-table";
 import * as KButton from "@kobalte/core/button";
+import * as KCheckbox from "@kobalte/core/checkbox";
 import * as KSelect from "@kobalte/core/select";
 import * as KSwitch from "@kobalte/core/switch";
 import * as KTextField from "@kobalte/core/text-field";
@@ -415,20 +416,28 @@ export function RulesPage() {
     {
       id: "select",
       header: () => (
-        <input
-          class="row-check"
-          type="checkbox"
+        <KCheckbox.Root
           checked={isCurrentPageFullySelected()}
-          onChange={(e) => setCurrentPageSelected(e.currentTarget.checked)}
-        />
+          onChange={setCurrentPageSelected}
+          class="row-check"
+        >
+          <KCheckbox.Input />
+          <KCheckbox.Control class="kb-checkbox-control">
+            <KCheckbox.Indicator class="kb-checkbox-indicator" />
+          </KCheckbox.Control>
+        </KCheckbox.Root>
       ),
       cell: (ctx) => (
-        <input
-          class="row-check"
-          type="checkbox"
+        <KCheckbox.Root
           checked={isRuleSelected(ctx.row.original.id)}
-          onChange={(e) => setRuleSelected(ctx.row.original.id, e.currentTarget.checked)}
-        />
+          onChange={(checked) => setRuleSelected(ctx.row.original.id, checked)}
+          class="row-check"
+        >
+          <KCheckbox.Input />
+          <KCheckbox.Control class="kb-checkbox-control">
+            <KCheckbox.Indicator class="kb-checkbox-indicator" />
+          </KCheckbox.Control>
+        </KCheckbox.Root>
       )
     },
     { id: "name", header: () => t("rules.tableName"), cell: (ctx) => renderEllipsisCell(ctx.row.original.name) },

@@ -4834,11 +4834,13 @@ name = "wsl-bridge-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "parking_lot",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tracing",
+ "uuid",
  "wsl-bridge-core",
  "wsl-bridge-shared",
 ]

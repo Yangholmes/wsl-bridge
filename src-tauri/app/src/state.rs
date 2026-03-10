@@ -5,9 +5,12 @@ use std::path::PathBuf;
 
 use wsl_bridge_core::{EngineOptions, FirewallMode, RuleEngine};
 
-#[derive(Clone, Default)]
+use crate::mcp::{self, McpHttpService};
+
+#[derive(Clone)]
 pub struct AppState {
     pub engine: Arc<RuleEngine>,
+    pub mcp_service: Arc<McpHttpService>,
 }
 
 impl AppState {
@@ -30,8 +33,14 @@ impl AppState {
         match RuleEngine::with_sqlite_and_options(&path, options) {
             Ok(engine) => {
                 let engine = Arc::new(engine);
+                let mcp_service = Arc::new(McpHttpService::new(engine.clone()));
+                let state = Self {
+                    engine: engine.clone(),
+                    mcp_service,
+                };
+                mcp::ensure_initialized_config(&state);
                 start_topology_reconcile_loop(engine.clone());
-                Self { engine }
+                state
             }
             Err(err) => {
                 eprintln!(
@@ -39,8 +48,14 @@ impl AppState {
                     path.display()
                 );
                 let engine = Arc::new(RuleEngine::new_with_options(options));
+                let mcp_service = Arc::new(McpHttpService::new(engine.clone()));
+                let state = Self {
+                    engine: engine.clone(),
+                    mcp_service,
+                };
+                mcp::ensure_initialized_config(&state);
                 start_topology_reconcile_loop(engine.clone());
-                Self { engine }
+                state
             }
         }
     }
@@ -48,6 +63,11 @@ impl AppState {
 
 #[cfg(not(feature = "tauri"))]
 fn db_path() -> std::path::PathBuf {
+    default_storage_path()
+}
+
+#[cfg(not(feature = "tauri"))]
+pub fn default_storage_path() -> std::path::PathBuf {
     if let Ok(explicit) = env::var("WSL_BRIDGE_DB_PATH") {
         return explicit.into();
     }
