@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpListener, ToSocketAddrs};
 use std::path::Path;
 
 use chrono::Utc;
@@ -9,9 +9,9 @@ use tracing::warn;
 use uuid::Uuid;
 use wsl_bridge_shared::{
     ApplyRulesResult, AuditLog, BindMode, CreateRuleRequest, FirewallPolicy, LogQueryRequest,
-    LogQueryResult, McpServerConfig, NewFirewallPolicy, NewProxyRule, ProxyRule,
-    RuleLogStatsItem, RuleLogStatsRequest, RulePatch, RuleType, RuntimeState, RuntimeStatusItem,
-    StopRulesResult, TailLogsResult, TargetKind, TopologySnapshot,
+    LogQueryResult, McpServerConfig, NewFirewallPolicy, NewProxyRule, ProxyRule, RuleLogStatsItem,
+    RuleLogStatsRequest, RulePatch, RuleType, RuntimeState, RuntimeStatusItem, StopRulesResult,
+    TailLogsResult, TargetKind, TopologySnapshot,
 };
 
 use crate::firewall::{apply_firewall, cleanup_firewall, FirewallMode, FirewallRuleRuntime};
@@ -208,13 +208,7 @@ impl RuleEngine {
             "enabled={},server_name={},listen_port={}",
             store.mcp_config.enabled, store.mcp_config.server_name, store.mcp_config.listen_port
         );
-        append_log(
-            &mut store,
-            "info",
-            "engine",
-            "mcp_config_updated",
-            &detail,
-        );
+        append_log(&mut store, "info", "engine", "mcp_config_updated", &detail);
         self.persist_store(&store);
         Ok(())
     }
@@ -278,6 +272,47 @@ impl RuleEngine {
     pub fn update_rule(&self, id: &str, patch: RulePatch) -> Result<(), EngineError> {
         if let Some(active) = self.active.lock().remove(id) {
             self.stop_active_runtime(id, active);
+        }
+
+        let new_listen_host = patch.listen_host.clone();
+        let new_listen_port = patch.listen_port;
+
+        if new_listen_host.is_some() || new_listen_port.is_some() {
+            let store = self.store.read();
+            let current_rule = store.rules.get(id);
+
+            let check_host = new_listen_host
+                .as_ref()
+                .map(|h| h.as_str())
+                .unwrap_or_else(|| current_rule.map(|r| r.listen_host.as_str()).unwrap_or(""));
+            let check_port =
+                new_listen_port.unwrap_or_else(|| current_rule.map(|r| r.listen_port).unwrap_or(0));
+
+            for (rid, existing_rule) in store.rules.iter() {
+                if rid != id
+                    && existing_rule.listen_host == check_host
+                    && existing_rule.listen_port == check_port
+                {
+                    return Err(EngineError::InvalidRule(format!(
+                        "port {} on {} is already used by rule '{}'",
+                        check_port, check_host, existing_rule.name
+                    )));
+                }
+            }
+            drop(store);
+
+            if let (Some(host), Some(port)) = (new_listen_host.as_ref(), new_listen_port) {
+                let addr_str = format!("{}:{}", host, port);
+                if let Ok(addr) = addr_str.parse::<SocketAddr>() {
+                    let bind_result = TcpListener::bind(addr);
+                    if bind_result.is_err() {
+                        return Err(EngineError::InvalidRule(format!(
+                            "port {} on {} is already in use by another process",
+                            port, host
+                        )));
+                    }
+                }
+            }
         }
 
         let mut store = self.store.write();
@@ -1012,6 +1047,31 @@ impl RuleEngine {
                 "single_nic mode requires nic_id".to_owned(),
             ));
         }
+
+        let store = self.store.read();
+        for existing_rule in store.rules.values() {
+            if existing_rule.listen_host == rule.listen_host
+                && existing_rule.listen_port == rule.listen_port
+            {
+                return Err(EngineError::InvalidRule(format!(
+                    "port {} on {} is already used by rule '{}'",
+                    rule.listen_port, rule.listen_host, existing_rule.name
+                )));
+            }
+        }
+        drop(store);
+
+        let addr_str = format!("{}:{}", rule.listen_host, rule.listen_port);
+        if let Ok(addr) = addr_str.parse::<SocketAddr>() {
+            let bind_result = TcpListener::bind(addr);
+            if bind_result.is_err() {
+                return Err(EngineError::InvalidRule(format!(
+                    "port {} on {} is already in use by another process",
+                    rule.listen_port, rule.listen_host
+                )));
+            }
+        }
+
         if rule.rule_type == RuleType::TcpFwd || rule.rule_type == RuleType::UdpFwd {
             match rule.target_kind {
                 TargetKind::Static => {

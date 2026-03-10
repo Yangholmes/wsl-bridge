@@ -782,7 +782,7 @@ tbody tr:hover {
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: rgba(7, 18, 40, 0.45);
+  background: rgba(7, 18, 40, 0.35);
   backdrop-filter: blur(4px);
 }
 
@@ -796,11 +796,11 @@ tbody tr:hover {
   max-height: calc(100vh - 24px);
   overflow: auto;
   border: 1px solid var(--line);
-  background: rgba(30, 41, 59, 0.95);
+  background: var(--surface-strong);
   backdrop-filter: blur(20px) saturate(1.2);
   border-radius: 16px;
   padding: 16px;
-  box-shadow: 0 22px 62px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow);
 }
 
 .modal-title-actions {
@@ -898,6 +898,99 @@ tbody tr:hover {
   resize: vertical;
   font-family: "Cascadia Code", "Consolas", monospace;
   line-height: 1.5;
+}
+
+.settings-mcp-config-code {
+  display: block;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  overflow: auto;
+  max-height: 360px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  white-space: pre;
+}
+
+.settings-appearance-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(200px, 320px));
+}
+
+.settings-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-select-narrow {
+  min-width: 180px;
+}
+
+.settings-mcp-config-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.settings-mcp-toggles {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: auto 1fr;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.settings-mcp-capabilities .muted {
+  margin-bottom: 8px;
+}
+
+.settings-mcp-token-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.settings-mcp-token-field {
+  flex: 1;
+  min-width: 280px;
+}
+
+.settings-mcp-baseurl {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.settings-mcp-baseurl-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-mcp-baseurl-row .kb-input {
+  flex: 1;
+}
+
+.settings-mcp-preset-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  margin: 16px 0;
+}
+
+.settings-mcp-preset-row .kb-field {
+  flex: 1;
 }
 
 .status-grid {

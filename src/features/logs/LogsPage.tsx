@@ -2,11 +2,11 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 import * as KButton from "@kobalte/core/button";
 import * as KCheckbox from "@kobalte/core/checkbox";
 import * as KSelect from "@kobalte/core/select";
-import * as KTooltip from "@kobalte/core/tooltip";
 
 import { queryLogs } from "../rules/api";
 import type { AuditLog } from "../../lib/types";
 import { useI18n } from "../../i18n/context";
+import { EllipsisCell } from "../../lib/EllipsisCell";
 
 type ReplayWindow = "15m" | "1h" | "6h" | "24h" | "all";
 
@@ -20,23 +20,6 @@ function replayWindowToStartIso(value: ReplayWindow): string | null {
   if (value === "all") return null;
   const minutes = value === "15m" ? 15 : value === "1h" ? 60 : value === "6h" ? 360 : 1440;
   return new Date(Date.now() - minutes * 60_000).toISOString();
-}
-
-function renderEllipsisCell(text: string | null | undefined) {
-  const content = (text ?? "").trim() || "-";
-  return (
-    <KTooltip.Root openDelay={180}>
-      <KTooltip.Trigger as="div" class="table-cell-ellipsis">
-        {content}
-      </KTooltip.Trigger>
-      <KTooltip.Portal>
-        <KTooltip.Content class="kb-tooltip-content">
-          {content}
-          <KTooltip.Arrow class="kb-tooltip-arrow" />
-        </KTooltip.Content>
-      </KTooltip.Portal>
-    </KTooltip.Root>
-  );
 }
 
 type SelectOption = { value: string; label: string };
@@ -307,12 +290,12 @@ export function LogsPage() {
                 <For each={logs()}>
                   {(item) => (
                     <tr>
-                      <td>{renderEllipsisCell(String(item.id))}</td>
-                      <td>{renderEllipsisCell(toLocalTime(item.time))}</td>
-                      <td>{renderEllipsisCell(item.level)}</td>
-                      <td>{renderEllipsisCell(item.module)}</td>
-                      <td>{renderEllipsisCell(item.event)}</td>
-                      <td>{renderEllipsisCell(item.detail)}</td>
+                      <td><EllipsisCell text={String(item.id)} /></td>
+                      <td><EllipsisCell text={toLocalTime(item.time)} /></td>
+                      <td><EllipsisCell text={item.level} /></td>
+                      <td><EllipsisCell text={item.module} /></td>
+                      <td><EllipsisCell text={item.event} /></td>
+                      <td><EllipsisCell text={item.detail} /></td>
                     </tr>
                   )}
                 </For>

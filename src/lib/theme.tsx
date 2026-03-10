@@ -1,4 +1,4 @@
-import { createSignal, createContext, useContext, createEffect, onMount, ParentComponent } from "solid-js";
+import { createSignal, createContext, useContext, createEffect, onMount, onCleanup, ParentComponent } from "solid-js";
 
 export type ThemeMode = "light" | "dark" | "auto";
 
@@ -36,28 +36,32 @@ export const ThemeProvider: ParentComponent = (props) => {
     (mode() === "auto" ? getSystemTheme() : mode()) as "light" | "dark"
   );
 
-  function setMode(newMode: ThemeMode) {
-    setModeSignal(newMode);
-    localStorage.setItem(THEME_STORAGE_KEY, newMode);
-  }
-
-  createEffect(() => {
+  function updateTheme() {
     const currentMode = mode();
     const resolved = currentMode === "auto" ? getSystemTheme() : currentMode;
     setResolvedTheme(resolved as "light" | "dark");
     applyTheme(resolved as "light" | "dark");
+  }
+
+  function setMode(newMode: ThemeMode) {
+    setModeSignal(newMode);
+    localStorage.setItem(THEME_STORAGE_KEY, newMode);
+    updateTheme();
+  }
+
+  createEffect(() => {
+    updateTheme();
   });
 
   onMount(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const handleChange = () => {
       if (mode() === "auto") {
-        const resolved = getSystemTheme();
-        setResolvedTheme(resolved);
-        applyTheme(resolved);
+        updateTheme();
       }
     };
     mediaQuery.addEventListener("change", handleChange);
+    onCleanup(() => mediaQuery.removeEventListener("change", handleChange));
   });
 
   return (

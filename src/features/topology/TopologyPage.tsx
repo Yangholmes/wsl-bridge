@@ -2,36 +2,19 @@ import { createSignal, For, Show } from "solid-js";
 import { queryOptions, useQuery } from "@tanstack/solid-query";
 import * as KButton from "@kobalte/core/button";
 import * as KDialog from "@kobalte/core/dialog";
-import * as KTooltip from "@kobalte/core/tooltip";
 
 import { debugHyperVProbe } from "../rules/api";
 import { appQueryClient } from "../../lib/queryClient";
 import { createTopologyQueryOptions, getGlobalTargetKind, getGlobalTargetRef } from "./state";
 import type { HyperVProbeDebug } from "../../lib/types";
 import { useI18n } from "../../i18n/context";
+import { EllipsisCell } from "../../lib/EllipsisCell";
 
 function toLocalTime(value: string | null) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
-}
-
-function renderEllipsisCell(text: string | null | undefined) {
-  const content = (text ?? "").trim() || "-";
-  return (
-    <KTooltip.Root openDelay={180}>
-      <KTooltip.Trigger as="div" class="table-cell-ellipsis">
-        {content}
-      </KTooltip.Trigger>
-      <KTooltip.Portal>
-        <KTooltip.Content class="kb-tooltip-content">
-          {content}
-          <KTooltip.Arrow class="kb-tooltip-arrow" />
-        </KTooltip.Content>
-      </KTooltip.Portal>
-    </KTooltip.Root>
-  );
 }
 
 export function TopologyPage() {
@@ -102,9 +85,9 @@ export function TopologyPage() {
                     <For each={topologyQuery.data?.wsl ?? []}>
                       {(item) => (
                         <tr>
-                          <td>{renderEllipsisCell(item.distro)}</td>
-                          <td>{renderEllipsisCell(item.networking_mode)}</td>
-                          <td>{renderEllipsisCell(item.ip ?? "-")}</td>
+                          <td><EllipsisCell text={item.distro} /></td>
+                          <td><EllipsisCell text={item.networking_mode} /></td>
+                          <td><EllipsisCell text={item.ip ?? "-"} /></td>
                         </tr>
                       )}
                     </For>
@@ -144,9 +127,9 @@ export function TopologyPage() {
                     <For each={topologyQuery.data?.hyperv ?? []}>
                       {(item) => (
                         <tr>
-                          <td>{renderEllipsisCell(item.vm_name)}</td>
-                          <td>{renderEllipsisCell(item.v_switch ?? "-")}</td>
-                          <td>{renderEllipsisCell(item.ip ?? "-")}</td>
+                          <td><EllipsisCell text={item.vm_name} /></td>
+                          <td><EllipsisCell text={item.v_switch ?? "-"} /></td>
+                          <td><EllipsisCell text={item.ip ?? "-"} /></td>
                         </tr>
                       )}
                     </For>
@@ -189,10 +172,10 @@ export function TopologyPage() {
                     <For each={topologyQuery.data?.adapters ?? []}>
                       {(item) => (
                         <tr>
-                          <td>{renderEllipsisCell(item.name)}</td>
-                          <td>{renderEllipsisCell(item.id)}</td>
-                          <td>{renderEllipsisCell(item.ipv4.join(", ") || "-")}</td>
-                          <td>{renderEllipsisCell(item.ipv6.join(", ") || "-")}</td>
+                          <td><EllipsisCell text={item.name} /></td>
+                          <td><EllipsisCell text={item.id} /></td>
+                          <td><EllipsisCell text={item.ipv4.join(", ") || "-"} /></td>
+                          <td><EllipsisCell text={item.ipv6.join(", ") || "-"} /></td>
                         </tr>
                       )}
                     </For>

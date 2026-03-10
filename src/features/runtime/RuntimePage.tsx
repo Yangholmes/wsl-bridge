@@ -9,6 +9,7 @@ import { getRuleLogStats, getRuntimeStatus, listRules, queryLogs } from "../rule
 import { appQueryClient } from "../../lib/queryClient";
 import type { AuditLog, ProxyRule, RuntimeState, RuleLogStatsItem, RuntimeStatusItem } from "../../lib/types";
 import { useI18n } from "../../i18n/context";
+import { EllipsisCell } from "../../lib/EllipsisCell";
 
 type RuntimeRow = {
   rule_id: string;
@@ -92,23 +93,6 @@ function replayWindowStartIso(value: ReplayWindow): string | null {
   const minutes = replayWindowToMinutes(value);
   if (!minutes) return null;
   return new Date(Date.now() - minutes * 60_000).toISOString();
-}
-
-function renderEllipsisCell(text: string | null | undefined) {
-  const content = (text ?? "").trim() || "-";
-  return (
-    <KTooltip.Root openDelay={180}>
-      <KTooltip.Trigger as="div" class="table-cell-ellipsis">
-        {content}
-      </KTooltip.Trigger>
-      <KTooltip.Portal>
-        <KTooltip.Content class="kb-tooltip-content">
-          {content}
-          <KTooltip.Arrow class="kb-tooltip-arrow" />
-        </KTooltip.Content>
-      </KTooltip.Portal>
-    </KTooltip.Root>
-  );
 }
 
 export function RuntimePage() {
@@ -340,13 +324,13 @@ export function RuntimePage() {
                       const stats = () => statsMap().get(item.rule_id);
                       return (
                         <tr class={item.state === "error" ? "runtime-row-error" : undefined}>
-                          <td>{renderEllipsisCell(item.name)}</td>
-                          <td>{renderEllipsisCell(t(`common.${item.state}`))}</td>
-                          <td>{renderEllipsisCell(toLocalTime(item.last_apply_at))}</td>
-                          <td>{renderEllipsisCell(item.last_error ?? "-")}</td>
-                          <td>{renderEllipsisCell(String(stats()?.total ?? 0))}</td>
-                          <td>{renderEllipsisCell(String(stats()?.errors ?? 0))}</td>
-                          <td>{renderEllipsisCell(stats()?.last_error ?? "-")}</td>
+                          <td><EllipsisCell text={item.name} /></td>
+                          <td><EllipsisCell text={t(`common.${item.state}`)} /></td>
+                          <td><EllipsisCell text={toLocalTime(item.last_apply_at)} /></td>
+                          <td><EllipsisCell text={item.last_error ?? "-"} /></td>
+                          <td><EllipsisCell text={String(stats()?.total ?? 0)} /></td>
+                          <td><EllipsisCell text={String(stats()?.errors ?? 0)} /></td>
+                          <td><EllipsisCell text={stats()?.last_error ?? "-"} /></td>
                           <td>
                             <KButton.Root
                               class="kb-btn ghost small"
@@ -397,11 +381,11 @@ export function RuntimePage() {
                 <For each={relatedLogs()}>
                   {(log) => (
                     <tr>
-                      <td>{renderEllipsisCell(toLocalTime(log.time))}</td>
-                      <td>{renderEllipsisCell(log.level)}</td>
-                      <td>{renderEllipsisCell(log.module)}</td>
-                      <td>{renderEllipsisCell(log.event)}</td>
-                      <td>{renderEllipsisCell(log.detail)}</td>
+                      <td><EllipsisCell text={toLocalTime(log.time)} /></td>
+                      <td><EllipsisCell text={log.level} /></td>
+                      <td><EllipsisCell text={log.module} /></td>
+                      <td><EllipsisCell text={log.event} /></td>
+                      <td><EllipsisCell text={log.detail} /></td>
                     </tr>
                   )}
                 </For>

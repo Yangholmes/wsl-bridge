@@ -21,6 +21,7 @@ import * as KTextField from "@kobalte/core/text-field";
 import * as KTooltip from "@kobalte/core/tooltip";
 import { useI18n } from "../../i18n/context";
 import { appQueryClient } from "../../lib/queryClient";
+import { EllipsisCell } from "../../lib/EllipsisCell";
 
 import {
   applyRules,
@@ -69,7 +70,7 @@ type AppSelectProps = {
 const defaultForm: FormState = {
   name: "web-forward",
   type: "tcp_fwd",
-  listen_host: "0.0.0.0",
+  listen_host: "127.0.0.1",
   listen_port: "18081",
   target_kind: "static",
   target_ref: "",
@@ -161,23 +162,6 @@ function AppSelect(props: AppSelectProps & { placeholderText?: string }) {
         </KSelect.Content>
       </KSelect.Portal>
     </KSelect.Root>
-  );
-}
-
-function renderEllipsisCell(text: string | null | undefined) {
-  const content = (text ?? "").trim() || "-";
-  return (
-    <KTooltip.Root openDelay={180}>
-      <KTooltip.Trigger as="div" class="table-cell-ellipsis">
-        {content}
-      </KTooltip.Trigger>
-      <KTooltip.Portal>
-        <KTooltip.Content class="kb-tooltip-content">
-          {content}
-          <KTooltip.Arrow class="kb-tooltip-arrow" />
-        </KTooltip.Content>
-      </KTooltip.Portal>
-    </KTooltip.Root>
   );
 }
 
@@ -440,35 +424,35 @@ export function RulesPage() {
         </KCheckbox.Root>
       )
     },
-    { id: "name", header: () => t("rules.tableName"), cell: (ctx) => renderEllipsisCell(ctx.row.original.name) },
-    { id: "type", header: () => t("rules.tableType"), cell: (ctx) => renderEllipsisCell(ctx.row.original.type) },
+    { id: "name", header: () => t("rules.tableName"), cell: (ctx) => <EllipsisCell text={ctx.row.original.name} /> },
+    { id: "type", header: () => t("rules.tableType"), cell: (ctx) => <EllipsisCell text={ctx.row.original.type} /> },
     {
       id: "listen",
       header: () => t("rules.tableListen"),
-      cell: (ctx) => renderEllipsisCell(`${ctx.row.original.listen_host}:${ctx.row.original.listen_port}`)
+      cell: (ctx) => <EllipsisCell text={`${ctx.row.original.listen_host}:${ctx.row.original.listen_port}`} />
     },
     {
       id: "target",
       header: () => t("rules.tableTarget"),
       cell: (ctx) => {
         const row = ctx.row.original;
-        return renderEllipsisCell(`${row.target_kind}:${row.target_ref ?? row.target_host ?? "-"}:${row.target_port ?? "-"}`);
+        return <EllipsisCell text={`${row.target_kind}:${row.target_ref ?? row.target_host ?? "-"}:${row.target_port ?? "-"}`} />;
       }
     },
     {
       id: "runtime",
       header: () => t("rules.tableRuntime"),
-      cell: (ctx) => renderEllipsisCell(ctx.row.original.runtime_state)
+      cell: (ctx) => <EllipsisCell text={ctx.row.original.runtime_state} />
     },
     {
       id: "lastApply",
       header: () => t("rules.tableLastApply"),
-      cell: (ctx) => renderEllipsisCell(toLocalTime(ctx.row.original.last_apply_at))
+      cell: (ctx) => <EllipsisCell text={toLocalTime(ctx.row.original.last_apply_at)} />
     },
     {
       id: "error",
       header: () => t("rules.tableError"),
-      cell: (ctx) => renderEllipsisCell(ctx.row.original.last_error ?? "-")
+      cell: (ctx) => <EllipsisCell text={ctx.row.original.last_error ?? "-"} />
     },
     {
       id: "action",
