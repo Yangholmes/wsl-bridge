@@ -171,17 +171,6 @@ export function DashboardPage() {
             </div>
           </div>
         </Show>
-        <div class="actions">
-          <Link to="/rules" class="kb-btn accent link-btn">
-            {t("dashboard.createRule")}
-          </Link>
-          <KButton.Root class="kb-btn ghost" onClick={rescanTopology}>
-            {t("dashboard.scanTopology")}
-          </KButton.Root>
-          <Link to="/logs" class="kb-btn ghost link-btn">
-            {t("dashboard.viewErrorLogs")}
-          </Link>
-        </div>
         <Show when={message()}>
           {(msg) => <div class={`hint ${msg().type === "error" ? "error" : "info"}`}>{msg().text}</div>}
         </Show>
