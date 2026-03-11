@@ -1,0 +1,41 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="72" y1="52" x2="436" y2="466" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#73F7FF" />
+      <stop offset="0.44" stop-color="#7C87FF" />
+      <stop offset="0.74" stop-color="#F67AD9" />
+      <stop offset="1" stop-color="#FFB66B" />
+    </linearGradient>
+    <linearGradient id="bridgeStroke" x1="116" y1="150" x2="396" y2="352" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" />
+      <stop offset="0.55" stop-color="#EAF0FF" />
+      <stop offset="1" stop-color="#C8FFF9" />
+    </linearGradient>
+    <clipPath id="cardClip">
+      <rect x="32" y="32" width="448" height="448" rx="120" />
+    </clipPath>
+    <filter id="bridgeGlow" x="86" y="132" width="340" height="242" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix" />
+      <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+      <feGaussianBlur stdDeviation="10" result="effect1_foregroundBlur" />
+    </filter>
+  </defs>
+
+  <g clip-path="url(#cardClip)">
+    <rect x="32" y="32" width="448" height="448" rx="120" fill="url(#bgGradient)" />
+    <rect x="32" y="32" width="448" height="448" rx="120" fill="#170D43" fill-opacity="0.16" />
+
+    <g filter="url(#bridgeGlow)" opacity="0.3">
+      <path d="M104 204V332H188C188 294.445 218.445 264 256 264C293.555 264 324 294.445 324 332H408V204C408 204 339.803 176 256 176C172.197 176 104 204 104 204Z" stroke="#E8F7FF" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" />
+    </g>
+
+    <path d="M104 204V332H188C188 294.445 218.445 264 256 264C293.555 264 324 294.445 324 332H408V204C408 204 339.803 176 256 176C172.197 176 104 204 104 204Z" stroke="url(#bridgeStroke)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" />
+
+    <g stroke="url(#bridgeStroke)" stroke-linecap="round" stroke-width="10" opacity="0.98">
+      <path d="M220 332C236.166 307.779 275.834 307.779 292 332" />
+      <path d="M231 343C242.433 325.776 269.567 325.776 281 343" />
+      <path d="M243 353C249.609 343.787 262.391 343.787 269 353" />
+      <circle cx="256" cy="361" r="5" fill="#EAF0FF" stroke="none" />
+    </g>
+  </g>
+</svg>

@@ -1,12 +1,9 @@
-import { createSignal, For, Show } from "solid-js";
-import { queryOptions, useQuery } from "@tanstack/solid-query";
+import { For, Show } from "solid-js";
+import { useQuery } from "@tanstack/solid-query";
 import * as KButton from "@kobalte/core/button";
-import * as KDialog from "@kobalte/core/dialog";
 
-import { debugHyperVProbe } from "../rules/api";
 import { appQueryClient } from "../../lib/queryClient";
 import { createTopologyQueryOptions, getGlobalTargetKind, getGlobalTargetRef } from "./state";
-import type { HyperVProbeDebug } from "../../lib/types";
 import { useI18n } from "../../i18n/context";
 import { EllipsisCell } from "../../lib/EllipsisCell";
 
@@ -19,20 +16,9 @@ function toLocalTime(value: string | null) {
 
 export function TopologyPage() {
   const { t } = useI18n();
-  const [debugOpen, setDebugOpen] = createSignal(false);
 
   const topologyQuery = useQuery(() => createTopologyQueryOptions(true), () => appQueryClient);
 
-  const hypervProbeQuery = useQuery(() =>
-    queryOptions<HyperVProbeDebug>({
-      queryKey: ["topology", "hyperv-probe"],
-      queryFn: debugHyperVProbe,
-      enabled: debugOpen(),
-      staleTime: 10000,
-      refetchOnWindowFocus: false
-    }),
-    () => appQueryClient
-  );
   const isScanning = () => topologyQuery.isFetching;
 
   return (
@@ -138,11 +124,7 @@ export function TopologyPage() {
                 </tbody>
               </table>
             </div>
-            <div class="topology-debug-actions">
-              <KButton.Root class="kb-btn ghost small" onClick={() => setDebugOpen(true)}>
-                {t("topology.debugButton")}
-              </KButton.Root>
-            </div>
+
           </section>
 
           <section class="panel topology-subpanel">
@@ -187,56 +169,7 @@ export function TopologyPage() {
           </section>
         </div>
       </section>
-      <KDialog.Root open={debugOpen()} onOpenChange={setDebugOpen}>
-        <KDialog.Portal>
-          <KDialog.Overlay class="kb-dialog-overlay" />
-          <KDialog.Content class="kb-dialog-content topology-debug-modal">
-            <div class="panel-title">
-              <KDialog.Title as="h2">{t("topology.debugTitle")}</KDialog.Title>
-            </div>
-            <Show when={hypervProbeQuery.isPending}>
-              <div class="topology-debug-block">
-                <div class="skeleton-line wide" />
-                <For each={[1, 2, 3, 4, 5, 6]}>
-                  {() => <div class="skeleton-line" />}
-                </For>
-              </div>
-            </Show>
-            <Show when={hypervProbeQuery.error}>
-              {(err) => <div class="hint error topology-debug-block">{String(err())}</div>}
-            </Show>
-            <Show when={hypervProbeQuery.data}>
-              {(debug) => (
-                <div class="topology-debug-block">
-                  <div class="muted">{t("topology.latestDebug", { value: toLocalTime(debug().timestamp) })}</div>
-                  <div>{t("topology.selectedVm", { value: debug().selected_vm_names.join(", ") || t("common.none") })}</div>
-                  <For each={debug().steps}>
-                    {(step) => (
-                      <section class="panel topology-debug-step">
-                        <h2>{step.source}</h2>
-                        <div class="muted">{t("topology.executable", { value: step.executable || t("common.none") })}</div>
-                        <div>
-                          {t("topology.status", { value: step.ok ? "ok" : "failed", code: step.status_code })}
-                        </div>
-                        <div>{t("topology.parsedVmNames", { value: step.parsed_vm_names.join(", ") || t("common.none") })}</div>
-                        <div class="muted">{t("topology.stdout")}</div>
-                        <pre>{step.raw_stdout || t("common.none")}</pre>
-                        <div class="muted">{t("topology.stderr")}</div>
-                        <pre>{step.raw_stderr || t("common.none")}</pre>
-                      </section>
-                    )}
-                  </For>
-                </div>
-              )}
-            </Show>
-            <div class="actions modal-actions">
-              <KButton.Root class="kb-btn ghost" onClick={() => setDebugOpen(false)}>
-                {t("common.close")}
-              </KButton.Root>
-            </div>
-          </KDialog.Content>
-        </KDialog.Portal>
-      </KDialog.Root>
+
     </div>
   );
 }
