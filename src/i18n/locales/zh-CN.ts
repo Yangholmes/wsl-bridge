@@ -80,7 +80,7 @@ export const dict = {
   locale: {
     "zh-CN": "简体中文",
     "en-US": "English",
-    "zh-HK": "繁體中文（香港）",
+    "zh-HK": "繁體中文(中国香港)",
     "ja-JP": "日本語"
   },
   dashboard: {

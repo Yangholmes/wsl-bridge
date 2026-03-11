@@ -14,7 +14,7 @@ WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在
 - M3 收尾稳定性：已完成（`@tanstack/solid-query` 用法统一为 `useQuery + queryOptions`，并修复 Runtime 路由切换 `defaultQueryOptions` 异常）。
 - M4 前置 UI 优化：已完成（左右独立滚动、Win11 侧栏高亮导航、关键页面骨架屏、Dashboard 第一版）。
 - M4 前置 UI 第二轮：已完成（右侧顶层去卡片化、Runtime 筛选行重排、Topology 调试 Modal、滚动条 Win11 风格统一）。
-- i18n：已完成（`@solid-primitives/i18n`，支持简体中文/English/繁體中文(香港)/日本語，Settings 可即时切换语言）。
+- i18n：已完成（`@solid-primitives/i18n`，支持简体中文/English/繁體中文(中国香港)/日本語，Settings 可即时切换语言）。
 
 ## 仓库结构
 

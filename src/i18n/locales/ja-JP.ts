@@ -78,9 +78,9 @@ export const dict = {
     mcpSummaryLastScan: "最終トポロジースキャン"
   },
   locale: {
-    "zh-CN": "簡体字中国語",
-    "en-US": "英語",
-    "zh-HK": "繁体字中国語（香港）",
+    "zh-CN": "简体中文",
+    "en-US": "English",
+    "zh-HK": "繁體中文(中国香港)",
     "ja-JP": "日本語"
   },
   dashboard: {

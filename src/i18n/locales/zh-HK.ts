@@ -78,9 +78,9 @@ export const dict = {
     mcpSummaryLastScan: "最近拓撲掃描"
   },
   locale: {
-    "zh-CN": "簡體中文",
+    "zh-CN": "简体中文",
     "en-US": "English",
-    "zh-HK": "繁體中文（香港）",
+    "zh-HK": "繁體中文(中国香港)",
     "ja-JP": "日本語"
   },
   dashboard: {

@@ -78,10 +78,10 @@ export const dict = {
     mcpSummaryLastScan: "Last topology scan"
   },
   locale: {
-    "zh-CN": "Simplified Chinese",
+    "zh-CN": "简体中文",
     "en-US": "English",
-    "zh-HK": "Traditional Chinese (Hong Kong)",
-    "ja-JP": "Japanese"
+    "zh-HK": "繁體中文(中国香港)",
+    "ja-JP": "日本語"
   },
   dashboard: {
     title: "Dashboard",
