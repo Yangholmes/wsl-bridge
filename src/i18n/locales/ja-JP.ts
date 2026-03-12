@@ -24,7 +24,10 @@ export const dict = {
     loading: "読み込み中...",
     none: "-",
     enabled: "有効",
-    disabled: "無効"
+    disabled: "無効",
+    copy: "コピー",
+    cut: "切り取り",
+    paste: "貼り付け"
   },
   settings: {
     title: "設定",
@@ -45,6 +48,7 @@ export const dict = {
     mcpCopyBaseUrl: "Base URL をコピー",
     mcpEnabled: "MCP Server を有効化",
     mcpEnabledHint: "Agent が MCP 経由でトポロジーを読み取り、転送ルールを設定できるようにします",
+    mcpConfigTitle: "サーバー設定",
     mcpServerName: "Server 名",
     mcpPort: "HTTP ポート（読み取り専用）",
     mcpApiToken: "API Token",

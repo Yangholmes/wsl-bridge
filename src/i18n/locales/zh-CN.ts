@@ -24,7 +24,10 @@ export const dict = {
     loading: "加载中...",
     none: "-",
     enabled: "启用",
-    disabled: "禁用"
+    disabled: "禁用",
+    copy: "复制",
+    cut: "剪切",
+    paste: "粘贴"
   },
   settings: {
     title: "设置",
@@ -45,6 +48,7 @@ export const dict = {
     mcpCopyBaseUrl: "复制 Base URL",
     mcpEnabled: "启用 MCP Server",
     mcpEnabledHint: "允许其他 Agent 通过 MCP 读取拓扑和配置转发规则",
+    mcpConfigTitle: "服务器配置",
     mcpServerName: "Server 名称",
     mcpPort: "HTTP 端口（只读）",
     mcpApiToken: "API Token",

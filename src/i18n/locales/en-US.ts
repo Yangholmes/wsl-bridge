@@ -24,7 +24,10 @@ export const dict = {
     loading: "Loading...",
     none: "-",
     enabled: "enabled",
-    disabled: "disabled"
+    disabled: "disabled",
+    copy: "Copy",
+    cut: "Cut",
+    paste: "Paste"
   },
   settings: {
     title: "Settings",
@@ -45,6 +48,7 @@ export const dict = {
     mcpCopyBaseUrl: "Copy Base URL",
     mcpEnabled: "Enable MCP Server",
     mcpEnabledHint: "Allow agents to read topology and configure forward rules through MCP",
+    mcpConfigTitle: "Server Configuration",
     mcpServerName: "Server Name",
     mcpPort: "HTTP Port (Read-only)",
     mcpApiToken: "API Token",

@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "solid-js";
 import { createRootRoute, createRoute, createRouter, Link, Outlet } from "@tanstack/solid-router";
 import { useI18n } from "./i18n/context";
+import IconBridge from "./assets/bridge-logo.svg?url";
 
 const DashboardPage = lazy(() =>
   import("./features/dashboard/DashboardPage").then((module) => ({ default: module.DashboardPage }))
@@ -42,7 +43,10 @@ function RootLayout() {
   return (
     <div class="app-layout">
       <aside class="sidebar">
-        <div class="brand">{t("app.name")}</div>
+        <div class="brand">
+          <img src={IconBridge} class="brand-icon" />
+          {t("app.name")}
+        </div>
         <nav class="nav">
           <Link to="/dashboard" class="nav-item">
             {t("nav.dashboard")}

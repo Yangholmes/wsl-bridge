@@ -128,6 +128,7 @@ const result = await invokeBridge<ReturnType>("command_name", {
 3. **遵循 Tauri 目录规范** - 使用 `src-tauri/app/` 结构
 4. **先读文档** - 开发前查阅 `docs/` 目录
 5. **使用 pnpm** - 不要使用 npm 或 yarn
+6. **记录开发日志** - 每一个功能开发都需要记录开发日志
 
 ## 代码提交
 

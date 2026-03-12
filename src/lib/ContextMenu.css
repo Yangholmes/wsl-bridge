@@ -1,0 +1,28 @@
+.context-menu {
+  position: fixed;
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 120px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10000;
+}
+
+.context-menu-item {
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  transition: background-color 0.1s;
+}
+
+.context-menu-item:hover:not(.disabled) {
+  background: var(--hover);
+}
+
+.context-menu-item.disabled {
+  opacity: 0.4;
+  cursor: default;
+}

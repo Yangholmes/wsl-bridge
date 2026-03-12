@@ -122,6 +122,15 @@ body {
   font-size: 24px;
   font-weight: 700;
   letter-spacing: 0.2px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
 }
 
 .sub {
@@ -773,6 +782,12 @@ tbody tr:hover {
   color: var(--text);
 }
 
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
 .kb-checks {
   margin-top: 12px;
   gap: 16px;
@@ -1121,10 +1136,6 @@ pre {
 
   .toolbar {
     grid-template-columns: 1fr;
-  }
-
-  .runtime-tools {
-    width: 100%;
   }
 
   .logs-toolbar {

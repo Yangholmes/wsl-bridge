@@ -7,6 +7,7 @@ import * as KSelect from "@kobalte/core/select";
 import * as KSwitch from "@kobalte/core/switch";
 import * as KTextField from "@kobalte/core/text-field";
 import { useI18n } from "../../../i18n/context";
+import { NumberInput } from "../../../lib/NumberInput";
 
 import type { BindMode, RuleType, TargetKind } from "../../../lib/types";
 
@@ -170,7 +171,12 @@ export function RuleFormModal(props: RuleFormModalProps) {
                 onChange={(value) => props.setForm("listen_port", value)}
               >
                 <KTextField.Label>{t("rules.formListenPort")}</KTextField.Label>
-                <KTextField.Input class="kb-input" type="number" min="1" max="65535" />
+                <NumberInput
+                  value={parseInt(props.form.listen_port, 10) || 1}
+                  onChange={(v) => props.setForm("listen_port", String(v))}
+                  min={1}
+                  max={65535}
+                />
               </KTextField.Root>
 
               <div class="kb-field">
@@ -234,7 +240,13 @@ export function RuleFormModal(props: RuleFormModalProps) {
                 onChange={(value) => props.setForm("target_port", value)}
               >
                 <KTextField.Label>{t("rules.formTargetPort")}</KTextField.Label>
-                <KTextField.Input class="kb-input" type="number" min="1" max="65535" disabled={props.isProxyType} />
+                <NumberInput
+                  value={parseInt(props.form.target_port, 10) || 1}
+                  onChange={(v) => props.setForm("target_port", String(v))}
+                  min={1}
+                  max={65535}
+                  disabled={props.isProxyType}
+                />
               </KTextField.Root>
 
               <div class="kb-field">
