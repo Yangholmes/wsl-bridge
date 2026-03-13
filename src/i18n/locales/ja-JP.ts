@@ -27,7 +27,14 @@ export const dict = {
     disabled: "無効",
     copy: "コピー",
     cut: "切り取り",
-    paste: "貼り付け"
+    paste: "貼り付け",
+    errorPage: {
+      title: "エラーが発生しました",
+      message: "ページの読み込み中にエラーが発生しました。",
+      hint: "ページを更新するか、ダッシュボードに戻ってください。",
+      returnDashboard: "ダッシュボードに戻る",
+      details: "エラーの詳細"
+    }
   },
   settings: {
     title: "設定",

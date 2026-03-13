@@ -27,7 +27,14 @@ export const dict = {
     disabled: "停用",
     copy: "複製",
     cut: "剪下",
-    paste: "貼上"
+    paste: "貼上",
+    errorPage: {
+      title: "出錯了",
+      message: "載入此頁面時發生錯誤。",
+      hint: "請嘗試重新整理頁面或返回儀表板。",
+      returnDashboard: "返回儀表板",
+      details: "錯誤詳情"
+    }
   },
   settings: {
     title: "設定",

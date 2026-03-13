@@ -2,6 +2,7 @@ import { lazy, Suspense } from "solid-js";
 import { createRootRoute, createRoute, createRouter, Link, Outlet } from "@tanstack/solid-router";
 import { useI18n } from "./i18n/context";
 import IconBridge from "./assets/bridge-logo.svg?url";
+import { ErrorPage } from "./features/ErrorPage";
 
 const DashboardPage = lazy(() =>
   import("./features/dashboard/DashboardPage").then((module) => ({ default: module.DashboardPage }))
@@ -77,17 +78,7 @@ function RootLayout() {
 
 const rootRoute = createRootRoute({
   component: RootLayout,
-  errorComponent: (props) => {
-    const { t } = useI18n();
-    // 在控制台打印完整的 error 对象，查看 stack 堆栈
-    console.error(props.error)
-    console.log(props)
-    return (
-      <div>
-        <button onClick={() => props.reset()}>{t("common.retry")}</button>
-      </div>
-    );
-  },
+  errorComponent: ErrorPage
 });
 
 const indexRoute = createRoute({

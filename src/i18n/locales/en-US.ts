@@ -27,7 +27,14 @@ export const dict = {
     disabled: "disabled",
     copy: "Copy",
     cut: "Cut",
-    paste: "Paste"
+    paste: "Paste",
+    errorPage: {
+      title: "Something went wrong",
+      message: "An error occurred while loading this page.",
+      hint: "Try refreshing the page or return to the dashboard.",
+      returnDashboard: "Return to Dashboard",
+      details: "Error Details"
+    }
   },
   settings: {
     title: "Settings",
