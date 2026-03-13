@@ -123,6 +123,7 @@ export const dict = {
     noHypervData: "No Hyper-V topology data",
     noAdaptersData: "No adapter data",
     adminRequired: "Hyper-V: {{ error }} Please restart the app as administrator.",
+    hypervNotEnabled: "Hyper-V is not enabled. Please enable Hyper-V in Windows Features and try again.",
     debugButton: "View Hyper-V raw probe output (debug)",
     debugTitle: "Hyper-V raw probe output (debug)",
     latestDebug: "Last debug: {{ value }}",

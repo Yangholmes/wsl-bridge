@@ -87,7 +87,11 @@ export function TopologyPage() {
           <section class="panel topology-subpanel">
             <h2>{t("topology.hypervTitle")}</h2>
             <Show when={topologyQuery.data?.hyperv_error}>
-              {(err) => <div class="hint error">{t("topology.adminRequired", { error: String(err()) })}</div>}
+              {(err) => {
+                const errorStr = String(err());
+                const isNotEnabled = errorStr.includes("未启用") || errorStr.includes("not enabled") || errorStr.includes("有効");
+                return <div class="hint error">{isNotEnabled ? t("topology.hypervNotEnabled") : t("topology.adminRequired", { error: errorStr })}</div>;
+              }}
             </Show>
             <div class="table-wrap">
               <table class="rules-table">

@@ -123,6 +123,7 @@ export const dict = {
     noHypervData: "沒有 Hyper-V 拓撲資料",
     noAdaptersData: "沒有網卡資料",
     adminRequired: "Hyper-V：{{ error }} 請使用系統管理員身份重新啟動應用程式。",
+    hypervNotEnabled: "Hyper-V 功能未啟用，請先在 Windows 功能中啟用 Hyper-V 後重試。",
     debugButton: "檢視 Hyper-V 原始探測結果（除錯）",
     debugTitle: "Hyper-V 原始探測結果（除錯）",
     latestDebug: "最近除錯：{{ value }}",

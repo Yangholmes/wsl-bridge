@@ -5,9 +5,9 @@ use std::net::IpAddr;
 #[cfg(windows)]
 use serde::Deserialize;
 #[cfg(windows)]
-use std::{env, fs, path::PathBuf, process::Command};
-#[cfg(windows)]
 use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+use std::{env, fs, path::PathBuf, process::Command};
 
 use wsl_bridge_shared::{AdapterInfo, HyperVVmInfo, TargetKind, WslInfo};
 
@@ -370,6 +370,17 @@ fn normalize_hyperv_error(capture: &PowerShellCapture) -> String {
     let stdout = decode_command_output(&capture.stdout);
     let stderr = decode_command_output(&capture.stderr);
     let joined = format!("{stdout}\n{stderr}").to_ascii_lowercase();
+
+    let hyperv_not_enabled = joined.contains("not recognized")
+        || joined.contains("not found")
+        || joined.contains("hyper-v")
+        || joined.contains("hyperv")
+        || joined.contains("virtualization")
+        || joined.contains("cmdlet");
+    if hyperv_not_enabled {
+        return "Hyper-V 功能未启用，请先在 Windows 功能中启用 Hyper-V 后重试。".to_owned();
+    }
+
     if joined.contains("elevation_required")
         || joined.contains("access is denied")
         || joined.contains("administrator")
@@ -430,9 +441,12 @@ fn run_powershell_capture(script: &str) -> Option<PowerShellCapture> {
     let mut last_error = None;
     for executable in powershell_candidates() {
         let mut command = Command::new(executable.as_str());
-        command
-            .creation_flags(CREATE_NO_WINDOW)
-            .args(["-NoProfile", "-NonInteractive", "-Command", script]);
+        command.creation_flags(CREATE_NO_WINDOW).args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script,
+        ]);
         match command.output() {
             Ok(output) => {
                 return Some(PowerShellCapture {

@@ -123,6 +123,7 @@ export const dict = {
     noHypervData: "Hyper-V トポロジーデータがありません",
     noAdaptersData: "アダプターデータがありません",
     adminRequired: "Hyper-V: {{ error }} 管理者権限でアプリを再起動してください。",
+    hypervNotEnabled: "Hyper-V が有効になっていません。Windows の機能で Hyper-V を有効にしてから再試行してください。",
     debugButton: "Hyper-V 生デバッグ結果を表示",
     debugTitle: "Hyper-V 生デバッグ結果",
     latestDebug: "最終デバッグ: {{ value }}",
