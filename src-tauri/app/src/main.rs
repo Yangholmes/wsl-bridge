@@ -64,7 +64,14 @@ fn main() {
                         .join("data")
                 })
                 .join("state.db");
-            app.manage(state::AppState::new_with_storage_path(db_path));
+            let state = state::AppState::new_with_storage_path(db_path);
+            let result = commands::apply_rules(&state);
+            println!(
+                "wsl-bridge app bootstrap ready: applied={}, failed={}",
+                result.applied,
+                result.failed.len()
+            );
+            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

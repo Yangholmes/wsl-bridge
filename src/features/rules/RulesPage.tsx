@@ -118,6 +118,13 @@ const filterEnabledOptions: SelectOption[] = [
   { value: "disabled", label: "disabled" }
 ];
 
+const RUNTIME_STATE_EMOJI: Record<string, string> = {
+  running: "🟢",
+  stopped: "🔴",
+  error: "⚠️",
+  unknown: "❓"
+};
+
 const getPageSizeOptions = (t: ReturnType<typeof useI18n>["t"]): SelectOption[] => [
   { value: "10", label: t("rules.pageSize10") },
   { value: "20", label: t("rules.pageSize20") },
@@ -442,7 +449,10 @@ export function RulesPage() {
     {
       id: "runtime",
       header: () => t("rules.tableRuntime"),
-      cell: (ctx) => <EllipsisCell text={ctx.row.original.runtime_state} />
+      cell: (ctx) => {
+        const state = ctx.row.original.runtime_state;
+        return <EllipsisCell text={RUNTIME_STATE_EMOJI[state] ?? "❓"} />;
+      }
     },
     {
       id: "lastApply",
