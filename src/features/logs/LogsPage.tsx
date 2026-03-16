@@ -1,64 +1,15 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import * as KButton from "@kobalte/core/button";
 import * as KCheckbox from "@kobalte/core/checkbox";
-import * as KSelect from "@kobalte/core/select";
 
 import { queryLogs } from "../rules/api";
 import type { AuditLog } from "../../lib/types";
 import { useI18n } from "../../i18n/context";
 import { EllipsisCell } from "../../lib/EllipsisCell";
-
-type ReplayWindow = "15m" | "1h" | "6h" | "24h" | "all";
-
-function toLocalTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
-
-function replayWindowToStartIso(value: ReplayWindow): string | null {
-  if (value === "all") return null;
-  const minutes = value === "15m" ? 15 : value === "1h" ? 60 : value === "6h" ? 360 : 1440;
-  return new Date(Date.now() - minutes * 60_000).toISOString();
-}
-
-type SelectOption = { value: string; label: string };
-
-type SimpleSelectProps = {
-  value: string;
-  onChange: (value: string) => void;
-  options: SelectOption[];
-  class?: string;
-};
-
-function SimpleSelect(props: SimpleSelectProps) {
-  const selectedOption = () => props.options.find((opt) => opt.value === props.value) ?? null;
-
-  return (
-    <KSelect.Root<SelectOption>
-      options={props.options}
-      optionValue="value"
-      optionTextValue="label"
-      value={selectedOption()}
-      onChange={(opt) => opt && props.onChange(opt.value)}
-      itemComponent={(itemProps) => (
-        <KSelect.Item item={itemProps.item} class="kb-select-item">
-          <KSelect.ItemLabel>{itemProps.item.rawValue.label}</KSelect.ItemLabel>
-        </KSelect.Item>
-      )}
-    >
-      <KSelect.Trigger class={`kb-select-trigger ${props.class ?? ""}`}>
-        <KSelect.Value<SelectOption>>{(state) => state.selectedOption()?.label}</KSelect.Value>
-        <KSelect.Icon class="kb-select-icon">▾</KSelect.Icon>
-      </KSelect.Trigger>
-      <KSelect.Portal>
-        <KSelect.Content class="kb-select-content">
-          <KSelect.Listbox class="kb-select-listbox" />
-        </KSelect.Content>
-      </KSelect.Portal>
-    </KSelect.Root>
-  );
-}
+import { SimpleSelect, type SelectOption } from "../../lib/SimpleSelect";
+import { toLocalTime, type ReplayWindow, replayWindowToStartIso, replayWindowOptions } from "../../lib/datetime";
+import { SkeletonLine } from "../../lib/Skeleton";
+import { Hint } from "../../lib/Hint";
 
 function toCsv(logs: AuditLog[]) {
   const esc = (text: string) => `"${text.replaceAll("\"", "\"\"")}"`;
@@ -148,14 +99,6 @@ export function LogsPage() {
     { value: "info", label: "info" },
     { value: "warn", label: "warn" },
     { value: "error", label: "error" }
-  ];
-
-  const replayWindowOptions: SelectOption[] = [
-    { value: "15m", label: "15m" },
-    { value: "1h", label: "1h" },
-    { value: "6h", label: "6h" },
-    { value: "24h", label: "24h" },
-    { value: "all", label: "all" }
   ];
 
   const limitOptions: SelectOption[] = [
@@ -248,7 +191,7 @@ export function LogsPage() {
         />
       </div>
 
-      <div class="hint info">{t("logs.matchTotalHint", { total: total() })}</div>
+      <Hint>{t("logs.matchTotalHint", { total: total() })}</Hint>
 
       <div class="table-wrap">
         <table class="rules-table">
@@ -270,7 +213,7 @@ export function LogsPage() {
                   {() => (
                     <tr>
                       <td colspan={6}>
-                        <div class="skeleton-line" />
+                        <SkeletonLine />
                       </td>
                     </tr>
                   )}
@@ -306,7 +249,7 @@ export function LogsPage() {
       </div>
 
       <Show when={message()}>
-        {(msg) => <div class={`hint ${msg().type === "error" ? "error" : "info"}`}>{msg().text}</div>}
+        {(msg) => <Hint variant={msg().type as "info" | "error"}>{msg().text}</Hint>}
       </Show>
     </section>
   );

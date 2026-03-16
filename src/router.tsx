@@ -3,6 +3,15 @@ import { createRootRoute, createRoute, createRouter, Link, Outlet } from "@tanst
 import { useI18n } from "./i18n/context";
 import IconBridge from "./assets/bridge-logo.svg?url";
 import { ErrorPage } from "./features/ErrorPage";
+import { SkeletonTitle, SkeletonLine } from "./lib/Skeleton";
+import "./lib/Layout.css";
+import "./lib/Table.css";
+import "./lib/Form.css";
+import "./lib/Button.css";
+import "./lib/Toggle.css";
+import "./lib/Modal.css";
+import "./lib/Skeleton.css";
+import "./lib/Status.css";
 
 const DashboardPage = lazy(() =>
   import("./features/dashboard/DashboardPage").then((module) => ({ default: module.DashboardPage }))
@@ -26,10 +35,8 @@ const SettingsPage = lazy(() =>
 function PageLoadingFallback() {
   return (
     <section class="panel">
-      <div class="skeleton-title" />
-      <div class="skeleton-line wide" />
-      <div class="skeleton-line" />
-      <div class="skeleton-line" />
+      <SkeletonTitle />
+      <SkeletonLine wide count={3} />
     </section>
   );
 }

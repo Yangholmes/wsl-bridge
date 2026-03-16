@@ -1,0 +1,113 @@
+.kb-switch {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.kb-switch-control {
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.12);
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.kb-switch[data-checked] .kb-switch-control {
+  background: rgba(59, 130, 246, 0.3);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.kb-switch-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  transform: translateX(0);
+  transition: transform 0.16s ease;
+}
+
+.kb-switch[data-checked] .kb-switch-thumb {
+  transform: translateX(20px);
+}
+
+.kb-switch.small {
+  min-height: 28px;
+}
+
+.kb-switch.small .kb-switch-control {
+  width: 36px;
+  height: 20px;
+}
+
+.kb-switch.small .kb-switch-thumb {
+  width: 14px;
+  height: 14px;
+}
+
+.kb-switch.small[data-checked] .kb-switch-thumb {
+  transform: translateX(16px);
+}
+
+.kb-switch-label {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.kb-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kb-checkbox-control {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--checkbox-bg);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--checkbox-mark);
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.kb-checkbox-indicator {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid var(--checkbox-mark);
+  border-bottom: 2px solid var(--checkbox-mark);
+  transform: translate(-50%, -58%) rotate(-45deg);
+}
+
+.kb-checkbox[data-checked] .kb-checkbox-control {
+  background: var(--accent);
+  border-color: var(--accent-strong);
+}
+
+.kb-checkbox-label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.kb-checks {
+  margin-top: 12px;
+  gap: 16px;
+}

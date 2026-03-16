@@ -8,6 +8,8 @@ import * as KSwitch from "@kobalte/core/switch";
 import * as KTextField from "@kobalte/core/text-field";
 import { useI18n } from "../../../i18n/context";
 import { NumberInput } from "../../../lib/NumberInput";
+import { toLocalTime } from "../../../lib/datetime";
+import { Hint } from "../../../lib/Hint";
 
 import type { BindMode, RuleType, TargetKind } from "../../../lib/types";
 
@@ -63,13 +65,6 @@ type RuleFormModalProps = {
   onSubmit: () => void;
   onCancel: () => void;
 };
-
-function toLocalTime(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
 
 function AppSelect(props: AppSelectProps) {
   const selectedOption = () => props.options.find((option) => option.value === props.value) ?? null;
@@ -131,8 +126,8 @@ export function RuleFormModal(props: RuleFormModalProps) {
             </div>
 
             <Show when={props.isEditing}>
-              <KDialog.Description class="hint info">
-                {t("rules.formEditHint")}
+              <KDialog.Description>
+                <Hint>{t("rules.formEditHint")}</Hint>
               </KDialog.Description>
             </Show>
 
@@ -218,11 +213,11 @@ export function RuleFormModal(props: RuleFormModalProps) {
               </Show>
 
               <Show when={!props.isProxyType && (props.form.target_kind === "wsl" || props.form.target_kind === "hyperv")}>
-                <div class="hint info target-preview">
+                <Hint class="target-preview">
                   {t("rules.formIpPreview")}: {props.targetPreview ?? t("rules.formIpNotResolved")}
                   <br />
                   {t("rules.formLastScan")}: {toLocalTime(props.topologyTimestamp)}
-                </div>
+                </Hint>
               </Show>
 
               <KTextField.Root

@@ -5,6 +5,8 @@ import * as KTextField from "@kobalte/core/text-field";
 import { queryOptions, useQuery } from "@tanstack/solid-query";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
+import "./SettingsPage.css";
+
 import { useI18n } from "../../i18n/context";
 import { SUPPORTED_LOCALES, type AppLocale } from "../../i18n/locale";
 import type {
@@ -17,6 +19,7 @@ import type {
 import { useTheme, type ThemeMode } from "../../lib/theme";
 import { listRules, scanTopology } from "../rules/api";
 import { getMcpServerStatus, updateMcpServerConfig } from "./api";
+import { Hint } from "../../lib/Hint";
 import FlagCn from "../../assets/flag-cn.svg?url";
 import FlagUs from "../../assets/flag-us.svg?url";
 import FlagHk from "../../assets/flag-hk.svg?url";
@@ -282,7 +285,7 @@ export function SettingsPage() {
         </div>
 
         <Show when={mcpStatusQuery.data?.last_error}>
-          {(err) => <div class="hint error">{err()}</div>}
+          {(err) => <Hint variant="error">{err()}</Hint>}
         </Show>
 
         <div class="settings-mcp-summary">
@@ -500,12 +503,12 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <div class="hint info">
+      <Hint>
         {t("settings.mcpHint")}
-      </div>
+      </Hint>
 
       <Show when={message()}>
-        {(msg) => <div class={`hint ${msg().type === "error" ? "error" : "info"}`}>{msg().text}</div>}
+        {(msg) => <Hint variant={msg().type as "info" | "error"}>{msg().text}</Hint>}
       </Show>
     </div>
   );

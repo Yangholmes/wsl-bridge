@@ -1,0 +1,39 @@
+.topology-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.topology-subpanel {
+  margin: 0;
+}
+
+.topology-debug-details {
+  margin-top: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--surface-strong);
+}
+
+.topology-debug-details > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 12px;
+  color: var(--text);
+  font-weight: 560;
+}
+
+.topology-debug-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.topology-debug-block {
+  padding: 0 12px 12px;
+}
+
+.topology-debug-step {
+  margin-top: 10px;
+}
+
+.error {
+  color: #fca5a5;
+}

@@ -2,36 +2,17 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import { Link } from "@tanstack/solid-router";
 import { queryOptions, useQuery } from "@tanstack/solid-query";
 import * as KButton from "@kobalte/core/button";
-import * as KTooltip from "@kobalte/core/tooltip";
+
+import "./DashboardPage.css";
 
 import { getRuntimeStatus, listRules, queryLogs, scanTopology } from "../rules/api";
 import { appQueryClient } from "../../lib/queryClient";
 import type { AuditLog, ProxyRule, RuntimeStatusItem, RuntimeState, TopologySnapshot } from "../../lib/types";
 import { useI18n } from "../../i18n/context";
-
-function toLocalTime(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
-
-function renderEllipsisCell(text: string | null | undefined) {
-  const content = (text ?? "").trim() || "-";
-  return (
-    <KTooltip.Root openDelay={180}>
-      <KTooltip.Trigger as="div" class="table-cell-ellipsis">
-        {content}
-      </KTooltip.Trigger>
-      <KTooltip.Portal>
-        <KTooltip.Content class="kb-tooltip-content">
-          {content}
-          <KTooltip.Arrow class="kb-tooltip-arrow" />
-        </KTooltip.Content>
-      </KTooltip.Portal>
-    </KTooltip.Root>
-  );
-}
+import { toLocalTime } from "../../lib/datetime";
+import { EllipsisCell } from "../../lib/EllipsisCell";
+import { SkeletonGrid, SkeletonLine } from "../../lib/Skeleton";
+import { Hint } from "../../lib/Hint";
 
 export function DashboardPage() {
   const { t } = useI18n();
@@ -147,7 +128,7 @@ export function DashboardPage() {
             {t("dashboard.refreshOverview")}
           </KButton.Root>
         </div>
-        <Show when={!isLoading()} fallback={<div class="skeleton-grid dashboard-skeleton-grid" />}>
+        <Show when={!isLoading()} fallback={<SkeletonGrid dashboard />}>
           <div class="dashboard-grid">
             <div class="dashboard-card">
               <div class="muted">{t("dashboard.appStatus")}</div>
@@ -165,14 +146,14 @@ export function DashboardPage() {
             </div>
             <div class="dashboard-card">
               <div class="muted">{t("dashboard.riskHint")}</div>
-              <Show when={natWithoutRules()} fallback={<div class="hint info">{t("dashboard.noHighRisk")}</div>}>
-                <div class="hint error">{t("dashboard.natRisk")}</div>
+              <Show when={natWithoutRules()} fallback={<Hint variant="info">{t("dashboard.noHighRisk")}</Hint>}>
+                <Hint variant="error">{t("dashboard.natRisk")}</Hint>
               </Show>
             </div>
           </div>
         </Show>
         <Show when={message()}>
-          {(msg) => <div class={`hint ${msg().type === "error" ? "error" : "info"}`}>{msg().text}</div>}
+          {(msg) => <Hint variant={msg().type as "info" | "error"}>{msg().text}</Hint>}
         </Show>
       </section>
 
@@ -196,7 +177,7 @@ export function DashboardPage() {
                     {() => (
                       <tr>
                         <td colspan={4}>
-                          <div class="skeleton-line" />
+                          <SkeletonLine />
                         </td>
                       </tr>
                     )}
@@ -216,10 +197,10 @@ export function DashboardPage() {
                   <For each={errorLogsQuery.data?.events ?? []}>
                     {(item) => (
                       <tr>
-                        <td>{renderEllipsisCell(toLocalTime(item.time))}</td>
-                        <td>{renderEllipsisCell(item.module)}</td>
-                        <td>{renderEllipsisCell(item.event)}</td>
-                        <td>{renderEllipsisCell(item.detail)}</td>
+                        <td><EllipsisCell text={toLocalTime(item.time)} /></td>
+                        <td><EllipsisCell text={item.module} /></td>
+                        <td><EllipsisCell text={item.event} /></td>
+                        <td><EllipsisCell text={item.detail} /></td>
                       </tr>
                     )}
                   </For>

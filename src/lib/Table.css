@@ -1,0 +1,90 @@
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--surface-strong);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.rules-table {
+  table-layout: fixed;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 9px 8px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+th {
+  color: var(--sub);
+  font-weight: 600;
+  background: var(--surface-strong);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+tbody tr:hover {
+  background: var(--hover-bg);
+}
+
+.row-check {
+  display: grid;
+  place-items: center;
+}
+
+.row-check .kb-checkbox-control {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.row-selected {
+  background: rgba(10, 100, 255, 0.1);
+}
+
+.row-selected:hover {
+  background: rgba(10, 100, 255, 0.14);
+}
+
+.runtime-row-error {
+  background: rgba(196, 43, 28, 0.08);
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.row-enable-switch {
+  justify-content: center;
+  min-height: 28px;
+}
+
+.table-cell-ellipsis {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  color: inherit;
+  cursor: default;
+}

@@ -1,0 +1,25 @@
+.dashboard-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dashboard-card {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--surface-strong);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-stat {
+  font-size: 14px;
+  color: var(--text);
+}
+
+@media (max-width: 959px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}

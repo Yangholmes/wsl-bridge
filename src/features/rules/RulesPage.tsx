@@ -22,6 +22,8 @@ import * as KTooltip from "@kobalte/core/tooltip";
 import { useI18n } from "../../i18n/context";
 import { appQueryClient } from "../../lib/queryClient";
 import { EllipsisCell } from "../../lib/EllipsisCell";
+import { toLocalTime } from "../../lib/datetime";
+import { SkeletonLine } from "../../lib/Skeleton";
 
 import {
   applyRules,
@@ -130,13 +132,6 @@ const getPageSizeOptions = (t: ReturnType<typeof useI18n>["t"]): SelectOption[] 
   { value: "20", label: t("rules.pageSize20") },
   { value: "50", label: t("rules.pageSize50") }
 ];
-
-function toLocalTime(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
 
 function AppSelect(props: AppSelectProps & { placeholderText?: string }) {
   const selectedOption = () => props.options.find((option) => option.value === props.value) ?? null;
@@ -931,7 +926,7 @@ export function RulesPage() {
                     {() => (
                       <tr>
                         <td colspan={10}>
-                          <div class="skeleton-line" />
+                          <SkeletonLine />
                         </td>
                       </tr>
                     )}

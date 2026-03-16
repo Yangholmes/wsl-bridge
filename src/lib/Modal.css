@@ -1,0 +1,46 @@
+.kb-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(7, 18, 40, 0.35);
+  backdrop-filter: blur(4px);
+}
+
+.kb-dialog-content {
+  position: fixed;
+  z-index: 71;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(980px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--surface-strong);
+  backdrop-filter: blur(20px) saturate(1.2);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+.modal-title-actions {
+  display: flex;
+  align-items: center;
+}
+
+.modal-header-switch {
+  gap: 0;
+}
+
+.modal-actions {
+  margin-top: 14px;
+}
+
+@media (max-width: 959px) {
+  .kb-dialog-content {
+    width: calc(100vw - 14px);
+    max-height: calc(100vh - 14px);
+    padding: 12px;
+    border-radius: 12px;
+  }
+}

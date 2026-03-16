@@ -2,17 +2,15 @@ import { For, Show } from "solid-js";
 import { useQuery } from "@tanstack/solid-query";
 import * as KButton from "@kobalte/core/button";
 
+import "./TopologyPage.css";
+
 import { appQueryClient } from "../../lib/queryClient";
 import { createTopologyQueryOptions, getGlobalTargetKind, getGlobalTargetRef } from "./state";
 import { useI18n } from "../../i18n/context";
 import { EllipsisCell } from "../../lib/EllipsisCell";
-
-function toLocalTime(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
+import { toLocalTime } from "../../lib/datetime";
+import { SkeletonLine } from "../../lib/Skeleton";
+import { Hint } from "../../lib/Hint";
 
 export function TopologyPage() {
   const { t } = useI18n();
@@ -90,7 +88,7 @@ export function TopologyPage() {
               {(err) => {
                 const errorStr = String(err());
                 const isNotEnabled = errorStr.includes("未启用") || errorStr.includes("not enabled") || errorStr.includes("有効");
-                return <div class="hint error">{isNotEnabled ? t("topology.hypervNotEnabled") : t("topology.adminRequired", { error: errorStr })}</div>;
+                return <Hint variant="error">{isNotEnabled ? t("topology.hypervNotEnabled") : t("topology.adminRequired", { error: errorStr })}</Hint>;
               }}
             </Show>
             <div class="table-wrap">
@@ -184,7 +182,7 @@ function TopologySkeletonRows(props: { colspan: number; rows: number }) {
       {() => (
         <tr>
           <td colspan={props.colspan}>
-            <div class="skeleton-line" />
+            <SkeletonLine />
           </td>
         </tr>
       )}
