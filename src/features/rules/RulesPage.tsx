@@ -24,6 +24,7 @@ import { appQueryClient } from "../../lib/queryClient";
 import { EllipsisCell } from "../../lib/EllipsisCell";
 import { toLocalTime } from "../../lib/datetime";
 import { SkeletonLine } from "../../lib/Skeleton";
+import { useToast } from "../../lib/Toast";
 
 import {
   applyRules,
@@ -169,15 +170,13 @@ function AppSelect(props: AppSelectProps & { placeholderText?: string }) {
 
 export function RulesPage() {
   const { t } = useI18n();
+  const toast = useToast();
   const [form, setForm] = createStore<FormState>({ ...defaultForm });
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [isModalOpen, setIsModalOpen] = createSignal(false);
   const [selectedRuleIds, setSelectedRuleIds] = createSignal<Set<string>>(new Set<string>());
   const [pageIndex, setPageIndex] = createSignal(0);
   const [pageSize, setPageSize] = createSignal(10);
-  const [message, setMessage] = createSignal<{ type: "info" | "error"; text: string } | null>(
-    null
-  );
   const [debugOutput, setDebugOutput] = createSignal("ready");
 
   const [filter, setFilter] = createStore({
@@ -516,7 +515,6 @@ export function RulesPage() {
 
   function openCreateModal() {
     resetForm();
-    setMessage(null);
     setIsModalOpen(true);
   }
 
@@ -535,7 +533,6 @@ export function RulesPage() {
 
   function handleEdit(rule: RuleRow) {
     setEditingId(rule.id);
-    setMessage(null);
     setForm({
       name: rule.name,
       type: rule.type,
@@ -645,7 +642,7 @@ export function RulesPage() {
     try {
       const error = validateForm(editingId());
       if (error) {
-        setMessage({ type: "error", text: error });
+        toast.error(error);
         return;
       }
 
@@ -655,13 +652,10 @@ export function RulesPage() {
         if (patch.enabled) {
           const result = await applyRules();
           setDebugOutput(JSON.stringify({ updated_rule_id: editingId(), patch, auto_apply: result }, null, 2));
-          setMessage({
-            type: "info",
-            text: t("rules.successUpdated", { id: editingId()!, applied: result.applied, failed: result.failed.length })
-          });
+          toast.info(t("rules.successUpdated", { id: editingId()!, applied: result.applied, failed: result.failed.length }));
         } else {
           setDebugOutput(JSON.stringify({ updated_rule_id: editingId(), patch }, null, 2));
-          setMessage({ type: "info", text: t("rules.successUpdated", { id: editingId() ?? "", applied: 0, failed: 0 }) });
+          toast.info(t("rules.successUpdated", { id: editingId() ?? "", applied: 0, failed: 0 }));
         }
       } else {
         const req = toCreateRequest();
@@ -669,13 +663,10 @@ export function RulesPage() {
         if (req.rule.enabled) {
           const result = await applyRules();
           setDebugOutput(JSON.stringify({ created_rule_id: id, request: req, auto_apply: result }, null, 2));
-          setMessage({
-            type: "info",
-            text: t("rules.successCreated", { id, applied: result.applied, failed: result.failed.length })
-          });
+          toast.info(t("rules.successCreated", { id, applied: result.applied, failed: result.failed.length }));
         } else {
           setDebugOutput(JSON.stringify({ created_rule_id: id, request: req }, null, 2));
-          setMessage({ type: "info", text: t("rules.successCreated", { id, applied: 0, failed: 0 }) });
+          toast.info(t("rules.successCreated", { id, applied: 0, failed: 0 }));
         }
       }
 
@@ -683,7 +674,7 @@ export function RulesPage() {
       await refreshAll();
     } catch (err) {
       const text = String(err);
-      setMessage({ type: "error", text });
+      toast.error(text);
       setDebugOutput(JSON.stringify({ error: text }, null, 2));
     }
   }
@@ -693,10 +684,10 @@ export function RulesPage() {
       await deleteRule(id);
       if (editingId() === id) closeFormModal();
       await refreshAll();
-      setMessage({ type: "info", text: t("rules.successDeleted", { id }) });
+      toast.info(t("rules.successDeleted", { id }));
       setDebugOutput(JSON.stringify({ deleted_rule_id: id }, null, 2));
     } catch (err) {
-      setMessage({ type: "error", text: String(err) });
+      toast.error(String(err));
     }
   }
 
@@ -705,20 +696,17 @@ export function RulesPage() {
       await enableRule(id, enabled);
       const result = await applyRules();
       await refreshAll();
-      setMessage({
-        type: "info",
-        text: t("rules.successToggled", { id, action: enabled ? t("common.enabled") : t("common.disabled"), applied: result.applied, failed: result.failed.length })
-      });
+      toast.info(t("rules.successToggled", { id, action: enabled ? t("common.enabled") : t("common.disabled"), applied: result.applied, failed: result.failed.length }));
       setDebugOutput(JSON.stringify({ toggled_rule_id: id, enabled, auto_apply: result }, null, 2));
     } catch (err) {
-      setMessage({ type: "error", text: String(err) });
+      toast.error(String(err));
     }
   }
 
   async function handleBatchEnable(enabled: boolean) {
     const ids = [...selectedRuleIds()];
     if (ids.length === 0) {
-      setMessage({ type: "error", text: t("rules.errorNoSelection") });
+      toast.error(t("rules.errorNoSelection"));
       return;
     }
 
@@ -735,15 +723,9 @@ export function RulesPage() {
       const result = await applyRules();
       await refreshAll();
       if (failed.length > 0) {
-        setMessage({
-          type: "error",
-          text: t("rules.errorBatchEnable", { action: enabled ? t("common.enabled") : t("common.disabled"), failed: failed.length, total: ids.length })
-        });
+        toast.error(t("rules.errorBatchEnable", { action: enabled ? t("common.enabled") : t("common.disabled"), failed: failed.length, total: ids.length }));
       } else {
-        setMessage({
-          type: "info",
-          text: t("rules.successBatchEnable", { action: enabled ? t("common.enabled") : t("common.disabled"), count: ids.length, applied: result.applied, failed: result.failed.length })
-        });
+        toast.info(t("rules.successBatchEnable", { action: enabled ? t("common.enabled") : t("common.disabled"), count: ids.length, applied: result.applied, failed: result.failed.length }));
       }
       setDebugOutput(
         JSON.stringify(
@@ -759,14 +741,14 @@ export function RulesPage() {
       );
       setSelectedRuleIds(new Set<string>());
     } catch (err) {
-      setMessage({ type: "error", text: String(err) });
+      toast.error(String(err));
     }
   }
 
   async function handleBatchDelete() {
     const ids = [...selectedRuleIds()];
     if (ids.length === 0) {
-      setMessage({ type: "error", text: t("rules.errorNoSelection") });
+      toast.error(t("rules.errorNoSelection"));
       return;
     }
     const confirmed = window.confirm(t("rules.confirmBatchDelete", { count: ids.length }));
@@ -784,9 +766,9 @@ export function RulesPage() {
 
     await refreshAll();
     if (failed.length > 0) {
-      setMessage({ type: "error", text: t("rules.errorBatchDelete", { failed: failed.length, total: ids.length }) });
+      toast.error(t("rules.errorBatchDelete", { failed: failed.length, total: ids.length }));
     } else {
-      setMessage({ type: "info", text: t("rules.successBatchDelete", { count: ids.length }) });
+      toast.info(t("rules.successBatchDelete", { count: ids.length }));
     }
     setDebugOutput(
       JSON.stringify(
@@ -807,9 +789,9 @@ export function RulesPage() {
       const result = await applyRules();
       await refreshAll();
       setDebugOutput(JSON.stringify(result, null, 2));
-      setMessage({ type: "info", text: t("rules.successApplied", { applied: result.applied, failed: result.failed.length }) });
+      toast.info(t("rules.successApplied", { applied: result.applied, failed: result.failed.length }));
     } catch (err) {
-      setMessage({ type: "error", text: String(err) });
+      toast.error(String(err));
     }
   }
 
@@ -818,9 +800,9 @@ export function RulesPage() {
       const result = await stopRules();
       await refreshAll();
       setDebugOutput(JSON.stringify(result, null, 2));
-      setMessage({ type: "info", text: t("rules.successStopped", { stopped: result.stopped }) });
+      toast.info(t("rules.successStopped", { stopped: result.stopped }));
     } catch (err) {
-      setMessage({ type: "error", text: String(err) });
+      toast.error(String(err));
     }
   }
 
@@ -829,7 +811,7 @@ export function RulesPage() {
       const result = await tailLogs(0);
       setDebugOutput(JSON.stringify(result, null, 2));
     } catch (err) {
-      setMessage({ type: "error", text: String(err) });
+      toast.error(String(err));
     }
   }
 
@@ -986,12 +968,6 @@ export function RulesPage() {
             {t("rules.nextPage")}
           </KButton.Root>
         </div>
-
-        <Show when={message()}>
-          {(msg) => (
-            <div class={`hint ${msg().type === "error" ? "error" : "info"}`}>{msg().text}</div>
-          )}
-        </Show>
       </section>
 
       <section class="panel">
@@ -1023,7 +999,7 @@ export function RulesPage() {
         isEditing={isEditing()}
         form={form}
         setForm={setForm}
-        message={message()}
+        message={null}
         isProxyType={isProxyType()}
         isSingleNic={isSingleNic()}
         targetPreview={targetPreview()}

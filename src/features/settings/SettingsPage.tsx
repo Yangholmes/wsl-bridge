@@ -20,6 +20,7 @@ import { useTheme, type ThemeMode } from "../../lib/theme";
 import { listRules, scanTopology } from "../rules/api";
 import { getMcpServerStatus, updateMcpServerConfig } from "./api";
 import { Hint } from "../../lib/Hint";
+import { useToast } from "../../lib/Toast";
 import FlagCn from "../../assets/flag-cn.svg?url";
 import FlagUs from "../../assets/flag-us.svg?url";
 import FlagHk from "../../assets/flag-hk.svg?url";
@@ -68,11 +69,11 @@ function presetOptionLabel(preset: McpClientPreset) {
 export function SettingsPage() {
   const { locale, setLocale, t } = useI18n();
   const { mode: themeMode, setMode: setThemeMode } = useTheme();
+  const toast = useToast();
 
   const [mcpDraft, setMcpDraft] = createSignal<McpServerConfig>(EMPTY_MCP_CONFIG);
   const [mcpDirty, setMcpDirty] = createSignal(false);
   const [mcpSaving, setMcpSaving] = createSignal(false);
-  const [message, setMessage] = createSignal<{ type: "info" | "error"; text: string } | null>(null);
   const [selectedPresetId, setSelectedPresetId] = createSignal("claude-code");
 
   const topologyQuery = useQuery(() =>
@@ -131,17 +132,17 @@ export function SettingsPage() {
 
   async function refreshMcpStatus() {
     await mcpStatusQuery.refetch();
-    setMessage({ type: "info", text: t("settings.mcpReloaded") });
+    toast.info(t("settings.mcpReloaded"));
   }
 
   async function saveMcpConfig() {
     const draft = mcpDraft();
     if (!draft.server_name.trim()) {
-      setMessage({ type: "error", text: t("settings.mcpValidationServerName") });
+      toast.error(t("settings.mcpValidationServerName"));
       return;
     }
     if (!draft.api_token.trim()) {
-      setMessage({ type: "error", text: t("settings.mcpValidationToken") });
+      toast.error(t("settings.mcpValidationToken"));
       return;
     }
 
@@ -154,9 +155,9 @@ export function SettingsPage() {
       });
       setMcpDirty(false);
       await mcpStatusQuery.refetch();
-      setMessage({ type: "info", text: t("settings.mcpSaved") });
+      toast.info(t("settings.mcpSaved"));
     } catch (err) {
-      setMessage({ type: "error", text: String(err) });
+      toast.error(String(err));
     } finally {
       setMcpSaving(false);
     }
@@ -165,9 +166,9 @@ export function SettingsPage() {
   async function copyText(text: string, successKey: string) {
     try {
       await navigator.clipboard.writeText(text);
-      setMessage({ type: "info", text: t(successKey) });
+      toast.info(t(successKey));
     } catch (err) {
-      setMessage({ type: "error", text: String(err) });
+      toast.error(String(err));
     }
   }
 
@@ -506,10 +507,6 @@ export function SettingsPage() {
       <Hint>
         {t("settings.mcpHint")}
       </Hint>
-
-      <Show when={message()}>
-        {(msg) => <Hint variant={msg().type as "info" | "error"}>{msg().text}</Hint>}
-      </Show>
     </div>
   );
 }

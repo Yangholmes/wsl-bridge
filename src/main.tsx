@@ -7,6 +7,7 @@ import { appQueryClient } from "./lib/queryClient";
 import { I18nProvider } from "./i18n/context";
 import { ThemeProvider } from "./lib/theme";
 import { ContextMenu, showContextMenu, hideContextMenu, handleKeyDown } from "./lib/ContextMenu";
+import { ToastProvider, ToastContainer } from "./lib/Toast";
 import { initClarity } from "./lib/clarity";
 import "./lib/NumberInput.css";
 import "./styles.css";
@@ -24,12 +25,15 @@ if (!import.meta.env.DEV && import.meta.env.VITE_CLARITY_PROJECT_ID) {
 render(
   () => (
     <ThemeProvider>
-      <I18nProvider>
-        <QueryClientProvider client={appQueryClient}>
-          <RouterProvider router={router} />
-          {!import.meta.env.DEV && <ContextMenu />}
-        </QueryClientProvider>
-      </I18nProvider>
+      <ToastProvider>
+        <I18nProvider>
+          <QueryClientProvider client={appQueryClient}>
+            <RouterProvider router={router} />
+            {!import.meta.env.DEV && <ContextMenu />}
+            <ToastContainer />
+          </QueryClientProvider>
+        </I18nProvider>
+      </ToastProvider>
     </ThemeProvider>
   ),
   document.getElementById("app")!

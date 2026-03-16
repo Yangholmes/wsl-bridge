@@ -13,6 +13,7 @@ import { SimpleSelect, type SelectOption } from "../../lib/SimpleSelect";
 import { toLocalTime, type ReplayWindow, replayWindowToMinutes, replayWindowToStartIso, replayWindowOptions } from "../../lib/datetime";
 import { SkeletonLine } from "../../lib/Skeleton";
 import { Hint } from "../../lib/Hint";
+import { useToast } from "../../lib/Toast";
 
 type RuntimeRow = {
   rule_id: string;
@@ -31,12 +32,12 @@ const stateFilterOptions: SelectOption[] = [
 
 export function RuntimePage() {
   const { t } = useI18n();
+  const toast = useToast();
   const [stateFilter, setStateFilter] = createSignal<"all" | RuntimeState>("all");
   const [replayWindow, setReplayWindow] = createSignal<ReplayWindow>("1h");
   const [onlyErrors, setOnlyErrors] = createSignal(false);
   const [relatedLogs, setRelatedLogs] = createSignal<AuditLog[]>([]);
   const [selectedRuleId, setSelectedRuleId] = createSignal<string | null>(null);
-  const [message, setMessage] = createSignal<string | null>(null);
   const [statsItems, setStatsItems] = createSignal<RuleLogStatsItem[]>([]);
 
   const rulesQuery = useQuery(() =>
@@ -158,7 +159,7 @@ export function RuntimePage() {
         limit: 240
       });
       setRelatedLogs(result.events);
-      setMessage(
+      toast.info(
         t("runtime.relatedLogMessage", {
           ruleId,
           total: result.total,
@@ -166,7 +167,7 @@ export function RuntimePage() {
         })
       );
     } catch (err) {
-      setMessage(String(err));
+      toast.error(String(err));
     }
   }
 
@@ -282,10 +283,6 @@ export function RuntimePage() {
             </tbody>
           </table>
         </div>
-
-        <Show when={message()}>
-          {(text) => <Hint>{text()}</Hint>}
-        </Show>
       </section>
 
       <section class="panel">

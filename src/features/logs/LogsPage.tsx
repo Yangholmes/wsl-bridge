@@ -10,6 +10,7 @@ import { SimpleSelect, type SelectOption } from "../../lib/SimpleSelect";
 import { toLocalTime, type ReplayWindow, replayWindowToStartIso, replayWindowOptions } from "../../lib/datetime";
 import { SkeletonLine } from "../../lib/Skeleton";
 import { Hint } from "../../lib/Hint";
+import { useToast } from "../../lib/Toast";
 
 function toCsv(logs: AuditLog[]) {
   const esc = (text: string) => `"${text.replaceAll("\"", "\"\"")}"`;
@@ -29,10 +30,10 @@ function toCsv(logs: AuditLog[]) {
 
 export function LogsPage() {
   const { t } = useI18n();
+  const toast = useToast();
   const [logs, setLogs] = createSignal<AuditLog[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [total, setTotal] = createSignal(0);
-  const [message, setMessage] = createSignal<{ type: "info" | "error"; text: string } | null>(null);
   const [autoTail, setAutoTail] = createSignal(true);
 
   const [levelFilter, setLevelFilter] = createSignal("all");
@@ -58,12 +59,8 @@ export function LogsPage() {
       });
       setLogs(result.events);
       setTotal(result.total);
-      setMessage({
-        type: "info",
-        text: t("logs.refreshed", { total: result.total, shown: result.events.length })
-      });
     } catch (err) {
-      setMessage({ type: "error", text: String(err) });
+      toast.error(String(err));
     } finally {
       setLoading(false);
     }
@@ -72,7 +69,7 @@ export function LogsPage() {
   function exportFilteredCsv() {
     const data = logs();
     if (data.length === 0) {
-      setMessage({ type: "error", text: t("logs.emptyExport") });
+      toast.error(t("logs.emptyExport"));
       return;
     }
     const blob = new Blob([toCsv(data)], { type: "text/csv;charset=utf-8;" });
@@ -85,7 +82,7 @@ export function LogsPage() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    setMessage({ type: "info", text: t("logs.exported", { count: data.length }) });
+    toast.success(t("logs.exported", { count: data.length }));
   }
 
   const moduleOptions = createMemo(() => {
@@ -247,10 +244,6 @@ export function LogsPage() {
           </tbody>
         </table>
       </div>
-
-      <Show when={message()}>
-        {(msg) => <Hint variant={msg().type as "info" | "error"}>{msg().text}</Hint>}
-      </Show>
     </section>
   );
 }

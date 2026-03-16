@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import { Link } from "@tanstack/solid-router";
 import { queryOptions, useQuery } from "@tanstack/solid-query";
 import * as KButton from "@kobalte/core/button";
@@ -13,10 +13,11 @@ import { toLocalTime } from "../../lib/datetime";
 import { EllipsisCell } from "../../lib/EllipsisCell";
 import { SkeletonGrid, SkeletonLine } from "../../lib/Skeleton";
 import { Hint } from "../../lib/Hint";
+import { useToast } from "../../lib/Toast";
 
 export function DashboardPage() {
   const { t } = useI18n();
-  const [message, setMessage] = createSignal<{ type: "info" | "error"; text: string } | null>(null);
+  const toast = useToast();
 
   const rulesQuery = useQuery(
     () =>
@@ -104,18 +105,18 @@ export function DashboardPage() {
         topologyQuery.refetch(),
         errorLogsQuery.refetch()
       ]);
-      setMessage({ type: "info", text: t("dashboard.refreshed") });
+      toast.info(t("dashboard.refreshed"));
     } catch (error) {
-      setMessage({ type: "error", text: String(error) });
+      toast.error(String(error));
     }
   }
 
   async function rescanTopology() {
     try {
       await topologyQuery.refetch();
-      setMessage({ type: "info", text: t("dashboard.topologyScanned") });
+      toast.info(t("dashboard.topologyScanned"));
     } catch (error) {
-      setMessage({ type: "error", text: String(error) });
+      toast.error(String(error));
     }
   }
 
@@ -151,9 +152,6 @@ export function DashboardPage() {
               </Show>
             </div>
           </div>
-        </Show>
-        <Show when={message()}>
-          {(msg) => <Hint variant={msg().type as "info" | "error"}>{msg().text}</Hint>}
         </Show>
       </section>
 
