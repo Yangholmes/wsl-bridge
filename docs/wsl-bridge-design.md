@@ -314,7 +314,36 @@
 6. 关闭应用后规则停止生效。
 7. 日志可定位规则应用失败原因。
 
-## 16. 实施建议（代码仓库）
+## 16. MCP 服务器（Model Context Protocol）
+
+### 16.1 概述
+
+WSL Bridge 内置 MCP 服务器，支持 AI 助手（如 Claude、Cursor 等）通过标准 MCP 协议远程管理和查询应用状态。MCP 服务器可通过配置文件启用，提供 HTTP + SSE 传输层。
+
+### 16.2 配置项
+
+- `enabled`: 是否启用 MCP 服务器
+- `listen_port`: MCP 服务器监听端口
+- `api_token`: 认证 Token
+- `expose_topology_read`: 是否暴露拓扑读取能力
+- `expose_rule_config`: 是否暴露规则配置能力
+
+### 16.3 暴露的工具
+
+| 工具名称 | 说明 | 权限要求 |
+|----------|------|----------|
+| `read_virtualization_topology` | 读取 WSL/Hyper-V 当前拓扑、IP 信息 | `expose_topology_read` |
+| `list_forward_rules` | 列出所有 TCP/UDP 转发规则 | `expose_rule_config` |
+| `create_forward_rule` | 创建新的转发规则 | `expose_rule_config` |
+| `update_forward_rule` | 更新现有转发规则 | `expose_rule_config` |
+| `delete_forward_rule` | 删除指定规则 | `expose_rule_config` |
+| `set_forward_rule_enabled` | 启用/禁用规则 | `expose_rule_config` |
+
+### 16.4 客户端集成
+
+应用内置多种客户端预设配置（Claude Desktop、Cursor、Windsurf 等），用户可一键复制配置快速集成。
+
+## 17. 实施建议（代码仓库）
 
 - 建议 workspace 结构：
   - `src-tauri`（Tauri + Rust Core）

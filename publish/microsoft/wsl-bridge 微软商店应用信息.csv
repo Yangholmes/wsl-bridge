@@ -1,4 +1,4 @@
-Field,Type,Chinese,English,Chinese (China),Chinese (Traditional) (Hong Kong)
+﻿Field,Type,Chinese,English,Chinese (China),Chinese (Traditional) (Hong Kong)
 ProductName,Text,WSL Bridge,WSL Bridge,WSL Bridge,WSL Bridge
 Description,Text,"WSL Bridge 是一款 Windows 桌面应用，帮助您轻松将 WSL 和 Hyper-V 虚拟机的网络服务暴露到外部网络。支持 TCP/UDP 端口转发、HTTP 代理和 SOCKS5 代理，并提供直观的规则管理和防火墙配置功能。","WSL Bridge is a Windows desktop application that helps you easily expose WSL and Hyper-V virtual machine network services to external networks. Supports TCP/UDP port forwarding, HTTP proxy and SOCKS5 proxy, with intuitive rule management and firewall configuration.","WSL Bridge 是一款 Windows 桌面应用，帮助您轻松将 WSL 和 Hyper-V 虚拟机的网络服务暴露到外部网络。支持 TCP/UDP 端口转发、HTTP 代理和 SOCKS5 代理，并提供直观的规则管理和防火墙配置功能。","WSL Bridge 是一款 Windows 桌面應用，説明您輕鬆將 WSL 和 Hyper-V 虛擬機的網路服務暴露到外部網路。支援 TCP/UDP 連接埠轉發、HTTP 代理和 SOCKS5 代理，並提供直觀的規則管理和防火牆配置功能。"
 WhatsNew,Text,"全新发布：支持 WSL 和 Hyper-V 拓扑自动检测，支持单网卡/所有网卡绑定，支持按 Domain/Private/Public 配置防火墙规则。","New release: Support for automatic WSL and Hyper-V topology detection, single NIC/all NIC binding, and firewall rules configuration by Domain/Private/Public.","全新发布：支持 WSL 和 Hyper-V 拓扑自动检测，支持单网卡/所有网卡绑定，支持按 Domain/Private/Public 配置防火墙规则。","全新發布：支援 WSL 和 Hyper-V 拓撲自動檢測，支援單網卡/所有網卡綁定，支援按 Domain/Private/Public 配置防火牆規則。"
@@ -17,9 +17,9 @@ ProductFeatures12,Text,管理员权限运行 - 确保系统操作权限,Admin Pr
 ProductFeatures13,Text,应用启动时自动应用规则,Auto-apply rules when application starts,应用启动时自动应用规则,應用啟動時自動應用規則
 ProductFeatures14,Text,应用退出时自动清理规则,Auto-cleanup rules when application exits,应用退出时自动清理规则,應用退出時自動清理規則
 ProductFeatures15,Text,支持 Windows 10/11,Support Windows 10/11,支持 Windows 10/11,支援 Windows 10/11
-ProductFeatures16,Text,,,
-ProductFeatures17,Text,,,
-ProductFeatures18,Text,,,
+ProductFeatures16,Text,MCP 服务器 - 支持 AI 助手远程管理,MCP Server - AI Assistant Remote Management,MCP 服务器 - 支持 AI 助手远程管理,MCP 伺服器 - 支援 AI 助手遠程管理
+ProductFeatures17,Text,MCP 拓扑读取 - AI 可读取 WSL/Hyper-V 拓扑,MCP Topology Read - AI can read WSL/Hyper-V topology,MCP 拓扑读取 - AI 可读取 WSL/Hyper-V 拓扑,MCP 拓撲讀取 - AI 可讀取 WSL/Hyper-V 拓撲
+ProductFeatures18,Text,MCP 规则管理 - AI 可创建/修改/删除转发规则,MCP Rule Management - AI can create/update/delete forward rules,MCP 规则管理 - AI 可创建/修改/删除转发规则,MCP 規則管理 - AI 可創建/修改/刪除轉發規則
 ProductFeatures19,Text,,,
 ProductFeatures20,Text,,,
 ShortDescription,Text,WSL 和 Hyper-V 网络桥接工具,WSL and Hyper-V network bridging tool,WSL 和 Hyper-V 网络桥接工具,WSL 和 Hyper-V 網路橋接工具
