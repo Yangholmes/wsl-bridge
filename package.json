@@ -1,8 +1,11 @@
 {
-  "name": "wsl-bridge-ui",
+  "name": "wsl-bridge",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "description": "WSL Bridge is a Windows desktop application that helps you easily expose WSL and Hyper-V virtual machine network services to external networks. Supports TCP/UDP port forwarding, HTTP proxy and SOCKS5 proxy, with intuitive rule management and firewall configuration.",
+  "author": "yangholmes",
+  "license": "MIT",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "vite build",

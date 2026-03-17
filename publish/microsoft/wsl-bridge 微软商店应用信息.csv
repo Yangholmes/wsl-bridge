@@ -1,0 +1,71 @@
+Field,Type,Chinese,English,Chinese (China),Chinese (Traditional) (Hong Kong)
+ProductName,Text,WSL Bridge,WSL Bridge,WSL Bridge,WSL Bridge
+Description,Text,"WSL Bridge 是一款 Windows 桌面应用，帮助您轻松将 WSL 和 Hyper-V 虚拟机的网络服务暴露到外部网络。支持 TCP/UDP 端口转发、HTTP 代理和 SOCKS5 代理，并提供直观的规则管理和防火墙配置功能。","WSL Bridge is a Windows desktop application that helps you easily expose WSL and Hyper-V virtual machine network services to external networks. Supports TCP/UDP port forwarding, HTTP proxy and SOCKS5 proxy, with intuitive rule management and firewall configuration.","WSL Bridge 是一款 Windows 桌面应用，帮助您轻松将 WSL 和 Hyper-V 虚拟机的网络服务暴露到外部网络。支持 TCP/UDP 端口转发、HTTP 代理和 SOCKS5 代理，并提供直观的规则管理和防火墙配置功能。","WSL Bridge 是一款 Windows 桌面應用，説明您輕鬆將 WSL 和 Hyper-V 虛擬機的網路服務暴露到外部網路。支援 TCP/UDP 連接埠轉發、HTTP 代理和 SOCKS5 代理，並提供直觀的規則管理和防火牆配置功能。"
+WhatsNew,Text,"全新发布：支持 WSL 和 Hyper-V 拓扑自动检测，支持单网卡/所有网卡绑定，支持按 Domain/Private/Public 配置防火墙规则。","New release: Support for automatic WSL and Hyper-V topology detection, single NIC/all NIC binding, and firewall rules configuration by Domain/Private/Public.","全新发布：支持 WSL 和 Hyper-V 拓扑自动检测，支持单网卡/所有网卡绑定，支持按 Domain/Private/Public 配置防火墙规则。","全新發布：支援 WSL 和 Hyper-V 拓撲自動檢測，支援單網卡/所有網卡綁定，支援按 Domain/Private/Public 配置防火牆規則。"
+ProductFeatures1,Text,TCP/UDP 端口转发 - 将 WSL/Hyper-V 端口映射到外部网络,TCP/UDP Port Forwarding - Map WSL/Hyper-V ports to external networks,TCP/UDP 端口转发 - 将 WSL/Hyper-V 端口映射到外部网络,TCP/UDP 連接埠轉發 - 將 WSL/Hyper-V 連接埠映射到外部網路
+ProductFeatures2,Text,HTTP 代理 - 支持 HTTP CONNECT 隧道,HTTP Proxy - Support HTTP CONNECT tunneling,HTTP 代理 - 支持 HTTP CONNECT 隧道,HTTP 代理 - 支援 HTTP CONNECT 隧道
+ProductFeatures3,Text,SOCKS5 代理 - 支持 CONNECT 和 UDP ASSOCIATE,SOCKS5 Proxy - Support CONNECT and UDP ASSOCIATE,SOCKS5 代理 - 支持 CONNECT 和 UDP ASSOCIATE,SOCKS5 代理 - 支援 CONNECT 和 UDP ASSOCIATE
+ProductFeatures4,Text,WSL/Hyper-V 拓扑自动检测,WSL/Hyper-V Topology Auto-detection,WSL/Hyper-V 拓扑自动检测,WSL/Hyper-V 拓撲自動檢測
+ProductFeatures5,Text,多网卡绑定支持 - 单网卡或所有网卡,Multi-NIC Binding - Single NIC or all NICs,多网卡绑定支持 - 单网卡或所有网卡,多網卡綁定支援 - 單網卡或所有網卡
+ProductFeatures6,Text,防火墙按需配置 - 支持 Domain/Private/Public 独立控制,Firewall Configuration - Independent control for Domain/Private/Public,防火墙按需配置 - 支持 Domain/Private/Public 独立控制,防火牆按需配置 - 支援 Domain/Private/Public 獨立控制
+ProductFeatures7,Text,实时状态监控 - 查看规则运行状态和错误信息,Real-time Status Monitoring - View rule status and error messages,实时状态监控 - 查看规则运行状态和错误信息,即時狀態監控 - 查看規則運行狀態和錯誤訊息
+ProductFeatures8,Text,规则管理 - 创建、编辑、删除、启用/禁用规则,Rule Management - Create, edit, delete, enable/disable rules,规则管理 - 创建、编辑、删除、启用/禁用规则,規則管理 - 創建、編輯、刪除、啟用/停用規則
+ProductFeatures9,Text,日志查看 - 审计日志和运行日志,Log Viewing - Audit logs and runtime logs,日志查看 - 审计日志和运行日志,日誌查看 - 審計日誌和運行日誌
+ProductFeatures10,Text,可视化拓扑图 - 展示网络适配器和目标虚拟机,Visual Topology - Display network adapters and target VMs,可视化拓扑图 - 展示网络适配器和目标虚拟机,可視化拓撲圖 - 展示網路介面卡和目標虛擬機
+ProductFeatures11,Text,简洁易用的 UI 界面,Simple and Easy-to-Use UI,简洁易用的 UI 界面,簡潔易用的 UI 介面
+ProductFeatures12,Text,管理员权限运行 - 确保系统操作权限,Admin Privilege - Ensures system operation permissions,管理员权限运行 - 确保系统操作权限,管理員許可權運行 - 確保系統操作許可權
+ProductFeatures13,Text,应用启动时自动应用规则,Auto-apply rules when application starts,应用启动时自动应用规则,應用啟動時自動應用規則
+ProductFeatures14,Text,应用退出时自动清理规则,Auto-cleanup rules when application exits,应用退出时自动清理规则,應用退出時自動清理規則
+ProductFeatures15,Text,支持 Windows 10/11,Support Windows 10/11,支持 Windows 10/11,支援 Windows 10/11
+ProductFeatures16,Text,,,
+ProductFeatures17,Text,,,
+ProductFeatures18,Text,,,
+ProductFeatures19,Text,,,
+ProductFeatures20,Text,,,
+ShortDescription,Text,WSL 和 Hyper-V 网络桥接工具,WSL and Hyper-V network bridging tool,WSL 和 Hyper-V 网络桥接工具,WSL 和 Hyper-V 網路橋接工具
+SearchTerms1,Text,WSL,WSL,WSL,WSL
+SearchTerms2,Text,Hyper-V,Hyper-V,Hyper-V,Hyper-V
+SearchTerms3,Text,端口转发,Port Forwarding,端口转发,連接埠轉發
+SearchTerms4,Text,代理,Proxy,代理,代理
+SearchTerms5,Text,网络桥接,Network Bridge,网络桥接,網路橋接
+SearchTerms6,Text,虚拟机,Virtual Machine,虚拟机,虛擬機
+SearchTerms7,Text,,,
+Applicable license terms,Text,MIT License,MIT License,MIT License,MIT License
+Copyright,Text,Copyright © 2026 WSL Bridge,Copyright © 2026 WSL Bridge,Copyright © 2026 WSL Bridge,Copyright © 2026 WSL Bridge
+DevelopedBy,Text,yangholmes,yangholmes,yangholmes,yangholmes
+RequirementsMinimum1,Text,Windows 10 版本 22H2 或更高版本,Windows 10 version 22H2 or later,Windows 10 版本 22H2 或更高版本,Windows 10 版本 22H2 或更高版本
+RequirementsMinimum2,Text,100 MB 可用磁盘空间,100 MB available disk space,100 MB 可用磁碟空間,100 MB 可用磁碟空間
+RequirementsMinimum3,Text,128 MB RAM,128 MB RAM,128 MB RAM,128 MB RAM
+RequirementsMinimum4,Text,,,
+RequirementsMinimum5,Text,,,
+RequirementsMinimum6,Text,,,
+RequirementsMinimum7,Text,,,
+RequirementsMinimum8,Text,,,
+RequirementsMinimum9,Text,,,
+RequirementsMinimum10,Text,,,
+RequirementsMinimum11,Text,,,
+RequirementsRecommended1,Text,Windows 11,Windows 11,Windows 11,Windows 11
+RequirementsRecommended2,Text,512 MB RAM,512 MB RAM,512 MB RAM,512 MB RAM
+RequirementsRecommended3,Text,,,
+RequirementsRecommended4,Text,,,
+RequirementsRecommended5,Text,,,
+RequirementsRecommended6,Text,,,
+RequirementsRecommended7,Text,,,
+RequirementsRecommended8,Text,,,
+RequirementsRecommended9,Text,,,
+RequirementsRecommended10,Text,,,
+RequirementsRecommended11,Text,,,
+StoreLogos1,Text,,,
+StoreLogos2,Text,,,
+Screenshots1,Text,,,
+Screenshots2,Text,,,
+Screenshots3,Text,,,
+Screenshots4,Text,,,
+Screenshots5,Text,,,
+Screenshots6,Text,,,
+Screenshots7,Text,,,
+Screenshots8,Text,,,
+Screenshots9,Text,,,
+Screenshots10,Text,,,
+HeroArts,Text,,,
+Trailers,Text,,,
