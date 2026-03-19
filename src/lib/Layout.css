@@ -55,8 +55,8 @@
 }
 
 .nav-item[data-status="active"] {
-  background: var(--accent);
-  color: #fff;
+  background: var(--nav-active-bg);
+  color: var(--accent);
   font-weight: 600;
 }
 

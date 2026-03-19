@@ -4841,6 +4841,7 @@ dependencies = [
  "tauri-build",
  "tracing",
  "uuid",
+ "windows-sys 0.61.2",
  "wsl-bridge-core",
  "wsl-bridge-shared",
 ]

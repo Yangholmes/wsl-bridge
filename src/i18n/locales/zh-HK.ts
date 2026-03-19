@@ -1,6 +1,7 @@
 export const dict = {
   app: {
-    name: "WSL Bridge"
+    name: "WSL Bridge",
+    runtimeNoticeBody: "部分功能需要管理員權限執行。如需使用完整功能，請先結束本應用，再以管理員身份重新啟動。"
   },
   nav: {
     dashboard: "儀表板",
@@ -129,6 +130,7 @@ export const dict = {
     noWslData: "沒有 WSL 拓撲資料",
     noHypervData: "沒有 Hyper-V 拓撲資料",
     noAdaptersData: "沒有網卡資料",
+    hiddenWithoutAdmin: "目前未以管理員權限執行，Hyper-V 管理相關內容已隱藏。",
     adminRequired: "Hyper-V：{{ error }} 請使用系統管理員身份重新啟動應用程式。",
     hypervNotEnabled: "Hyper-V 功能未啟用，請先在 Windows 功能中啟用 Hyper-V 後重試。",
     debugButton: "檢視 Hyper-V 原始探測結果（除錯）",
@@ -216,6 +218,10 @@ export const dict = {
     tableError: "錯誤",
     tableAction: "操作",
     tableSwitch: "開關",
+    readOnlyMarker: "唯讀",
+    readOnlyValue: "唯讀",
+    firewallAdminHint: "目前未以管理員權限執行，無法編輯防火牆設定；此模式下建立的新規則不會寫入防火牆策略。",
+    hypervAdminHint: "目前未以管理員權限執行，不能啟用、停用或新建 Hyper-V 目標規則。",
     placeholderSelect: "請選擇",
     placeholderSelectNic: "請選擇網卡",
     currentValue: "（目前值）",
@@ -247,6 +253,7 @@ export const dict = {
     validationListenPortRange: "監聽連接埠必須是 1-65535 的整數。",
     validationSingleNicRequired: "single_nic 模式必須選擇網卡。",
     validationFirewallRequired: "至少要啟用一個防火牆 Profile。",
+    validationHypervAdminRequired: "目前未以管理員權限執行，不能建立或修改為 Hyper-V 目標規則。",
     validationTargetPortRange: "目標連接埠必須是 1-65535 的整數。",
     validationStaticHostRequired: "static 目標必須填寫 target_host。",
     validationDynamicRefRequired: "{{ kind }} 目標必須填寫 target_ref。",
@@ -261,6 +268,7 @@ export const dict = {
     successBatchEnable: "已批次{{ action }} {{ count }} 條規則，applied={{ applied }}，failed={{ failed }}",
     errorBatchDelete: "批次刪除部分失敗（{{ failed }}/{{ total }}）。",
     successBatchDelete: "已批次刪除 {{ count }} 條規則。",
+    successConfigSaved: "規則配置已儲存。由於目前未以管理員權限執行，不會自動套用運行態。",
     successApplied: "已套用規則，applied={{ applied }}，failed={{ failed }}",
     successStopped: "已停止規則，stopped={{ stopped }}",
     formEditTitle: "編輯規則",

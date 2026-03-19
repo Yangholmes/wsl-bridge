@@ -4,6 +4,7 @@ import { useI18n } from "./i18n/context";
 import IconBridge from "./assets/bridge-logo.svg?url";
 import { ErrorPage } from "./features/ErrorPage";
 import { SkeletonTitle, SkeletonLine } from "./lib/Skeleton";
+import { AppRuntimeBanner } from "./lib/AppRuntimeBanner";
 import "./lib/Layout.css";
 import "./lib/Table.css";
 import "./lib/Form.css";
@@ -77,6 +78,7 @@ function RootLayout() {
         </nav>
       </aside>
       <main class="content">
+        <AppRuntimeBanner />
         <Outlet />
       </main>
     </div>

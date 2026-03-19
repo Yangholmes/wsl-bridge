@@ -1,6 +1,7 @@
 export const dict = {
   app: {
-    name: "WSL Bridge"
+    name: "WSL Bridge",
+    runtimeNoticeBody: "Some features require administrator privileges. To use the full feature set, exit the app first and restart it as administrator."
   },
   nav: {
     dashboard: "Dashboard",
@@ -129,6 +130,7 @@ export const dict = {
     noWslData: "No WSL topology data",
     noHypervData: "No Hyper-V topology data",
     noAdaptersData: "No adapter data",
+    hiddenWithoutAdmin: "Hyper-V management content is hidden because the app is not running as administrator.",
     adminRequired: "Hyper-V: {{ error }} Please restart the app as administrator.",
     hypervNotEnabled: "Hyper-V is not enabled. Please enable Hyper-V in Windows Features and try again.",
     debugButton: "View Hyper-V raw probe output (debug)",
@@ -216,6 +218,10 @@ export const dict = {
     tableError: "Error",
     tableAction: "Action",
     tableSwitch: "On",
+    readOnlyMarker: "Read-only",
+    readOnlyValue: "Read-only",
+    firewallAdminHint: "Firewall settings are unavailable without administrator privileges. New rules created in this mode will not persist firewall policies.",
+    hypervAdminHint: "Hyper-V rules cannot be enabled, disabled, or created as Hyper-V targets without administrator privileges.",
     placeholderSelect: "Select",
     placeholderSelectNic: "Select NIC",
     currentValue: "(current)",
@@ -247,6 +253,7 @@ export const dict = {
     validationListenPortRange: "Listen port must be 1-65535.",
     validationSingleNicRequired: "single_nic mode requires NIC selection.",
     validationFirewallRequired: "At least one firewall profile must be enabled.",
+    validationHypervAdminRequired: "Hyper-V target rules require administrator privileges.",
     validationTargetPortRange: "Target port must be 1-65535.",
     validationStaticHostRequired: "static target requires target_host.",
     validationDynamicRefRequired: "{{ kind }} target requires target_ref.",
@@ -261,6 +268,7 @@ export const dict = {
     successBatchEnable: "Batch {{ action }} {{ count }} rules, applied={{ applied }}, failed={{ failed }}",
     errorBatchDelete: "Batch delete partially failed ({{ failed }}/{{ total }}).",
     successBatchDelete: "Batch deleted {{ count }} rules.",
+    successConfigSaved: "Rule configuration saved. Runtime changes are not applied automatically in standard permission mode.",
     successApplied: "Rules applied, applied={{ applied }}, failed={{ failed }}",
     successStopped: "Rules stopped, stopped={{ stopped }}",
     formEditTitle: "Edit Rule",

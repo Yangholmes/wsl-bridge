@@ -2,7 +2,7 @@
 use wsl_bridge_core::HyperVProbeDebug;
 #[cfg(feature = "tauri")]
 use wsl_bridge_shared::{
-    ApplyRulesResult, CreateRuleRequest, LogQueryRequest, LogQueryResult, McpServerConfig,
+    AppRuntimeStatus, ApplyRulesResult, CreateRuleRequest, LogQueryRequest, LogQueryResult, McpServerConfig,
     McpServerStatus, ProxyRule, RuleLogStatsItem, RuleLogStatsRequest, RulePatch,
     RuntimeStatusItem, StopRulesResult, TailLogsResult, TopologySnapshot,
 };
@@ -28,6 +28,12 @@ pub async fn debug_hyperv_probe(
     tauri::async_runtime::spawn_blocking(move || commands::debug_hyperv_probe(&app_state))
         .await
         .map_err(|err| format!("debug_hyperv_probe join error: {err}"))
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn get_app_runtime_status() -> AppRuntimeStatus {
+    commands::get_app_runtime_status()
 }
 
 #[cfg(feature = "tauri")]

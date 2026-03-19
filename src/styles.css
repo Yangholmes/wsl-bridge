@@ -17,6 +17,7 @@
   --select-bg: #fafcff;
   --hover-bg: rgba(10, 100, 255, 0.12);
   --hover-text: var(--text);
+  --nav-active-bg: rgba(10, 100, 255, 0.15);
   --hint-info-bg: rgba(10, 100, 255, 0.08);
   --hint-info-line: rgba(10, 100, 255, 0.2);
   --hint-info-text: #1e40af;

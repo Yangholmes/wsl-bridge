@@ -35,13 +35,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Build MSI and EXE
+      - name: Build administrator MSI and EXE
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VITE_CLARITY_PROJECT_ID: ${{ secrets.VITE_CLARITY_PROJECT_ID }}
         with:
-          args: --bundles msi,nsis
+          args: --bundles msi,nsis --su
           tagName: v__VERSION__
           releaseName: v__VERSION__
           releaseDraft: false

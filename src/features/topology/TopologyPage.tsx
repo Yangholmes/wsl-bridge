@@ -11,11 +11,14 @@ import { EllipsisCell } from "../../lib/EllipsisCell";
 import { toLocalTime } from "../../lib/datetime";
 import { SkeletonLine } from "../../lib/Skeleton";
 import { Hint } from "../../lib/Hint";
+import { useAppRuntimeStatusQuery } from "../../lib/appRuntime";
 
 export function TopologyPage() {
   const { t } = useI18n();
+  const runtimeStatusQuery = useAppRuntimeStatusQuery();
 
   const topologyQuery = useQuery(() => createTopologyQueryOptions(true), () => appQueryClient);
+  const hasAdminPrivileges = () => runtimeStatusQuery.data?.admin_features_available ?? false;
 
   const isScanning = () => topologyQuery.isFetching;
 
@@ -84,49 +87,53 @@ export function TopologyPage() {
 
           <section class="panel topology-subpanel">
             <h2>{t("topology.hypervTitle")}</h2>
-            <Show when={topologyQuery.data?.hyperv_error}>
-              {(err) => {
-                const errorStr = String(err());
-                const isNotEnabled = errorStr.includes("未启用") || errorStr.includes("not enabled") || errorStr.includes("有効");
-                return <Hint variant="error">{isNotEnabled ? t("topology.hypervNotEnabled") : t("topology.adminRequired", { error: errorStr })}</Hint>;
-              }}
-            </Show>
-            <div class="table-wrap">
-              <table class="rules-table">
-                <thead>
-                  <tr>
-                    <th>{t("topology.tableVm")}</th>
-                    <th>{t("topology.tableSwitch")}</th>
-                    <th>{t("topology.tableIp")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <Show when={!isScanning()} fallback={<TopologySkeletonRows colspan={3} rows={4} />}>
-                    <Show
-                      when={(topologyQuery.data?.hyperv.length ?? 0) > 0}
-                      fallback={
-                        <tr>
-                          <td colspan={3} class="muted">
-                            {t("topology.noHypervData")}
-                          </td>
-                        </tr>
-                      }
-                    >
-                    <For each={topologyQuery.data?.hyperv ?? []}>
-                      {(item) => (
-                        <tr>
-                          <td><EllipsisCell text={item.vm_name} /></td>
-                          <td><EllipsisCell text={item.v_switch ?? "-"} /></td>
-                          <td><EllipsisCell text={item.ip ?? "-"} /></td>
-                        </tr>
-                      )}
-                    </For>
+            <Show
+              when={hasAdminPrivileges()}
+              fallback={<Hint variant="info">{t("topology.hiddenWithoutAdmin")}</Hint>}
+            >
+              <Show when={topologyQuery.data?.hyperv_error}>
+                {(err) => {
+                  const errorStr = String(err());
+                  const isNotEnabled = errorStr.includes("未启用") || errorStr.includes("not enabled") || errorStr.includes("有効");
+                  return <Hint variant="error">{isNotEnabled ? t("topology.hypervNotEnabled") : t("topology.adminRequired", { error: errorStr })}</Hint>;
+                }}
+              </Show>
+              <div class="table-wrap">
+                <table class="rules-table">
+                  <thead>
+                    <tr>
+                      <th>{t("topology.tableVm")}</th>
+                      <th>{t("topology.tableSwitch")}</th>
+                      <th>{t("topology.tableIp")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <Show when={!isScanning()} fallback={<TopologySkeletonRows colspan={3} rows={4} />}>
+                      <Show
+                        when={(topologyQuery.data?.hyperv.length ?? 0) > 0}
+                        fallback={
+                          <tr>
+                            <td colspan={3} class="muted">
+                              {t("topology.noHypervData")}
+                            </td>
+                          </tr>
+                        }
+                      >
+                        <For each={topologyQuery.data?.hyperv ?? []}>
+                          {(item) => (
+                            <tr>
+                              <td><EllipsisCell text={item.vm_name} /></td>
+                              <td><EllipsisCell text={item.v_switch ?? "-"} /></td>
+                              <td><EllipsisCell text={item.ip ?? "-"} /></td>
+                            </tr>
+                          )}
+                        </For>
+                      </Show>
                     </Show>
-                  </Show>
-                </tbody>
-              </table>
-            </div>
-
+                  </tbody>
+                </table>
+              </div>
+            </Show>
           </section>
 
           <section class="panel topology-subpanel">

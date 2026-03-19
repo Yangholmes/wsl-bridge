@@ -1,6 +1,7 @@
 export const dict = {
   app: {
-    name: "WSL Bridge"
+    name: "WSL Bridge",
+    runtimeNoticeBody: "一部の機能には管理者権限が必要です。すべての機能を利用するには、いったんアプリを終了してから管理者として再起動してください。"
   },
   nav: {
     dashboard: "ダッシュボード",
@@ -129,6 +130,7 @@ export const dict = {
     noWslData: "WSL トポロジーデータがありません",
     noHypervData: "Hyper-V トポロジーデータがありません",
     noAdaptersData: "アダプターデータがありません",
+    hiddenWithoutAdmin: "管理者権限で実行していないため、Hyper-V 管理関連の内容は非表示です。",
     adminRequired: "Hyper-V: {{ error }} 管理者権限でアプリを再起動してください。",
     hypervNotEnabled: "Hyper-V が有効になっていません。Windows の機能で Hyper-V を有効にしてから再試行してください。",
     debugButton: "Hyper-V 生デバッグ結果を表示",
@@ -216,6 +218,10 @@ export const dict = {
     tableError: "エラー",
     tableAction: "操作",
     tableSwitch: "オン",
+    readOnlyMarker: "読み取り専用",
+    readOnlyValue: "読み取り専用",
+    firewallAdminHint: "管理者権限がないため、ファイアウォール設定は編集できません。このモードで新規作成したルールにはファイアウォールポリシーが保存されません。",
+    hypervAdminHint: "Hyper-V ルールは、管理者権限がないと有効化・無効化したり、Hyper-V ターゲットとして新規作成したりできません。",
     placeholderSelect: "選択",
     placeholderSelectNic: "NIC を選択",
     currentValue: "（現在値）",
@@ -247,6 +253,7 @@ export const dict = {
     validationListenPortRange: "リスニングポートは 1-65535 の整数である必要があります。",
     validationSingleNicRequired: "single_nic モードでは NIC を選択する必要があります。",
     validationFirewallRequired: "少なくとも1つのファイアウォールプロファイルを有効にしてください。",
+    validationHypervAdminRequired: "Hyper-V ターゲットのルールには管理者権限が必要です。",
     validationTargetPortRange: "ターゲットポートは 1-65535 の整数である必要があります。",
     validationStaticHostRequired: "static ターゲットでは target_host を入力する必要があります。",
     validationDynamicRefRequired: "{{ kind }} ターゲットでは target_ref を入力する必要があります。",
@@ -261,6 +268,7 @@ export const dict = {
     successBatchEnable: "{{ count }} 件のルールをバッチ{{ action }}しました、applied={{ applied }}、failed={{ failed }}",
     errorBatchDelete: "バッチ削除が部分的に失敗しました（{{ failed }}/{{ total }}）。",
     successBatchDelete: "{{ count }} 件のルールをバッチ削除しました。",
+    successConfigSaved: "ルール設定を保存しました。標準権限モードでは実行状態は自動適用されません。",
     successApplied: "ルールを適用しました、applied={{ applied }}、failed={{ failed }}",
     successStopped: "ルールを停止しました、stopped={{ stopped }}",
     formEditTitle: "ルール編集",

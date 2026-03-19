@@ -159,6 +159,14 @@ export type HyperVProbeDebug = {
   steps: HyperVProbeStep[];
 };
 
+export type BuildFlavor = "standard" | "su";
+
+export type AppRuntimeStatus = {
+  build_flavor: BuildFlavor;
+  is_admin: boolean;
+  admin_features_available: boolean;
+};
+
 export type McpServerConfig = {
   enabled: boolean;
   server_name: string;

@@ -25,6 +25,7 @@ import { EllipsisCell } from "../../lib/EllipsisCell";
 import { toLocalTime } from "../../lib/datetime";
 import { SkeletonLine } from "../../lib/Skeleton";
 import { useToast } from "../../lib/Toast";
+import { useAppRuntimeStatusQuery } from "../../lib/appRuntime";
 
 import {
   applyRules,
@@ -94,7 +95,7 @@ const ruleTypeOptions: SelectOption[] = [
   { value: "socks5_proxy", label: "socks5_proxy" }
 ];
 
-const targetKindOptions: SelectOption[] = [
+const allTargetKindOptions: SelectOption[] = [
   { value: "static", label: "static" },
   { value: "wsl", label: "wsl" },
   { value: "hyperv", label: "hyperv" }
@@ -171,6 +172,7 @@ function AppSelect(props: AppSelectProps & { placeholderText?: string }) {
 export function RulesPage() {
   const { t } = useI18n();
   const toast = useToast();
+  const runtimeStatusQuery = useAppRuntimeStatusQuery();
   const [form, setForm] = createStore<FormState>({ ...defaultForm });
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [isModalOpen, setIsModalOpen] = createSignal(false);
@@ -178,17 +180,24 @@ export function RulesPage() {
   const [pageIndex, setPageIndex] = createSignal(0);
   const [pageSize, setPageSize] = createSignal(10);
   const [debugOutput, setDebugOutput] = createSignal("ready");
+  const [togglingRuleId, setTogglingRuleId] = createSignal<string | null>(null);
 
   const [filter, setFilter] = createStore({
     name: "",
     type: "all",
     enabled: "all"
   });
+  const hasAdminPrivileges = createMemo(() => runtimeStatusQuery.data?.is_admin ?? false);
+  const canManageFirewall = createMemo(() => hasAdminPrivileges());
+  const canManageHyperV = createMemo(() => hasAdminPrivileges());
+  const canApplyRuntimeChanges = createMemo(() => true);
   const shouldLoadTopology = createMemo(
     () =>
       isModalOpen() &&
       (form.bind_mode === "single_nic" ||
-        ((form.type === "tcp_fwd" || form.type === "udp_fwd") && form.target_kind !== "static"))
+        ((form.type === "tcp_fwd" || form.type === "udp_fwd") &&
+          form.target_kind !== "static" &&
+          (form.target_kind !== "hyperv" || canManageHyperV())))
   );
 
   const rulesQuery = useQuery(() =>
@@ -361,6 +370,20 @@ export function RulesPage() {
   });
 
   createEffect(() => {
+    if (!canManageFirewall()) {
+      if (form.fw_domain) setForm("fw_domain", false);
+      if (form.fw_private) setForm("fw_private", false);
+      if (form.fw_public) setForm("fw_public", false);
+    }
+  });
+
+  const targetKindOptions = createMemo<SelectOption[]>(() =>
+    canManageHyperV() || form.target_kind === "hyperv"
+      ? allTargetKindOptions
+      : allTargetKindOptions.filter((item) => item.value !== "hyperv")
+  );
+
+  createEffect(() => {
     const validIds = new Set(filteredRows().map((rule) => rule.id));
     setSelectedRuleIds((prev) => {
       if (prev.size === 0) return prev;
@@ -480,17 +503,25 @@ export function RulesPage() {
       header: () => t("rules.tableSwitch"),
       cell: (ctx) => {
         const row = ctx.row.original;
+        const isLoading = () => togglingRuleId() === row.id;
+        const canToggle = hasAdminPrivileges() || row.target_kind !== "hyperv";
         return (
-          <KSwitch.Root
-            checked={row.enabled}
-            onChange={(checked) => void handleToggle(row.id, checked)}
-            class="kb-switch small row-enable-switch"
+          <Show
+            when={canToggle}
+            fallback={<EllipsisCell text={row.enabled ? t("common.enabled") : t("common.disabled")} />}
           >
-            <KSwitch.Input aria-label={`${row.name} ${t("rules.tableSwitch")}`} />
-            <KSwitch.Control class="kb-switch-control">
-              <KSwitch.Thumb class="kb-switch-thumb" />
-            </KSwitch.Control>
-          </KSwitch.Root>
+            <KSwitch.Root
+              checked={row.enabled}
+              onChange={(checked) => void handleToggle(row.id, checked)}
+              class={`kb-switch small row-enable-switch${isLoading() ? " loading" : ""}`}
+              disabled={isLoading()}
+            >
+              <KSwitch.Input aria-label={`${row.name} ${t("rules.tableSwitch")}`} />
+              <KSwitch.Control class="kb-switch-control">
+                <KSwitch.Thumb class="kb-switch-thumb" />
+              </KSwitch.Control>
+            </KSwitch.Root>
+          </Show>
         );
       }
     }
@@ -515,6 +546,11 @@ export function RulesPage() {
 
   function openCreateModal() {
     resetForm();
+    if (!canManageHyperV()) {
+      setForm("target_kind", "static");
+      setForm("target_ref", "");
+      setGlobalTargetContext("static", "");
+    }
     setIsModalOpen(true);
   }
 
@@ -569,8 +605,11 @@ export function RulesPage() {
       return t("rules.validationListenPortRange");
     }
     if (isSingleNic() && !form.nic_id) return t("rules.validationSingleNicRequired");
-    if (!form.fw_domain && !form.fw_private && !form.fw_public) {
+    if (canManageFirewall() && !form.fw_domain && !form.fw_private && !form.fw_public) {
       return t("rules.validationFirewallRequired");
+    }
+    if (!canManageHyperV() && form.target_kind === "hyperv") {
+      return t("rules.validationHypervAdminRequired");
     }
 
     if (!isProxyType()) {
@@ -599,7 +638,7 @@ export function RulesPage() {
   }
 
   function toCreateRequest(): CreateRuleRequest {
-    return {
+    const request: CreateRuleRequest = {
       rule: {
         name: form.name.trim(),
         type: form.type,
@@ -621,6 +660,10 @@ export function RulesPage() {
         action: "allow"
       }
     };
+    if (!canManageFirewall()) {
+      request.firewall = null;
+    }
+    return request;
   }
 
   function toPatch(): RulePatch {
@@ -649,24 +692,28 @@ export function RulesPage() {
       if (editingId()) {
         const patch = toPatch();
         await updateRule(editingId()!, patch);
-        if (patch.enabled) {
+        if (patch.enabled && (hasAdminPrivileges() || form.target_kind !== "hyperv")) {
           const result = await applyRules();
           setDebugOutput(JSON.stringify({ updated_rule_id: editingId(), patch, auto_apply: result }, null, 2));
           toast.info(t("rules.successUpdated", { id: editingId()!, applied: result.applied, failed: result.failed.length }));
         } else {
           setDebugOutput(JSON.stringify({ updated_rule_id: editingId(), patch }, null, 2));
-          toast.info(t("rules.successUpdated", { id: editingId() ?? "", applied: 0, failed: 0 }));
+          toast.info((hasAdminPrivileges() || form.target_kind !== "hyperv")
+            ? t("rules.successUpdated", { id: editingId() ?? "", applied: 0, failed: 0 })
+            : t("rules.successConfigSaved"));
         }
       } else {
         const req = toCreateRequest();
         const id = await createRule(req);
-        if (req.rule.enabled) {
+        if (req.rule.enabled && (hasAdminPrivileges() || req.rule.target_kind !== "hyperv")) {
           const result = await applyRules();
           setDebugOutput(JSON.stringify({ created_rule_id: id, request: req, auto_apply: result }, null, 2));
           toast.info(t("rules.successCreated", { id, applied: result.applied, failed: result.failed.length }));
         } else {
           setDebugOutput(JSON.stringify({ created_rule_id: id, request: req }, null, 2));
-          toast.info(t("rules.successCreated", { id, applied: 0, failed: 0 }));
+          toast.info((hasAdminPrivileges() || req.rule.target_kind !== "hyperv")
+            ? t("rules.successCreated", { id, applied: 0, failed: 0 })
+            : t("rules.successConfigSaved"));
         }
       }
 
@@ -693,13 +740,24 @@ export function RulesPage() {
 
   async function handleToggle(id: string, enabled: boolean) {
     try {
+      const row = rows().find((item) => item.id === id);
+      if (!row) return;
+      if (!hasAdminPrivileges() && row.target_kind === "hyperv") {
+        toast.error(t("rules.hypervAdminHint"));
+        return;
+      }
+      setTogglingRuleId(id);
       await enableRule(id, enabled);
-      const result = await applyRules();
-      await refreshAll();
-      toast.info(t("rules.successToggled", { id, action: enabled ? t("common.enabled") : t("common.disabled"), applied: result.applied, failed: result.failed.length }));
-      setDebugOutput(JSON.stringify({ toggled_rule_id: id, enabled, auto_apply: result }, null, 2));
+      if (canApplyRuntimeChanges()) {
+        const result = await applyRules();
+        await refreshAll();
+        toast.info(t("rules.successToggled", { id, action: enabled ? t("common.enabled") : t("common.disabled"), applied: result.applied, failed: result.failed.length }));
+        setDebugOutput(JSON.stringify({ toggled_rule_id: id, enabled, auto_apply: result }, null, 2));
+      }
     } catch (err) {
       toast.error(String(err));
+    } finally {
+      setTogglingRuleId(null);
     }
   }
 
@@ -708,6 +766,13 @@ export function RulesPage() {
     if (ids.length === 0) {
       toast.error(t("rules.errorNoSelection"));
       return;
+    }
+    if (!hasAdminPrivileges()) {
+      const hasHyperV = rows().some((row) => ids.includes(row.id) && row.target_kind === "hyperv");
+      if (hasHyperV) {
+        toast.error(t("rules.hypervAdminHint"));
+        return;
+      }
     }
 
     const failed: string[] = [];
@@ -848,19 +913,19 @@ export function RulesPage() {
 
         <div class="actions top-actions">
           <KButton.Root class="kb-btn accent" onClick={openCreateModal}>{t("rules.btnNewRule")}</KButton.Root>
+          <KButton.Root class="kb-btn ghost" onClick={loadLogs}>{t("rules.btnViewLogs")}</KButton.Root>
           <KButton.Root class="kb-btn ghost" onClick={runApply}>{t("rules.btnApply")}</KButton.Root>
           <KButton.Root class="kb-btn ghost" onClick={runStop}>{t("rules.btnStop")}</KButton.Root>
-          <KButton.Root class="kb-btn ghost" onClick={loadLogs}>{t("rules.btnViewLogs")}</KButton.Root>
           <KButton.Root
             class="kb-btn ghost"
-            disabled={selectedCount() === 0}
+            disabled={selectedCount() === 0 || (!hasAdminPrivileges() && rows().some((row) => selectedRuleIds().has(row.id) && row.target_kind === "hyperv"))}
             onClick={() => handleBatchEnable(true)}
           >
             {t("rules.btnBatchEnable")}
           </KButton.Root>
           <KButton.Root
             class="kb-btn ghost"
-            disabled={selectedCount() === 0}
+            disabled={selectedCount() === 0 || (!hasAdminPrivileges() && rows().some((row) => selectedRuleIds().has(row.id) && row.target_kind === "hyperv"))}
             onClick={() => handleBatchEnable(false)}
           >
             {t("rules.btnBatchDisable")}
@@ -997,6 +1062,8 @@ export function RulesPage() {
       <RuleFormModal
         open={isModalOpen()}
         isEditing={isEditing()}
+        canToggleEnabled={hasAdminPrivileges() || form.target_kind !== "hyperv"}
+        canManageFirewall={canManageFirewall()}
         form={form}
         setForm={setForm}
         message={null}
@@ -1005,7 +1072,7 @@ export function RulesPage() {
         targetPreview={targetPreview()}
         topologyTimestamp={topologyQuery.data?.timestamp ?? null}
         ruleTypeOptions={ruleTypeOptions}
-        targetKindOptions={targetKindOptions}
+        targetKindOptions={targetKindOptions()}
         bindModeOptions={bindModeOptions}
         adapterOptions={adapterOptions()}
         targetRefOptions={targetRefOptions()}

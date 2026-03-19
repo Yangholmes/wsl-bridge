@@ -36,6 +36,41 @@
   transform: translateX(20px);
 }
 
+.kb-switch.loading .kb-switch-control {
+  cursor: not-allowed;
+  opacity: 0.85;
+  position: relative;
+  overflow: hidden;
+}
+
+.kb-switch.loading .kb-switch-control::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -100%;
+  width: 40%;
+  height: 200%;
+  background: linear-gradient(
+    120deg,
+    transparent 0%,
+    rgba(10, 100, 255, 0.35) 45%,
+    rgba(10, 100, 255, 0.5) 50%,
+    rgba(10, 100, 255, 0.35) 55%,
+    transparent 100%
+  );
+  box-shadow: 0 0 12px rgba(10, 100, 255, 0.3);
+  animation: switch-shimmer 1s ease-in-out infinite;
+}
+
+@keyframes switch-shimmer {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 200%;
+  }
+}
+
 .kb-switch.small {
   min-height: 28px;
 }

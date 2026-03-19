@@ -4,6 +4,13 @@ WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在
 
 项目采用单可执行应用形态（Tauri），不依赖独立后端服务。
 
+当前仓库支持两种 Windows 构建口径：
+
+- 标准权限版：默认 `pnpm tauri build`
+- 管理员版：`pnpm tauri build --su`
+
+其中 GitHub Release 仅发布管理员版安装包。
+
 ## 当前状态
 
 - 架构设计：已完成（见 `docs/wsl-bridge-design.md`）。
@@ -132,6 +139,7 @@ WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在
 - `WSL_BRIDGE_DB_PATH`：覆盖数据库路径
 - `WSL_BRIDGE_FIREWALL_MODE`：`disabled | best_effort | enforced`（默认 `best_effort`）
 - `WSL_BRIDGE_TOPOLOGY_POLL_SECS`：拓扑轮询间隔秒数（默认 `8`，用于自动重绑检测）
+- `WSL_BRIDGE_BUILD_FLAVOR`：构建口径（`standard | su`），由 `pnpm tauri ... [--su]` 自动注入，通常无需手动设置
 
 ## 本地开发与验证
 
@@ -142,6 +150,7 @@ cargo fmt --all
 cargo test --workspace
 pnpm tauri dev
 pnpm tauri build
+pnpm tauri build --su
 ```
 
 ## UI 调试指南
@@ -168,10 +177,42 @@ pnpm tauri build
 ```
 
 该命令会先执行前端构建，再编译并打包 Tauri 桌面应用（`.exe`/安装包）。
+默认情况下生成标准权限版本，适合后续转换为商店侧非管理员发行物。
+
+如需生成管理员权限版本：
+
+```powershell
+pnpm tauri build --su
+```
+
+管理员版本会在最终 EXE 上嵌入 `requireAdministrator` manifest，启动时触发 UAC，适合 GitHub Release 的完整功能安装包。
+
 默认产物位于 `target/release/bundle/`，例如：
 
 - `target/release/bundle/msi/WSL Bridge_0.1.0_x64_en-US.msi`
 - `target/release/bundle/nsis/WSL Bridge_0.1.0_x64-setup.exe`
+
+### 3. 权限模式说明
+
+- 标准权限运行时：
+  - 前端顶部会显示提示条
+  - 允许管理配置态规则：新建、编辑、删除
+  - 允许启用/禁用非 `hyperv` 规则
+  - 允许应用不依赖 `hyperv` 和防火墙配置的规则
+  - 不允许编辑防火墙配置
+  - 不允许进行依赖管理员权限的 Hyper-V 管理能力
+- 管理员权限运行时：
+  - 显示完整功能
+  - 可进行规则增删改、启停、批量操作、Hyper-V 管理相关操作
+
+### 4. GitHub 发布
+
+仓库内的 GitHub Actions 发布流程固定使用 `--su` 构建管理员版安装包：
+
+- MSI
+- NSIS Setup EXE
+
+也就是说，GitHub Release 不会发布标准权限版本。
 
 ## M1 测试覆盖
 

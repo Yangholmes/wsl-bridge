@@ -47,6 +47,8 @@ type AppSelectProps = {
 type RuleFormModalProps = {
   open: boolean;
   isEditing: boolean;
+  canToggleEnabled: boolean;
+  canManageFirewall: boolean;
   form: FormState;
   setForm: SetStoreFunction<FormState>;
   message: { type: "info" | "error"; text: string } | null;
@@ -116,6 +118,7 @@ export function RuleFormModal(props: RuleFormModalProps) {
                   checked={props.form.enabled}
                   onChange={(checked) => props.setForm("enabled", checked)}
                   class="kb-switch modal-header-switch"
+                  disabled={!props.canToggleEnabled}
                 >
                   <KSwitch.Input aria-label={t("rules.formEnableRule")} />
                   <KSwitch.Control class="kb-switch-control">
@@ -264,31 +267,36 @@ export function RuleFormModal(props: RuleFormModalProps) {
               </div>
             </div>
 
-            <div class="checks kb-checks">
-              <KCheckbox.Root checked={props.form.fw_domain} onChange={(checked) => props.setForm("fw_domain", checked)} class="kb-checkbox">
-                <KCheckbox.Input />
-                <KCheckbox.Control class="kb-checkbox-control">
-                  <KCheckbox.Indicator class="kb-checkbox-indicator" />
-                </KCheckbox.Control>
-                <KCheckbox.Label class="kb-checkbox-label">Domain</KCheckbox.Label>
-              </KCheckbox.Root>
+            <Show
+              when={props.canManageFirewall}
+              fallback={<Hint>{t("rules.firewallAdminHint")}</Hint>}
+            >
+              <div class="checks kb-checks">
+                <KCheckbox.Root checked={props.form.fw_domain} onChange={(checked) => props.setForm("fw_domain", checked)} class="kb-checkbox">
+                  <KCheckbox.Input />
+                  <KCheckbox.Control class="kb-checkbox-control">
+                    <KCheckbox.Indicator class="kb-checkbox-indicator" />
+                  </KCheckbox.Control>
+                  <KCheckbox.Label class="kb-checkbox-label">Domain</KCheckbox.Label>
+                </KCheckbox.Root>
 
-              <KCheckbox.Root checked={props.form.fw_private} onChange={(checked) => props.setForm("fw_private", checked)} class="kb-checkbox">
-                <KCheckbox.Input />
-                <KCheckbox.Control class="kb-checkbox-control">
-                  <KCheckbox.Indicator class="kb-checkbox-indicator" />
-                </KCheckbox.Control>
-                <KCheckbox.Label class="kb-checkbox-label">Private</KCheckbox.Label>
-              </KCheckbox.Root>
+                <KCheckbox.Root checked={props.form.fw_private} onChange={(checked) => props.setForm("fw_private", checked)} class="kb-checkbox">
+                  <KCheckbox.Input />
+                  <KCheckbox.Control class="kb-checkbox-control">
+                    <KCheckbox.Indicator class="kb-checkbox-indicator" />
+                  </KCheckbox.Control>
+                  <KCheckbox.Label class="kb-checkbox-label">Private</KCheckbox.Label>
+                </KCheckbox.Root>
 
-              <KCheckbox.Root checked={props.form.fw_public} onChange={(checked) => props.setForm("fw_public", checked)} class="kb-checkbox">
-                <KCheckbox.Input />
-                <KCheckbox.Control class="kb-checkbox-control">
-                  <KCheckbox.Indicator class="kb-checkbox-indicator" />
-                </KCheckbox.Control>
-                <KCheckbox.Label class="kb-checkbox-label">Public</KCheckbox.Label>
-              </KCheckbox.Root>
-            </div>
+                <KCheckbox.Root checked={props.form.fw_public} onChange={(checked) => props.setForm("fw_public", checked)} class="kb-checkbox">
+                  <KCheckbox.Input />
+                  <KCheckbox.Control class="kb-checkbox-control">
+                    <KCheckbox.Indicator class="kb-checkbox-indicator" />
+                  </KCheckbox.Control>
+                  <KCheckbox.Label class="kb-checkbox-label">Public</KCheckbox.Label>
+                </KCheckbox.Root>
+              </div>
+            </Show>
 
             <div class="actions modal-actions">
               <KButton.Root class="kb-btn accent" onClick={props.onSubmit}>

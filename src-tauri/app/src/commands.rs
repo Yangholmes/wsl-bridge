@@ -3,12 +3,12 @@
 use anyhow::Result;
 use wsl_bridge_core::HyperVProbeDebug;
 use wsl_bridge_shared::{
-    ApplyRulesResult, CreateRuleRequest, LogQueryRequest, LogQueryResult, McpServerConfig,
+    AppRuntimeStatus, ApplyRulesResult, CreateRuleRequest, LogQueryRequest, LogQueryResult, McpServerConfig,
     McpServerStatus, ProxyRule, RuleLogStatsItem, RuleLogStatsRequest, RulePatch,
     RuntimeStatusItem, StopRulesResult, TailLogsResult, TopologySnapshot,
 };
 
-use crate::{mcp, state::AppState};
+use crate::{mcp, runtime_status, state::AppState};
 
 // These functions are intentionally plain Rust handlers.
 // In the next step they can be directly wrapped with #[tauri::command].
@@ -18,6 +18,10 @@ pub fn scan_topology(state: &AppState) -> TopologySnapshot {
 
 pub fn debug_hyperv_probe(state: &AppState) -> HyperVProbeDebug {
     state.engine.debug_hyperv_probe()
+}
+
+pub fn get_app_runtime_status() -> AppRuntimeStatus {
+    runtime_status::current_runtime_status()
 }
 
 pub fn list_rules(state: &AppState) -> Vec<ProxyRule> {

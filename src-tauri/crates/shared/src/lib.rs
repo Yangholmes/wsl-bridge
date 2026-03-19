@@ -174,6 +174,20 @@ pub struct McpClientPreset {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BuildFlavor {
+    Standard,
+    Su,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AppRuntimeStatus {
+    pub build_flavor: BuildFlavor,
+    pub is_admin: bool,
+    pub admin_features_available: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CreateRuleRequest {
     pub rule: NewProxyRule,
     pub firewall: Option<NewFirewallPolicy>,

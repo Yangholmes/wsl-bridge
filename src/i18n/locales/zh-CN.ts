@@ -1,6 +1,7 @@
 export const dict = {
   app: {
-    name: "WSL Bridge"
+    name: "WSL Bridge",
+    runtimeNoticeBody: "部分功能需要管理员权限运行。如需使用完整功能，请先退出本应用，再以管理员身份重新启动。"
   },
   nav: {
     dashboard: "仪表盘",
@@ -129,6 +130,7 @@ export const dict = {
     noWslData: "无 WSL 拓扑数据",
     noHypervData: "无 Hyper-V 拓扑数据",
     noAdaptersData: "无网卡数据",
+    hiddenWithoutAdmin: "当前未使用管理员权限运行，Hyper-V 管理相关内容已隐藏。",
     adminRequired: "Hyper-V：{{ error }} 请以管理员身份启动应用后重试。",
     hypervNotEnabled: "Hyper-V 功能未启用，请先在 Windows 功能中启用 Hyper-V 后重试。",
     debugButton: "查看 Hyper-V 原始探测结果（调试）",
@@ -216,6 +218,10 @@ export const dict = {
     tableError: "错误",
     tableAction: "操作",
     tableSwitch: "开关",
+    readOnlyMarker: "只读",
+    readOnlyValue: "只读",
+    firewallAdminHint: "当前未使用管理员权限运行，防火墙配置不可编辑，新建规则时不会写入防火墙策略。",
+    hypervAdminHint: "当前未使用管理员权限运行，Hyper-V 相关规则不能启用、禁用或创建为 Hyper-V 目标。",
     placeholderSelect: "请选择",
     placeholderSelectNic: "请选择网卡",
     currentValue: "（当前值）",
@@ -247,6 +253,7 @@ export const dict = {
     validationListenPortRange: "监听端口必须是 1-65535 的整数。",
     validationSingleNicRequired: "single_nic 模式必须选择网卡。",
     validationFirewallRequired: "至少启用一个防火墙 Profile。",
+    validationHypervAdminRequired: "当前未使用管理员权限运行，不能创建或修改为 Hyper-V 目标规则。",
     validationTargetPortRange: "目标端口必须是 1-65535 的整数。",
     validationStaticHostRequired: "static 目标必须填写 target_host。",
     validationDynamicRefRequired: "{{ kind }} 目标必须填写 target_ref。",
@@ -261,6 +268,7 @@ export const dict = {
     successBatchEnable: "已批量{{ action }} {{ count }} 条规则，applied={{ applied }}，failed={{ failed }}",
     errorBatchDelete: "批量删除部分失败（{{ failed }}/{{ total }}）。",
     successBatchDelete: "已批量删除 {{ count }} 条规则。",
+    successConfigSaved: "规则配置已保存。当前未使用管理员权限运行，运行态不会自动应用。",
     successApplied: "已应用规则，applied={{ applied }}，failed={{ failed }}",
     successStopped: "已停止规则，stopped={{ stopped }}",
     formEditTitle: "编辑规则",

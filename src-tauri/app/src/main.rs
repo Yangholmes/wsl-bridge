@@ -2,6 +2,7 @@
 
 mod commands;
 mod mcp;
+mod runtime_status;
 mod state;
 mod tauri_commands;
 
@@ -75,6 +76,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            tauri_commands::get_app_runtime_status,
             tauri_commands::scan_topology,
             tauri_commands::debug_hyperv_probe,
             tauri_commands::list_rules,

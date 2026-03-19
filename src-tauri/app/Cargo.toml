@@ -23,5 +23,8 @@ uuid.workspace = true
 wsl-bridge-core = { path = "../crates/core" }
 wsl-bridge-shared = { path = "../crates/shared" }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_UI_Shell"] }
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
