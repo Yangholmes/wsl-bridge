@@ -46,7 +46,7 @@
   width: 100%;
   min-height: 36px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 7px 10px;
   background: var(--input-bg);
   color: var(--text);
@@ -105,7 +105,7 @@
 .kb-select-content {
   z-index: 90;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   min-width: 180px;
   overflow: hidden;
   background: var(--surface-strong);
@@ -135,7 +135,7 @@
   justify-content: flex-start;
   align-items: center;
   gap: 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 9px 11px;
   color: var(--text);
   font-size: 13px;

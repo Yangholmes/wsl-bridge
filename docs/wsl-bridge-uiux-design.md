@@ -157,7 +157,11 @@ flowchart TD
   --warn-600: #b54708;
   --danger-600: #b42318;
   --border-default: #d0d5dd;
-  --radius-md: 10px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 999px;
   --space-8: 8px;
   --space-12: 12px;
   --space-16: 16px;

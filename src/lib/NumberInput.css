@@ -25,7 +25,7 @@
   flex-direction: column;
   border: 1px solid var(--line);
   border-left: none;
-  border-radius: 0 10px 10px 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
   overflow: hidden;
   background: var(--input-bg);
 }

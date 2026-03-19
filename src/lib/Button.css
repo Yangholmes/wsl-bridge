@@ -12,13 +12,13 @@
 
 .kb-btn {
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   min-height: 34px;
   padding: 6px 12px;
   font-size: 13px;
   font-weight: 560;
   cursor: pointer;
-  transition: transform 0.12s ease, box-shadow 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+  transition: transform 0.12s ease, background 0.16s ease, border-color 0.16s ease;
 }
 
 .kb-btn:active {
@@ -28,7 +28,6 @@
 .kb-btn.accent {
   background: linear-gradient(180deg, #1e76ff, #0a64ff);
   color: #fff;
-  box-shadow: 0 7px 14px rgba(10, 100, 255, 0.26);
 }
 
 .kb-btn.accent:hover {
@@ -47,7 +46,7 @@
 
 .kb-btn.small {
   min-height: 28px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 3px 8px;
   font-size: 12px;
 }

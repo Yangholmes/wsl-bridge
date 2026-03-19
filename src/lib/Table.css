@@ -1,7 +1,7 @@
 .table-wrap {
   overflow: auto;
   border: 1px solid var(--line-soft);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--surface-strong);
 }
 
@@ -21,6 +21,10 @@ td {
   padding: 9px 8px;
   text-align: left;
   vertical-align: middle;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
 }
 
 th {
@@ -44,7 +48,7 @@ tbody tr:hover {
 .row-check .kb-checkbox-control {
   width: 14px;
   height: 14px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 

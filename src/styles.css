@@ -25,6 +25,11 @@
   --hint-error-text: #991b1b;
   --checkbox-bg: rgba(255, 255, 255, 0.9);
   --checkbox-mark: #ffffff;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 999px;
 }
 
 [data-theme="dark"] {
@@ -73,7 +78,7 @@
 
 *::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, rgba(124, 148, 188, 0.72), rgba(84, 108, 156, 0.78));
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
@@ -111,9 +116,8 @@ body {
   border: 1px solid var(--line);
   background: var(--surface);
   backdrop-filter: blur(18px) saturate(1.2);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 14px;
-  box-shadow: var(--shadow-soft);
 }
 
 .page-shell {
@@ -170,7 +174,7 @@ pre {
   line-height: 1.45;
   background: #0f172a;
   color: #e2e8f0;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 12px;
   overflow: auto;
   max-height: 360px;

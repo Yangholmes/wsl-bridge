@@ -18,7 +18,7 @@
   border: 1px solid var(--line);
   background: var(--surface-strong);
   backdrop-filter: blur(20px) saturate(1.2);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 16px;
   box-shadow: var(--shadow);
 }
@@ -41,6 +41,6 @@
     width: calc(100vw - 14px);
     max-height: calc(100vh - 14px);
     padding: 12px;
-    border-radius: 12px;
+    border-radius: var(--radius-xl);
   }
 }

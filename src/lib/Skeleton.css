@@ -1,6 +1,6 @@
 .skeleton-title,
 .skeleton-line {
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: linear-gradient(
     100deg,
     var(--line) 20%,
@@ -28,7 +28,7 @@
 }
 
 .skeleton-grid {
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   min-height: 120px;
   background: linear-gradient(
     100deg,

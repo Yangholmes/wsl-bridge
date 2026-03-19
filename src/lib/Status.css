@@ -1,7 +1,7 @@
 .kb-tooltip-content {
   z-index: 120;
   max-width: min(70vw, 560px);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--line);
   background: var(--surface-strong);
   color: var(--text);
@@ -17,7 +17,7 @@
 }
 
 .hint {
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   margin-top: 10px;
   padding: 10px 12px;
   font-size: 12px;

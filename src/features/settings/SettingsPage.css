@@ -60,7 +60,7 @@
   font-family: "Cascadia Code", "Consolas", monospace;
   background: #0f172a;
   color: #e2e8f0;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 12px;
   overflow: auto;
   max-height: 360px;

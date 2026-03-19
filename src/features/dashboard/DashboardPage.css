@@ -6,7 +6,7 @@
 
 .dashboard-card {
   border: 1px solid var(--line-soft);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: var(--surface-strong);
   padding: 12px;
   display: grid;
