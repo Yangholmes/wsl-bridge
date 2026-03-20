@@ -94,7 +94,6 @@ export const NumberInput: Component<NumberInputProps> = (props) => {
           onClick={() => step(1)}
           disabled={props.disabled || props.value >= maxValue()}
         >
-          ▴
         </button>
         <button
           type="button"
@@ -103,7 +102,6 @@ export const NumberInput: Component<NumberInputProps> = (props) => {
           onClick={() => step(-1)}
           disabled={props.disabled || props.value <= minValue()}
         >
-          ▾
         </button>
       </div>
     </div>

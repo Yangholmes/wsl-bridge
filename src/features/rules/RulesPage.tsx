@@ -150,7 +150,7 @@ function AppSelect(props: AppSelectProps & { placeholderText?: string }) {
       itemComponent={(itemProps) => (
         <KSelect.Item item={itemProps.item} class="kb-select-item">
           <KSelect.ItemLabel>{itemProps.item.rawValue.label}</KSelect.ItemLabel>
-          <KSelect.ItemIndicator class="kb-select-item-indicator">✓</KSelect.ItemIndicator>
+          <KSelect.ItemIndicator class="kb-select-item-indicator" />
         </KSelect.Item>
       )}
       disabled={props.disabled}
@@ -158,7 +158,7 @@ function AppSelect(props: AppSelectProps & { placeholderText?: string }) {
     >
       <KSelect.Trigger class={`kb-select-trigger ${props.triggerClass ?? ""}`}>
         <KSelect.Value<SelectOption>>{(state) => state.selectedOption()?.label}</KSelect.Value>
-        <KSelect.Icon class="kb-select-icon">▾</KSelect.Icon>
+        <KSelect.Icon class="kb-select-icon"><span class="kb-select-icon-triangle"></span></KSelect.Icon>
       </KSelect.Trigger>
       <KSelect.Portal>
         <KSelect.Content class="kb-select-content">
@@ -1016,7 +1016,6 @@ export function RulesPage() {
               setPageIndex(0);
             }}
             options={getPageSizeOptions(t)}
-            triggerClass="kb-select-compact page-size-select"
           />
           <KButton.Root
             class="kb-btn ghost"

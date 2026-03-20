@@ -274,7 +274,7 @@ export const dict = {
     formEditTitle: "ルール編集",
     formCreateTitle: "新規ルール",
     formEnableRule: "ルールを有効化",
-    formEditHint: "編集モード: バックエンド patch は type/target_kind/firewall の変更をサポートしていません。",
+    formEditHint: "ポート転送を追加後、外部アクセスが必要な場合は、ファイアウォール設定で構成することを忘れないでください。",
     formName: "名前",
     formType: "タイプ",
     formListenHost: "リスニングアドレス",

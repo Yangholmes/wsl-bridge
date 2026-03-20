@@ -274,7 +274,7 @@ export const dict = {
     formEditTitle: "編輯規則",
     formCreateTitle: "新增規則",
     formEnableRule: "啟用規則",
-    formEditHint: "編輯模式：目前後端 patch 不支援修改 type/target_kind/firewall。",
+    formEditHint: "新增端口轉發後如果需要外部訪問，記得到防火牆設定中配置",
     formName: "名稱",
     formType: "類型",
     formListenHost: "監聽地址",

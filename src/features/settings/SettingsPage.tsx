@@ -212,7 +212,7 @@ export function SettingsPage() {
                 </KSelect.Item>
               )}
             >
-              <KSelect.Trigger class="kb-input settings-select-narrow">
+              <KSelect.Trigger class="kb-input kb-select-trigger settings-select-narrow">
                 <KSelect.Value<{ value: ThemeMode; labelKey: string }>>{(state) => (
                   <>
                     <img
@@ -222,7 +222,7 @@ export function SettingsPage() {
                     {t(state.selectedOption()?.labelKey ?? "settings.themeAuto")}
                   </>
                 )}</KSelect.Value>
-                <KSelect.Icon class="kb-select-icon">▾</KSelect.Icon>
+                <KSelect.Icon class="kb-select-icon"><span class="kb-select-icon-triangle"></span></KSelect.Icon>
               </KSelect.Trigger>
               <KSelect.Portal>
                 <KSelect.Content class="kb-select-content">
@@ -250,7 +250,7 @@ export function SettingsPage() {
                 </KSelect.Item>
               )}
             >
-              <KSelect.Trigger class="kb-input settings-select-narrow">
+              <KSelect.Trigger class="kb-input kb-select-trigger settings-select-narrow">
                 <KSelect.Value<{ value: AppLocale; label: string }>>{(state) => (
                   <>
                     <img
@@ -260,7 +260,7 @@ export function SettingsPage() {
                     {t(`locale.${state.selectedOption()?.value ?? "en-US"}`)}
                   </>
                 )}</KSelect.Value>
-                <KSelect.Icon class="kb-select-icon">▾</KSelect.Icon>
+                <KSelect.Icon class="kb-select-icon"><span class="kb-select-icon-triangle"></span></KSelect.Icon>
               </KSelect.Trigger>
               <KSelect.Portal>
                 <KSelect.Content class="kb-select-content">
@@ -439,11 +439,11 @@ export function SettingsPage() {
                 </KSelect.Item>
               )}
             >
-              <KSelect.Trigger class="kb-input settings-mcp-preset-select">
+              <KSelect.Trigger class="kb-input kb-select-trigger settings-mcp-preset-select">
                 <KSelect.Value<McpClientPreset>>{(state) =>
                   state.selectedOption() ? presetOptionLabel(state.selectedOption() as McpClientPreset) : ""
                 }</KSelect.Value>
-                <KSelect.Icon class="kb-select-icon">▾</KSelect.Icon>
+                <KSelect.Icon class="kb-select-icon"><span class="kb-select-icon-triangle"></span></KSelect.Icon>
               </KSelect.Trigger>
               <KSelect.Portal>
                 <KSelect.Content class="kb-select-content">

@@ -93,9 +93,20 @@
 }
 
 .kb-select-icon {
-  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin-left: auto;
   transition: transform 0.2s ease;
+}
+
+.kb-select-icon-triangle {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 6px solid var(--sub);
 }
 
 .kb-select-trigger[data-expanded] .kb-select-icon {

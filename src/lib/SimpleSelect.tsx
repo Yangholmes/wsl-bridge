@@ -30,7 +30,7 @@ export const SimpleSelect: Component<SimpleSelectProps> = (props) => {
     >
       <KSelect.Trigger class={`kb-select-trigger ${props.class ?? ""}`}>
         <KSelect.Value<SelectOption>>{(state) => state.selectedOption()?.label}</KSelect.Value>
-        <KSelect.Icon class="kb-select-icon">▾</KSelect.Icon>
+        <KSelect.Icon class="kb-select-icon"><span class="kb-select-icon-triangle"></span></KSelect.Icon>
       </KSelect.Trigger>
       <KSelect.Portal>
         <KSelect.Content class="kb-select-content">

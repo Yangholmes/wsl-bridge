@@ -83,7 +83,7 @@ function AppSelect(props: AppSelectProps) {
       itemComponent={(itemProps) => (
         <KSelect.Item item={itemProps.item} class="kb-select-item">
           <KSelect.ItemLabel>{itemProps.item.rawValue.label}</KSelect.ItemLabel>
-          <KSelect.ItemIndicator class="kb-select-item-indicator">✓</KSelect.ItemIndicator>
+          <KSelect.ItemIndicator class="kb-select-item-indicator" />
         </KSelect.Item>
       )}
       disabled={props.disabled}
@@ -91,7 +91,7 @@ function AppSelect(props: AppSelectProps) {
     >
       <KSelect.Trigger class={`kb-select-trigger ${props.triggerClass ?? ""}`}>
         <KSelect.Value<SelectOption>>{(state) => state.selectedOption()?.label}</KSelect.Value>
-        <KSelect.Icon class="kb-select-icon">▾</KSelect.Icon>
+        <KSelect.Icon class="kb-select-icon"><span class="kb-select-icon-triangle"></span></KSelect.Icon>
       </KSelect.Trigger>
       <KSelect.Portal>
         <KSelect.Content class="kb-select-content">
@@ -215,14 +215,6 @@ export function RuleFormModal(props: RuleFormModalProps) {
                 </div>
               </Show>
 
-              <Show when={!props.isProxyType && (props.form.target_kind === "wsl" || props.form.target_kind === "hyperv")}>
-                <Hint class="target-preview">
-                  {t("rules.formIpPreview")}: {props.targetPreview ?? t("rules.formIpNotResolved")}
-                  <br />
-                  {t("rules.formLastScan")}: {toLocalTime(props.topologyTimestamp)}
-                </Hint>
-              </Show>
-
               <KTextField.Root
                 class="kb-field"
                 value={props.form.target_host}
@@ -267,10 +259,15 @@ export function RuleFormModal(props: RuleFormModalProps) {
               </div>
             </div>
 
-            <Show
-              when={props.canManageFirewall}
-              fallback={<Hint>{t("rules.firewallAdminHint")}</Hint>}
-            >
+            <Show when={!props.isProxyType && (props.form.target_kind === "wsl" || props.form.target_kind === "hyperv")}>
+              <Hint class="target-preview">
+                {t("rules.formIpPreview")}: {props.targetPreview ?? t("rules.formIpNotResolved")}
+                <br />
+                {t("rules.formLastScan")}: {toLocalTime(props.topologyTimestamp)}
+              </Hint>
+            </Show>
+
+            <Show when={props.canManageFirewall}>
               <div class="checks kb-checks">
                 <KCheckbox.Root checked={props.form.fw_domain} onChange={(checked) => props.setForm("fw_domain", checked)} class="kb-checkbox">
                   <KCheckbox.Input />

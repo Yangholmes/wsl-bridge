@@ -274,7 +274,7 @@ export const dict = {
     formEditTitle: "Edit Rule",
     formCreateTitle: "New Rule",
     formEnableRule: "Enable rule",
-    formEditHint: "Edit mode: backend patch does not support changing type/target_kind/firewall.",
+    formEditHint: "After adding port forwarding, if external access is needed, remember to configure it in firewall settings.",
     formName: "Name",
     formType: "Type",
     formListenHost: "Listen Host",
