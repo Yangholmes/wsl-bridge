@@ -1,229 +1,164 @@
-# wsl-bridge
+# WSL Bridge
 
-WSL Bridge 是一个面向 Windows 10/11 的单应用桌面工具，目标是在 WSL NAT 场景下提供可视化的端口转发与代理能力。
+<p align="center">
+  <img src="src-tauri/app/icons/128x128.png" alt="WSL Bridge Logo" width="128" height="128">
+</p>
 
-项目采用单可执行应用形态（Tauri），不依赖独立后端服务。
+<p align="center">
+  <strong>让 WSL 和 Hyper-V 服务轻松暴露到外部网络</strong>
+</p>
 
-当前仓库支持两种 Windows 构建口径：
+<p align="center">
+  <a href="https://apps.microsoft.com/detail/9N3B2WPJ0BLQ">
+    <img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get from Microsoft Store" width="200">
+  </a>
+</p>
 
-- 标准权限版：默认 `pnpm tauri build`
-- 管理员版：`pnpm tauri build --su`
+[English](README.en.md) | 简体中文
 
-其中 GitHub Release 仅发布管理员版安装包。
+---
 
-## 当前状态
+## 获取方式
 
-- 架构设计：已完成（见 `docs/wsl-bridge-design.md`）。
-- UI/UX 设计：已完成（见 `docs/wsl-bridge-uiux-design.md`）。
-- M1：已完成（单应用骨架 + 规则管理 + TCP/UDP 转发 + 防火墙 Profile 基础能力）。
-- M2：已完成（WSL/Hyper-V 拓扑探测 + 动态目标解析 + Runtime/Topology 页面 + 网卡变化自动重绑）。
-- M3：已完成（HTTP/SOCKS5 运行时执行器 + Runtime/Logs 深度联动：聚合、错误检索、回放范围控制）。
-- M3 收尾稳定性：已完成（`@tanstack/solid-query` 用法统一为 `useQuery + queryOptions`，并修复 Runtime 路由切换 `defaultQueryOptions` 异常）。
-- M4 前置 UI 优化：已完成（左右独立滚动、Win11 侧栏高亮导航、关键页面骨架屏、Dashboard 第一版）。
-- M4 前置 UI 第二轮：已完成（右侧顶层去卡片化、Runtime 筛选行重排、Topology 调试 Modal、滚动条 Win11 风格统一）。
-- i18n：已完成（`@solid-primitives/i18n`，支持简体中文/English/繁體中文(中国香港)/日本語，Settings 可即时切换语言）。
+### Microsoft Store（推荐）
 
-## 仓库结构
+从 Microsoft Store 购买获取，享受自动更新和 Windows 原生集成体验：
 
-```txt
-.
-├─ docs/
-│  ├─ wsl-bridge-design.md
-│  ├─ wsl-bridge-uiux-design.md
-│  ├─ dashboard-开发计划.md
-│  └─ 开发日志.md
-├─ src/                   # Solid + Kobalte + TanStack 前端源码
-├─ dist/                  # 前端构建产物（pnpm build 后生成）
-├─ src-tauri/
-│  ├─ app/                # 单应用入口、Tauri 配置
-│  └─ crates/
-│     ├─ core/            # 规则引擎、转发执行器、防火墙执行器、拓扑探测
-│     └─ shared/          # DTO / 数据模型
-└─ Cargo.toml             # Rust workspace
-```
+**[→ 前往 Microsoft Store 下载](https://apps.microsoft.com/detail/9N3B2WPJ0BLQ)**
 
-## M1 已实现能力
+### GitHub Release
 
-### 核心引擎
+从 GitHub Releases 下载独立安装包（管理员权限完整功能版）：
 
-- 规则 CRUD：
-  - `create_rule`
-  - `list_rules`
-  - `update_rule`
-  - `delete_rule`
-  - `enable_rule`
-- 运行控制：
-  - `apply_rules`
-  - `stop_rules`
-  - `get_runtime_status`
-  - `tail_logs`
+**[→ 前往 GitHub Releases](https://github.com/yangholmes/wsl-bridge/releases)**
 
-### 网络能力（M1）
+提供 MSI 安装包和 NSIS 便携版两种格式。
 
-- TCP 转发执行器（真实监听 + 双向转发）
-- UDP 转发执行器（真实监听 + datagram 转发）
-- HTTP 代理执行器（M3 第一阶段）：
-  - 普通 HTTP 请求转发
-  - `CONNECT` 隧道
-- SOCKS5 代理执行器（M3 第一阶段）：
-  - 无认证握手
-  - `CONNECT`
-  - `UDP ASSOCIATE`
-- 绑定模式：
-  - `all_nics`
-  - `single_nic`（按网卡 ID 解析本机地址）
-- 端口冲突检测（监听地址端口冲突）
-- 动态目标解析（M2 第一阶段）：
-  - `target_kind = wsl | hyperv` 时，应用规则阶段按 `target_ref` 实时解析目标 IP
-  - `scan_topology()` 返回 WSL/Hyper-V 拓扑信息
-- 运行期自动重绑（M2）：
-  - 后台轮询拓扑变化；当 `single_nic` 绑定地址或动态目标地址变化时，自动重应用规则。
+---
 
-### 防火墙能力（M1）
+## 功能特性
 
-- 每条规则支持 Domain/Private/Public Profile 配置
-- 规则应用/停止时可执行防火墙增删（`netsh advfirewall`）
-- 支持防火墙模式：
-  - `disabled`
-  - `best_effort`
-  - `enforced`
+WSL Bridge 是一款面向 Windows 10/11 的桌面网络桥接工具，专为解决 WSL NAT 模式下的网络访问难题而设计。
 
-### 持久化与状态
+### 核心能力
 
-- SQLite 持久化：
-  - `proxy_rule`
-  - `firewall_policy`
-  - `runtime_state`
-  - `audit_log`
-- 启动自动加载历史规则与状态快照
-- 规则变更/应用/停止后自动落盘
+- **端口转发**：支持 TCP 和 UDP 端口转发，将 WSL/Hyper-V 服务暴露到外部网络
+- **代理服务**：内置 HTTP 代理和 SOCKS5 代理（支持 CONNECT 隧道和 UDP ASSOCIATE）
+- **动态目标解析**：自动探测 WSL 发行版和 Hyper-V 虚拟机 IP 变化，运行时自动重绑
+- **多网卡绑定**：支持单网卡绑定（IP 变化自动重绑）或全网卡监听
+- **防火墙集成**：按 Domain/Private/Public Profile 精细化配置防火墙规则
+- **可视化规则管理**：直观的规则 CRUD、批量操作、状态监控
 
-### 应用与 UI
+### 网络拓扑探测
 
-- 前端已迁移到 Solid + Kobalte + TanStack 正式结构：
-  - Kobalte：Dialog / TextField / Select / Switch / Checkbox 等可访问组件
-  - TanStack Router：页面路由与布局
-  - TanStack Query：规则/运行态/拓扑查询管理
-  - TanStack Table：规则表格渲染
-- Tauri command 已接通（默认启用）
-- Rules 页面能力：
-  - 新建规则（含防火墙 Profile 配置）
-  - 编辑规则（受后端 patch 能力约束）
-  - 筛选（名称/类型/启用状态）
-  - 批量操作（批量启用/禁用/删除、当前页全选）
-  - 分页（10/20/50 每页、页码导航）
-  - 运行态合并展示（state/last_apply_at/last_error）
-  - `wsl/hyperv` 目标实时 IP 预览（基于拓扑扫描结果）
-  - `wsl/hyperv` 的目标引用自动下拉填充（识别到的 distro/VM 名称）
-  - 行内启停、删除、应用/停止
-- 新增 M2 页面：
-  - Runtime：运行态列表、错误高亮、按规则查看关联日志
-  - Topology：WSL / Hyper-V / 网卡三块拓扑信息
-- 新增 M3 页面能力：
-  - Runtime：回放范围切换、按规则日志聚合（日志数/错误数/最近错误）与仅错误检索
-  - Logs：后端过滤查询（级别/模块/关键词/rule_id/时间范围）、实时刷新、CSV 导出、展示条数控制
-  - Dashboard：应用状态、规则汇总、风险提示、快捷操作、最近错误日志
-- 网卡下拉来源于 `scan_topology()` 适配器列表
-- Topology 查询采用懒加载与共享缓存策略，降低 Rules/Topology 切页重复扫描频率
-- 路由与页面加载采用懒加载 + 骨架屏，降低切页白屏体感
-- 字体使用 Windows 自带优先栈（`Segoe UI Variable Text / Segoe UI / Microsoft YaHei UI`）
-- 多语言能力：
-  - 使用 `@solid-primitives/i18n` 驱动
-  - 语言包按语言独立文件管理：`src/i18n/locales/*.ts`
-  - 默认跟随系统语言（可在 Settings 覆盖）
-  - 语言切换即时生效，无需重启应用
+- **WSL 探测**：自动识别发行版、networkingMode 和实时 IP
+- **Hyper-V 探测**：枚举虚拟机、vSwitch、vNIC 和 IP 映射
+- **网卡探测**：物理/虚拟网卡、地址族、状态和路由优先级
 
-## 存储与环境变量
+### MCP 服务器（可选）
 
-- 默认数据库路径：`./data/state.db`
-- `WSL_BRIDGE_DB_PATH`：覆盖数据库路径
-- `WSL_BRIDGE_FIREWALL_MODE`：`disabled | best_effort | enforced`（默认 `best_effort`）
-- `WSL_BRIDGE_TOPOLOGY_POLL_SECS`：拓扑轮询间隔秒数（默认 `8`，用于自动重绑检测）
-- `WSL_BRIDGE_BUILD_FLAVOR`：构建口径（`standard | su`），由 `pnpm tauri ... [--su]` 自动注入，通常无需手动设置
+内置 [Model Context Protocol](https://modelcontextprotocol.io/) 服务器，支持 AI 助手远程管理：
 
-## 本地开发与验证
+- 读取虚拟化拓扑信息
+- 创建、更新、删除转发规则
+- 启用/禁用规则
+- 支持 Claude Desktop、Cursor、Windsurf 等客户端集成
+
+### 审计与日志
+
+- 完整的规则变更审计日志
+- 实时日志 Tail（支持暂停/继续）
+- 按级别、模块、规则 ID、时间范围过滤
+- CSV 导出支持
+
+---
+
+## 技术栈
+
+### 前端
+
+- **[Solid.js](https://www.solidjs.com/)** - 响应式 UI 框架
+- **[TanStack Router](https://tanstack.com/router)** - 类型安全的路由
+- **[TanStack Query](https://tanstack.com/query)** - 服务端状态管理
+- **[TanStack Table](https://tanstack.com/table)** - 高性能表格
+- **[Kobalte](https://kobalte.dev/)** - 可访问性组件库
+
+### 后端
+
+- **[Tauri 2](https://v2.tauri.app/)** - 跨平台桌面应用框架
+- **[Rust](https://www.rust-lang.org/)** - 系统级编程语言
+- **[Tokio](https://tokio.rs/)** - 异步运行时
+- **[SQLite](https://sqlite.org/)** - 本地持久化存储
+
+### 构建工具
+
+- **Vite** - 前端构建工具
+- **pnpm** - 包管理器
+- **Cargo** - Rust 构建系统
+
+---
+
+## 快速开始
+
+### 系统要求
+
+- Windows 10 (22H2+) 或 Windows 11
+- WSL 已安装（可选，用于 WSL 功能）
+- Hyper-V 已启用（可选，用于 Hyper-V 功能）
+
+### 首次使用
+
+1. 从 Microsoft Store 或 GitHub Releases 安装应用
+2. 启动 WSL Bridge
+3. 进入"拓扑"页面，扫描当前网络环境
+4. 进入"规则"页面，点击"新建规则"
+5. 配置监听端口和目标地址（WSL/Hyper-V/静态 IP）
+6. 点击"应用规则"启动转发
+
+---
+
+## 贡献指南
+
+欢迎各种形式的贡献！
+
+### 提交 Issue
+
+- 使用 [GitHub Issues](https://github.com/yangholmes/wsl-bridge/issues) 报告 bug 或提出功能建议
+- 请提供详细的复现步骤和系统环境信息
+- 对于功能建议，请说明使用场景和预期行为
+
+### 提交 Pull Request
+
+1. Fork 本仓库
+2. 创建功能分支：`git checkout -b feature/amazing-feature`
+3. 提交代码：`git commit -m 'Add amazing feature'`
+4. 推送分支：`git push origin feature/amazing-feature`
+5. 创建 Pull Request
+
+### 开发环境
 
 ```powershell
+# 安装依赖
 pnpm install
+
+# 开发模式（热重载）
+pnpm tauri dev
+
+# 类型检查
 pnpm typecheck
-cargo fmt --all
-cargo test --workspace
-pnpm tauri dev
-pnpm tauri build
-pnpm tauri build --su
-```
 
-## UI 调试指南
-
-### 1. Tauri 联调模式（前后端联通）
-
-单终端执行：
-
-```powershell
-pnpm tauri dev
-```
-
-适用场景：
-
-- 校验 Tauri command 与 Rust 引擎真实行为
-- 校验 SQLite、防火墙、TCP/UDP 执行路径
-- 校验单网卡/全网卡与运行态联动
-- 校验多语言切换：进入 `Settings`，通过 emoji + 下拉单选切换语言并观察页面即时更新
-
-### 2. 打包最终产物
-
-```powershell
+# 构建
 pnpm tauri build
 ```
 
-该命令会先执行前端构建，再编译并打包 Tauri 桌面应用（`.exe`/安装包）。
-默认情况下生成标准权限版本，适合后续转换为商店侧非管理员发行物。
+---
 
-如需生成管理员权限版本：
+## 许可证
 
-```powershell
-pnpm tauri build --su
-```
+[MIT License](LICENSE)
 
-管理员版本会在最终 EXE 上嵌入 `requireAdministrator` manifest，启动时触发 UAC，适合 GitHub Release 的完整功能安装包。
+---
 
-默认产物位于 `target/release/bundle/`，例如：
-
-- `target/release/bundle/msi/WSL Bridge_0.1.0_x64_en-US.msi`
-- `target/release/bundle/nsis/WSL Bridge_0.1.0_x64-setup.exe`
-
-### 3. 权限模式说明
-
-- 标准权限运行时：
-  - 前端顶部会显示提示条
-  - 允许管理配置态规则：新建、编辑、删除
-  - 允许启用/禁用非 `hyperv` 规则
-  - 允许应用不依赖 `hyperv` 和防火墙配置的规则
-  - 不允许编辑防火墙配置
-  - 不允许进行依赖管理员权限的 Hyper-V 管理能力
-- 管理员权限运行时：
-  - 显示完整功能
-  - 可进行规则增删改、启停、批量操作、Hyper-V 管理相关操作
-
-### 4. GitHub 发布
-
-仓库内的 GitHub Actions 发布流程固定使用 `--su` 构建管理员版安装包：
-
-- MSI
-- NSIS Setup EXE
-
-也就是说，GitHub Release 不会发布标准权限版本。
-
-## M1 测试覆盖
-
-- 核心引擎单测：
-  - 规则 CRUD
-  - 冲突检测
-  - stop 流程
-  - SQLite roundtrip
-  - TCP 转发端到端
-  - UDP 转发端到端
-
-## 后续路线图
-
-1. M4：安装打包、签名发布、兼容性与稳定性验收。
+<p align="center">
+  Made with ❤️ by <a href="https://github.com/yangholmes">yangholmes</a>
+</p>
