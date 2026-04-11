@@ -1055,7 +1055,9 @@ export function RulesPage() {
 
       <section class="panel">
         <h2>{t("rules.debugOutput")}</h2>
-        <pre>{debugOutput()}</pre>
+        <div class="debug-output-wrap">
+          <pre class="debug-output">{debugOutput()}</pre>
+        </div>
       </section>
 
       <RuleFormModal

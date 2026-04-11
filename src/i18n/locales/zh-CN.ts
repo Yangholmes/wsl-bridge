@@ -20,6 +20,7 @@ export const dict = {
     stopped: "已停止",
     error: "错误",
     ready: "就绪",
+    adminMode: "管理员模式",
     scanning: "扫描中...",
     rescan: "重新扫描",
     loading: "加载中...",
@@ -98,6 +99,7 @@ export const dict = {
   dashboard: {
     title: "仪表盘",
     refreshOverview: "刷新概览",
+    rescanTopology: "扫描拓扑",
     appStatus: "应用状态",
     lastTopologyScan: "最近拓扑扫描：{{ value }}",
     ruleStatus: "规则状态",

@@ -13,7 +13,9 @@ export function AppRuntimeBanner() {
         {null}
       </Match>
       <Match when={runtimeStatusQuery.data}>
-        <Hint>{t("app.runtimeNoticeBody")}</Hint>
+        <Hint variant="warn" class="hint-banner">
+          {t("app.runtimeNoticeBody")}
+        </Hint>
       </Match>
     </Switch>
   );
