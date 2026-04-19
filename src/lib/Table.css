@@ -1,5 +1,6 @@
 .table-wrap {
   overflow: auto;
+  max-width: 100%;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius-lg);
   background: var(--surface-strong);
@@ -7,12 +8,14 @@
 
 table {
   width: 100%;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
 
 .rules-table {
   table-layout: fixed;
+  min-width: 800px;
 }
 
 th,

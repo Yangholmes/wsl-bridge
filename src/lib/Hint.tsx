@@ -1,7 +1,7 @@
 import { type Component, type JSX, Show } from "solid-js";
 import "./Status.css";
 
-export type HintVariant = "info" | "error";
+export type HintVariant = "info" | "error" | "warn";
 
 export interface HintProps {
   variant?: HintVariant;

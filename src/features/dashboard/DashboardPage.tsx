@@ -125,28 +125,41 @@ export function DashboardPage() {
       <section class="page-shell">
         <div class="panel-title">
           <h2>{t("dashboard.title")}</h2>
-          <KButton.Root class="kb-btn ghost" onClick={refreshDashboard}>
+        </div>
+        <div class="dashboard-actions">
+          <KButton.Root class="kb-btn primary" onClick={refreshDashboard}>
             {t("dashboard.refreshOverview")}
+          </KButton.Root>
+          <KButton.Root class="kb-btn ghost" onClick={rescanTopology}>
+            {t("dashboard.rescanTopology")}
           </KButton.Root>
         </div>
         <Show when={!isLoading()} fallback={<SkeletonGrid dashboard />}>
           <div class="dashboard-grid">
             <div class="dashboard-card">
-              <div class="muted">{t("dashboard.appStatus")}</div>
-              <div class={`status-chip ${appStatus()}`}>{t(`common.${appStatus()}`)}</div>
-              <div class="muted">
+              <div class="dashboard-card-header">{t("dashboard.appStatus")}</div>
+              <div class={`status-chip ${appStatus()}`}>
+                {t(`common.${appStatus()}`)}
+              </div>
+              <div class="caption-text">
                 {t("dashboard.lastTopologyScan", { value: toLocalTime(topologyQuery.data?.timestamp ?? null) })}
               </div>
             </div>
             <div class="dashboard-card">
-              <div class="muted">{t("dashboard.ruleStatus")}</div>
-              <div class="dashboard-stat">{t("dashboard.totalRules", { count: rulesQuery.data?.length ?? 0 })}</div>
+              <div class="dashboard-card-header">{t("dashboard.ruleStatus")}</div>
+              <div class="dashboard-stat-large">
+                {t("dashboard.totalRules", { count: rulesQuery.data?.length ?? 0 })}
+              </div>
               <div class="dashboard-stat">{t("dashboard.enabledRules", { count: enabledRules() })}</div>
               <div class="dashboard-stat">{t("dashboard.runningRules", { count: runtimeSummary().running })}</div>
-              <div class="dashboard-stat">{t("dashboard.errorRules", { count: runtimeSummary().error })}</div>
+              <Show when={runtimeSummary().error > 0}>
+                <div class="dashboard-stat" style="color: var(--danger-text)">
+                  {t("dashboard.errorRules", { count: runtimeSummary().error })}
+                </div>
+              </Show>
             </div>
             <div class="dashboard-card">
-              <div class="muted">{t("dashboard.riskHint")}</div>
+              <div class="dashboard-card-header">{t("dashboard.riskHint")}</div>
               <Show when={natWithoutRules()} fallback={<Hint variant="info">{t("dashboard.noHighRisk")}</Hint>}>
                 <Hint variant="error">{t("dashboard.natRisk")}</Hint>
               </Show>
@@ -155,8 +168,8 @@ export function DashboardPage() {
         </Show>
       </section>
 
-      <section class="page-shell">
-        <h2>{t("dashboard.recentErrorLogs")}</h2>
+      <section class="page-shell dashboard-section">
+        <h3>{t("dashboard.recentErrorLogs")}</h3>
         <div class="table-wrap">
           <table class="rules-table">
             <thead>

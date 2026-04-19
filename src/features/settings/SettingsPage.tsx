@@ -275,15 +275,11 @@ export function SettingsPage() {
       <section class="panel">
         <div class="panel-title">
           <h2>{t("settings.mcpTitle")}</h2>
-          <div class="runtime-tools">
-            <KButton.Root class="kb-btn ghost" onClick={refreshMcpStatus} disabled={mcpStatusQuery.isFetching}>
-              {t("common.refresh")}
-            </KButton.Root>
-            <KButton.Root class="kb-btn accent" onClick={saveMcpConfig} disabled={mcpSaving()}>
-              {t("settings.mcpSave")}
-            </KButton.Root>
-          </div>
+          <KButton.Root class="kb-btn ghost" onClick={refreshMcpStatus} disabled={mcpStatusQuery.isFetching}>
+            {t("common.refresh")}
+          </KButton.Root>
         </div>
+        <div class="muted">{t("settings.mcpSubtitle")}</div>
 
         <Show when={mcpStatusQuery.data?.last_error}>
           {(err) => <Hint variant="error">{err()}</Hint>}
@@ -318,195 +314,200 @@ export function SettingsPage() {
             </div>
           </div>
         </div>
-      </section>
 
-      <section class="panel">
-        <h2>{t("settings.mcpConfigTitle")}</h2>
+        <div class="settings-mcp-config-section">
+          <h3 class="heading-3">{t("settings.mcpConfigTitle")}</h3>
 
-        <div class="settings-mcp-config-grid">
-          <KTextField.Root
-            class="kb-field"
-            value={mcpDraft().server_name}
-            onChange={(value) => updateDraft("server_name", value)}
-          >
-            <KTextField.Label>{t("settings.mcpServerName")}</KTextField.Label>
-            <KTextField.Input class="kb-input" />
-          </KTextField.Root>
-
-          <div class="kb-field">
-            <label class="kb-label">{t("settings.mcpPort")}</label>
-            <input class="kb-input" readonly value={String(mcpStatusQuery.data?.config.listen_port ?? mcpDraft().listen_port)} />
-          </div>
-        </div>
-
-        <div class="settings-mcp-toggles">
-          <div class="kb-field">
-            <KCheckbox.Root
-              checked={mcpDraft().enabled}
-              onChange={(checked) => updateDraft("enabled", checked)}
-              class="kb-checkbox"
+          <div class="settings-mcp-config-grid">
+            <KTextField.Root
+              class="kb-field"
+              value={mcpDraft().server_name}
+              onChange={(value) => updateDraft("server_name", value)}
             >
-              <KCheckbox.Input />
-              <KCheckbox.Control class="kb-checkbox-control">
-                <KCheckbox.Indicator class="kb-checkbox-indicator" />
-              </KCheckbox.Control>
-              <KCheckbox.Label class="kb-checkbox-label">{t("settings.mcpEnabledHint")}</KCheckbox.Label>
-            </KCheckbox.Root>
-          </div>
+              <KTextField.Label>{t("settings.mcpServerName")}</KTextField.Label>
+              <KTextField.Input class="kb-input" />
+            </KTextField.Root>
 
-          <div class="kb-field settings-mcp-capabilities">
-            <div class="muted">{t("settings.mcpCapabilities")}</div>
-            <div class="checks">
-              <KCheckbox.Root
-                checked={mcpDraft().expose_topology_read}
-                onChange={(checked) => updateDraft("expose_topology_read", checked)}
-                class="kb-checkbox"
-              >
-                <KCheckbox.Input />
-                <KCheckbox.Control class="kb-checkbox-control">
-                  <KCheckbox.Indicator class="kb-checkbox-indicator" />
-                </KCheckbox.Control>
-                <KCheckbox.Label class="kb-checkbox-label">{t("settings.mcpCapabilityTopology")}</KCheckbox.Label>
-              </KCheckbox.Root>
-
-              <KCheckbox.Root
-                checked={mcpDraft().expose_rule_config}
-                onChange={(checked) => updateDraft("expose_rule_config", checked)}
-                class="kb-checkbox"
-              >
-                <KCheckbox.Input />
-                <KCheckbox.Control class="kb-checkbox-control">
-                  <KCheckbox.Indicator class="kb-checkbox-indicator" />
-                </KCheckbox.Control>
-                <KCheckbox.Label class="kb-checkbox-label">{t("settings.mcpCapabilityRules")}</KCheckbox.Label>
-              </KCheckbox.Root>
+            <div class="kb-field">
+              <label class="kb-label">{t("settings.mcpPort")}</label>
+              <input class="kb-input" readonly value={String(mcpStatusQuery.data?.config.listen_port ?? mcpDraft().listen_port)} />
             </div>
           </div>
-        </div>
 
-        <div class="settings-mcp-token-row">
-          <KTextField.Root
-            class="kb-field settings-mcp-token-field"
-            value={mcpDraft().api_token}
-            onChange={(value) => updateDraft("api_token", value)}
-          >
-            <KTextField.Label>{t("settings.mcpApiToken")}</KTextField.Label>
-            <KTextField.Input class="kb-input" />
-          </KTextField.Root>
-          <div class="runtime-tools">
-            <KButton.Root class="kb-btn ghost" onClick={regenerateToken}>
-              {t("settings.mcpRegenerateToken")}
-            </KButton.Root>
-            <KButton.Root class="kb-btn ghost" onClick={() => void copyText(mcpDraft().api_token, "settings.mcpTokenCopied")}>
-              {t("settings.mcpCopyToken")}
-            </KButton.Root>
-          </div>
-        </div>
-
-        <div class="settings-mcp-baseurl">
-          <div class="kb-field">
-            <label class="kb-label">{t("settings.mcpBaseUrl")}</label>
-            <div class="settings-mcp-baseurl-row">
-              <input class="kb-input" readonly value={mcpStatusQuery.data?.base_url ?? ""} />
-              <KButton.Root
-                class="kb-btn ghost"
-                onClick={() => void copyText(mcpStatusQuery.data?.base_url ?? "", "settings.mcpBaseUrlCopied")}
-                disabled={!mcpStatusQuery.data?.base_url}
+          <div class="settings-mcp-toggles">
+            <div class="kb-field">
+              <KCheckbox.Root
+                checked={mcpDraft().enabled}
+                onChange={(checked) => updateDraft("enabled", checked)}
+                class="kb-checkbox"
               >
-                {t("settings.mcpCopyBaseUrl")}
+                <KCheckbox.Input />
+                <KCheckbox.Control class="kb-checkbox-control">
+                  <KCheckbox.Indicator class="kb-checkbox-indicator" />
+                </KCheckbox.Control>
+                <KCheckbox.Label class="kb-checkbox-label">{t("settings.mcpEnabledHint")}</KCheckbox.Label>
+              </KCheckbox.Root>
+            </div>
+
+            <div class="kb-field settings-mcp-capabilities">
+              <div class="muted">{t("settings.mcpCapabilities")}</div>
+              <div class="checks">
+                <KCheckbox.Root
+                  checked={mcpDraft().expose_topology_read}
+                  onChange={(checked) => updateDraft("expose_topology_read", checked)}
+                  class="kb-checkbox"
+                >
+                  <KCheckbox.Input />
+                  <KCheckbox.Control class="kb-checkbox-control">
+                    <KCheckbox.Indicator class="kb-checkbox-indicator" />
+                  </KCheckbox.Control>
+                  <KCheckbox.Label class="kb-checkbox-label">{t("settings.mcpCapabilityTopology")}</KCheckbox.Label>
+                </KCheckbox.Root>
+
+                <KCheckbox.Root
+                  checked={mcpDraft().expose_rule_config}
+                  onChange={(checked) => updateDraft("expose_rule_config", checked)}
+                  class="kb-checkbox"
+                >
+                  <KCheckbox.Input />
+                  <KCheckbox.Control class="kb-checkbox-control">
+                    <KCheckbox.Indicator class="kb-checkbox-indicator" />
+                  </KCheckbox.Control>
+                  <KCheckbox.Label class="kb-checkbox-label">{t("settings.mcpCapabilityRules")}</KCheckbox.Label>
+                </KCheckbox.Root>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-mcp-token-row">
+            <KTextField.Root
+              class="kb-field settings-mcp-token-field"
+              value={mcpDraft().api_token}
+              onChange={(value) => updateDraft("api_token", value)}
+            >
+              <KTextField.Label>{t("settings.mcpApiToken")}</KTextField.Label>
+              <KTextField.Input class="kb-input" />
+            </KTextField.Root>
+            <div class="runtime-tools">
+              <KButton.Root class="kb-btn ghost" onClick={regenerateToken}>
+                {t("settings.mcpRegenerateToken")}
+              </KButton.Root>
+              <KButton.Root class="kb-btn ghost" onClick={() => void copyText(mcpDraft().api_token, "settings.mcpTokenCopied")}>
+                {t("settings.mcpCopyToken")}
               </KButton.Root>
             </div>
           </div>
-        </div>
-      </section>
 
-      <section class="panel">
-        <h2>{t("settings.mcpClientReference")}</h2>
-        <div class="settings-mcp-subtitle muted">{t("settings.mcpSubtitle")}</div>
-
-        <div class="settings-mcp-preset-row">
-          <div class="kb-field">
-            <label class="kb-label">{t("settings.mcpClientPresets")}</label>
-            <KSelect.Root<McpClientPreset>
-              value={selectedPreset()}
-              onChange={(option) => option && setSelectedPresetId(option.id)}
-              options={mcpStatusQuery.data?.client_presets ?? []}
-              optionValue="id"
-              optionTextValue="label"
-              itemComponent={(itemProps) => (
-                <KSelect.Item item={itemProps.item} class="kb-select-item">
-                  <KSelect.ItemLabel>{presetOptionLabel(itemProps.item.rawValue)}</KSelect.ItemLabel>
-                </KSelect.Item>
-              )}
-            >
-              <KSelect.Trigger class="kb-input kb-select-trigger settings-mcp-preset-select">
-                <KSelect.Value<McpClientPreset>>{(state) =>
-                  state.selectedOption() ? presetOptionLabel(state.selectedOption() as McpClientPreset) : ""
-                }</KSelect.Value>
-                <KSelect.Icon class="kb-select-icon"><span class="kb-select-icon-triangle"></span></KSelect.Icon>
-              </KSelect.Trigger>
-              <KSelect.Portal>
-                <KSelect.Content class="kb-select-content">
-                  <KSelect.Listbox class="kb-select-listbox" />
-                </KSelect.Content>
-              </KSelect.Portal>
-            </KSelect.Root>
+          <div class="settings-mcp-baseurl">
+            <div class="kb-field">
+              <label class="kb-label">{t("settings.mcpBaseUrl")}</label>
+              <div class="settings-mcp-baseurl-row">
+                <input class="kb-input" readonly value={mcpStatusQuery.data?.base_url ?? ""} />
+                <KButton.Root
+                  class="kb-btn ghost"
+                  onClick={() => void copyText(mcpStatusQuery.data?.base_url ?? "", "settings.mcpBaseUrlCopied")}
+                  disabled={!mcpStatusQuery.data?.base_url}
+                >
+                  {t("settings.mcpCopyBaseUrl")}
+                </KButton.Root>
+              </div>
+            </div>
           </div>
-          <KButton.Root
-            class="kb-btn ghost"
-            onClick={() => void copyText(selectedPreset()?.content ?? "", "settings.mcpPresetCopied")}
-            disabled={!selectedPreset()?.content}
-          >
-            {t("settings.mcpCopyConfig")}
-          </KButton.Root>
+
+          <div class="settings-mcp-save-row">
+            <KButton.Root class="kb-btn accent" onClick={saveMcpConfig} disabled={mcpSaving()}>
+              {t("settings.mcpSave")}
+            </KButton.Root>
+          </div>
         </div>
 
-        <div class="kb-field">
-          <label class="kb-label">{t("settings.mcpClientConfig")}</label>
-          <code class="settings-mcp-config-code">
-            {selectedPreset()?.content ?? ""}
-          </code>
-        </div>
-      </section>
+        <div class="settings-mcp-client-section">
+          <h3 class="heading-3">{t("settings.mcpClientReference")}</h3>
 
-      <section class="panel">
-        <h2>{t("settings.mcpToolList")}</h2>
-        <div class="table-wrap">
-          <table class="rules-table">
-            <thead>
-              <tr>
-                <th>{t("settings.mcpToolName")}</th>
-                <th>{t("settings.mcpToolDescription")}</th>
-                <th>{t("settings.mcpToolStatus")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <Show
-                when={(mcpStatusQuery.data?.tools.length ?? 0) > 0}
-                fallback={
-                  <tr>
-                    <td colspan={3} class="muted">{t("common.loading")}</td>
-                  </tr>
-                }
+          <div class="settings-mcp-preset-row">
+            <div class="kb-field">
+              <label class="kb-label">{t("settings.mcpClientPresets")}</label>
+              <KSelect.Root<McpClientPreset>
+                value={selectedPreset()}
+                onChange={(option) => option && setSelectedPresetId(option.id)}
+                options={mcpStatusQuery.data?.client_presets ?? []}
+                optionValue="id"
+                optionTextValue="label"
+                itemComponent={(itemProps) => (
+                  <KSelect.Item item={itemProps.item} class="kb-select-item">
+                    <KSelect.ItemLabel>{presetOptionLabel(itemProps.item.rawValue)}</KSelect.ItemLabel>
+                  </KSelect.Item>
+                )}
               >
-                <For each={mcpStatusQuery.data?.tools ?? []}>
-                  {(tool) => (
-                    <tr>
-                      <td>{tool.name}</td>
-                      <td>{tool.description}</td>
-                      <td>{tool.enabled ? t("common.enabled") : t("common.disabled")}</td>
-                    </tr>
-                  )}
-                </For>
-              </Show>
-            </tbody>
-          </table>
-        </div>
-      </section>
+                <KSelect.Trigger class="kb-input kb-select-trigger settings-mcp-preset-select">
+                  <KSelect.Value<McpClientPreset>>{(state) =>
+                    state.selectedOption() ? presetOptionLabel(state.selectedOption() as McpClientPreset) : ""
+                  }</KSelect.Value>
+                  <KSelect.Icon class="kb-select-icon"><span class="kb-select-icon-triangle"></span></KSelect.Icon>
+                </KSelect.Trigger>
+                <KSelect.Portal>
+                  <KSelect.Content class="kb-select-content">
+                    <KSelect.Listbox class="kb-select-listbox" />
+                  </KSelect.Content>
+                </KSelect.Portal>
+              </KSelect.Root>
+            </div>
+            <KButton.Root
+              class="kb-btn ghost"
+              onClick={() => void copyText(selectedPreset()?.content ?? "", "settings.mcpPresetCopied")}
+              disabled={!selectedPreset()?.content}
+            >
+              {t("settings.mcpCopyConfig")}
+            </KButton.Root>
+          </div>
 
-      <Hint>
-        {t("settings.mcpHint")}
-      </Hint>
+          <div class="kb-field">
+            <label class="kb-label">{t("settings.mcpClientConfig")}</label>
+            <code class="settings-mcp-config-code">
+              {selectedPreset()?.content ?? ""}
+            </code>
+          </div>
+        </div>
+
+        <div class="settings-mcp-tools-section">
+          <h3 class="heading-3">{t("settings.mcpToolList")}</h3>
+          <div class="table-wrap">
+            <table class="rules-table">
+              <thead>
+                <tr>
+                  <th>{t("settings.mcpToolName")}</th>
+                  <th>{t("settings.mcpToolDescription")}</th>
+                  <th>{t("settings.mcpToolStatus")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <Show
+                  when={(mcpStatusQuery.data?.tools.length ?? 0) > 0}
+                  fallback={
+                    <tr>
+                      <td colspan={3} class="muted">{t("common.loading")}</td>
+                    </tr>
+                  }
+                >
+                  <For each={mcpStatusQuery.data?.tools ?? []}>
+                    {(tool) => (
+                      <tr>
+                        <td>{tool.name}</td>
+                        <td>{tool.description}</td>
+                        <td>{tool.enabled ? t("common.enabled") : t("common.disabled")}</td>
+                      </tr>
+                    )}
+                  </For>
+                </Show>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <Hint>
+          {t("settings.mcpHint")}
+        </Hint>
+      </section>
     </div>
   );
 }
