@@ -18,7 +18,6 @@ import * as KCheckbox from "@kobalte/core/checkbox";
 import * as KSelect from "@kobalte/core/select";
 import * as KSwitch from "@kobalte/core/switch";
 import * as KTextField from "@kobalte/core/text-field";
-import * as KTooltip from "@kobalte/core/tooltip";
 import { useI18n } from "../../i18n/context";
 import { appQueryClient } from "../../lib/queryClient";
 import { EllipsisCell } from "../../lib/EllipsisCell";
@@ -35,7 +34,6 @@ import {
   getRuntimeStatus,
   listRules,
   stopRules,
-  tailLogs,
   updateRule
 } from "./api";
 import {
@@ -871,15 +869,6 @@ export function RulesPage() {
     }
   }
 
-  async function loadLogs() {
-    try {
-      const result = await tailLogs(0);
-      setDebugOutput(JSON.stringify(result, null, 2));
-    } catch (err) {
-      toast.error(String(err));
-    }
-  }
-
   return (
     <div class="page">
       <section class="panel main-panel">
@@ -913,7 +902,6 @@ export function RulesPage() {
 
         <div class="actions top-actions">
           <KButton.Root class="kb-btn accent" onClick={openCreateModal}>{t("rules.btnNewRule")}</KButton.Root>
-          <KButton.Root class="kb-btn ghost" onClick={loadLogs}>{t("rules.btnViewLogs")}</KButton.Root>
           <KButton.Root class="kb-btn ghost" onClick={runApply}>{t("rules.btnApply")}</KButton.Root>
           <KButton.Root class="kb-btn ghost" onClick={runStop}>{t("rules.btnStop")}</KButton.Root>
           <KButton.Root

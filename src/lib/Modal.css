@@ -36,6 +36,14 @@
   margin-top: 14px;
 }
 
+.close-guard-dialog {
+  width: min(520px, calc(100vw - 24px));
+}
+
+.close-guard-actions {
+  justify-content: flex-end;
+}
+
 @media (max-width: 959px) {
   .kb-dialog-content {
     width: calc(100vw - 14px);

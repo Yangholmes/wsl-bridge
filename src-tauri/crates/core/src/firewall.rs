@@ -1,6 +1,6 @@
-use std::process::Command;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+use std::process::Command;
 
 use wsl_bridge_shared::{FirewallPolicy, ProxyRule, RuleType};
 

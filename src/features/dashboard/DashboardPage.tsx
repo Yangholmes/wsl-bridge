@@ -1,19 +1,18 @@
-import { createMemo, For, Show } from "solid-js";
-import { Link } from "@tanstack/solid-router";
+import { createMemo, Show } from "solid-js";
 import { queryOptions, useQuery } from "@tanstack/solid-query";
 import * as KButton from "@kobalte/core/button";
 
 import "./DashboardPage.css";
 
-import { getRuntimeStatus, listRules, queryLogs, scanTopology } from "../rules/api";
+import { getRuntimeStatus, listRules, scanTopology } from "../rules/api";
 import { appQueryClient } from "../../lib/queryClient";
-import type { AuditLog, ProxyRule, RuntimeStatusItem, RuntimeState, TopologySnapshot } from "../../lib/types";
+import type { ProxyRule, RuntimeStatusItem, RuntimeState, TopologySnapshot } from "../../lib/types";
 import { useI18n } from "../../i18n/context";
 import { toLocalTime } from "../../lib/datetime";
-import { EllipsisCell } from "../../lib/EllipsisCell";
-import { SkeletonGrid, SkeletonLine } from "../../lib/Skeleton";
+import { SkeletonGrid } from "../../lib/Skeleton";
 import { Hint } from "../../lib/Hint";
 import { useToast } from "../../lib/Toast";
+import { TrafficChart } from "./TrafficChart";
 
 export function DashboardPage() {
   const { t } = useI18n();
@@ -53,24 +52,6 @@ export function DashboardPage() {
     () => appQueryClient
   );
 
-  const errorLogsQuery = useQuery(
-    () =>
-      queryOptions<{ total: number; events: AuditLog[] }>({
-        queryKey: ["dashboard", "error-logs"],
-        queryFn: () =>
-          queryLogs({
-            level: "error",
-            start_time: new Date(Date.now() - 24 * 3600_000).toISOString(),
-            newest_first: true,
-            limit: 8
-          }),
-        staleTime: 8_000,
-        refetchInterval: 8_000,
-        refetchOnWindowFocus: false
-      }),
-    () => appQueryClient
-  );
-
   const runtimeSummary = createMemo(() => {
     const items = runtimeQuery.data ?? [];
     return {
@@ -94,17 +75,12 @@ export function DashboardPage() {
   });
 
   const isLoading = createMemo(
-    () => rulesQuery.isPending || runtimeQuery.isPending || topologyQuery.isPending || errorLogsQuery.isPending
+    () => rulesQuery.isPending || runtimeQuery.isPending || topologyQuery.isPending
   );
 
   async function refreshDashboard() {
     try {
-      await Promise.all([
-        rulesQuery.refetch(),
-        runtimeQuery.refetch(),
-        topologyQuery.refetch(),
-        errorLogsQuery.refetch()
-      ]);
+      await Promise.all([rulesQuery.refetch(), runtimeQuery.refetch(), topologyQuery.refetch()]);
       toast.info(t("dashboard.refreshed"));
     } catch (error) {
       toast.error(String(error));
@@ -168,59 +144,7 @@ export function DashboardPage() {
         </Show>
       </section>
 
-      <section class="page-shell dashboard-section">
-        <h3>{t("dashboard.recentErrorLogs")}</h3>
-        <div class="table-wrap">
-          <table class="rules-table">
-            <thead>
-              <tr>
-                <th>{t("dashboard.tableTime")}</th>
-                <th>{t("dashboard.tableModule")}</th>
-                <th>{t("dashboard.tableEvent")}</th>
-                <th>{t("dashboard.tableDetail")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <Show
-                when={!errorLogsQuery.isPending}
-                fallback={
-                  <For each={[1, 2, 3, 4]}>
-                    {() => (
-                      <tr>
-                        <td colspan={4}>
-                          <SkeletonLine />
-                        </td>
-                      </tr>
-                    )}
-                  </For>
-                }
-              >
-                <Show
-                  when={(errorLogsQuery.data?.events.length ?? 0) > 0}
-                  fallback={
-                    <tr>
-                      <td colspan={4} class="muted">
-                        {t("dashboard.noErrorLogs")}
-                      </td>
-                    </tr>
-                  }
-                >
-                  <For each={errorLogsQuery.data?.events ?? []}>
-                    {(item) => (
-                      <tr>
-                        <td><EllipsisCell text={toLocalTime(item.time)} /></td>
-                        <td><EllipsisCell text={item.module} /></td>
-                        <td><EllipsisCell text={item.event} /></td>
-                        <td><EllipsisCell text={item.detail} /></td>
-                      </tr>
-                    )}
-                  </For>
-                </Show>
-              </Show>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <TrafficChart rules={rulesQuery.data ?? []} />
     </div>
   );
 }

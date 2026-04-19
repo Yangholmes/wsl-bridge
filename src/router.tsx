@@ -30,9 +30,6 @@ const RuntimePage = lazy(() =>
 const TopologyPage = lazy(() =>
   import("./features/topology/TopologyPage").then((module) => ({ default: module.TopologyPage }))
 );
-const LogsPage = lazy(() =>
-  import("./features/logs/LogsPage").then((module) => ({ default: module.LogsPage }))
-);
 const SettingsPage = lazy(() =>
   import("./features/settings/SettingsPage").then((module) => ({ default: module.SettingsPage }))
 );
@@ -64,7 +61,6 @@ function RootLayout() {
     { path: "/rules", label: t("nav.rules") },
     { path: "/runtime", label: t("nav.runtime") },
     { path: "/topology", label: t("nav.topology") },
-    { path: "/logs", label: t("nav.logs") },
     { path: "/settings", label: t("nav.settings") }
   ]);
 
@@ -158,12 +154,6 @@ const topologyRoute = createRoute({
   component: withSuspense(() => <TopologyPage />)
 });
 
-const logsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/logs",
-  component: withSuspense(() => <LogsPage />)
-});
-
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -176,7 +166,6 @@ const routeTree = rootRoute.addChildren([
   rulesRoute,
   runtimeRoute,
   topologyRoute,
-  logsRoute,
   settingsRoute
 ]);
 

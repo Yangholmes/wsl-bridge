@@ -1,19 +1,23 @@
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr, TcpListener, ToSocketAddrs};
 use std::path::Path;
+use std::sync::Arc;
 
 use chrono::Utc;
 use parking_lot::{Mutex, RwLock};
+use serde_json::json;
 use thiserror::Error;
 use tracing::warn;
 use uuid::Uuid;
 use wsl_bridge_shared::{
-    ApplyRulesResult, AuditLog, BindMode, CreateRuleRequest, FirewallPolicy, LogQueryRequest,
-    LogQueryResult, McpServerConfig, NewFirewallPolicy, NewProxyRule, ProxyRule, RuleLogStatsItem,
-    RuleLogStatsRequest, RulePatch, RuleType, RuntimeState, RuntimeStatusItem, StopRulesResult,
-    TailLogsResult, TargetKind, TopologySnapshot,
+    AppSettings, ApplyRulesResult, AuditLog, BindMode, CreateRuleRequest, FirewallPolicy,
+    LogQueryRequest, LogQueryResult, McpServerConfig, NewFirewallPolicy, NewProxyRule, ProxyRule,
+    QueryTrafficStatsRequest, QueryTrafficStatsResult, RuleLogStatsItem, RuleLogStatsRequest,
+    RulePatch, RuleType, RuntimeState, RuntimeStatusItem, StopRulesResult, TailLogsResult,
+    TargetKind, TopologySnapshot, TrafficWindowData,
 };
 
+use crate::app_logs::{AppLogger, ErrorLogEntry};
 use crate::firewall::{apply_firewall, cleanup_firewall, FirewallMode, FirewallRuleRuntime};
 use crate::forwarder::{spawn as spawn_forwarder, ForwarderHandle, ForwarderKind};
 use crate::sqlite_store::{Snapshot, SqliteStore};
@@ -21,6 +25,7 @@ use crate::topology::{
     debug_hyperv_probe, list_adapters, list_wsl_instances, resolve_dynamic_target_host,
     resolve_nic_ip, scan_hyperv, HyperVProbeDebug,
 };
+use crate::traffic::TrafficTracker;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -53,6 +58,7 @@ struct EngineStore {
     logs: Vec<AuditLog>,
     log_seq: u64,
     mcp_config: McpServerConfig,
+    app_settings: AppSettings,
 }
 
 #[derive(Debug)]
@@ -67,7 +73,9 @@ struct ActiveRuleRuntime {
 #[derive(Debug)]
 pub struct RuleEngine {
     store: RwLock<EngineStore>,
-    sqlite: Option<SqliteStore>,
+    sqlite: Option<Arc<SqliteStore>>,
+    traffic: Arc<TrafficTracker>,
+    logger: Arc<AppLogger>,
     options: EngineOptions,
     active: Mutex<HashMap<String, ActiveRuleRuntime>>,
 }
@@ -90,9 +98,25 @@ impl RuleEngine {
     }
 
     pub fn new_with_options(options: EngineOptions) -> Self {
+        Self::new_with_options_and_logger(options, Arc::new(AppLogger::disabled()))
+    }
+
+    pub fn new_with_options_and_log_dir(
+        options: EngineOptions,
+        log_dir: impl AsRef<Path>,
+    ) -> Result<Self, EngineError> {
+        let logger =
+            Arc::new(AppLogger::new(log_dir).map_err(|err| EngineError::Storage(err.to_string()))?);
+        Ok(Self::new_with_options_and_logger(options, logger))
+    }
+
+    fn new_with_options_and_logger(options: EngineOptions, logger: Arc<AppLogger>) -> Self {
+        let sqlite = None;
         Self {
             store: RwLock::new(EngineStore::default()),
-            sqlite: None,
+            traffic: Arc::new(TrafficTracker::new(sqlite.clone())),
+            logger,
+            sqlite,
             options,
             active: Mutex::new(HashMap::new()),
         }
@@ -106,8 +130,22 @@ impl RuleEngine {
         path: impl AsRef<Path>,
         options: EngineOptions,
     ) -> Result<Self, EngineError> {
-        let sqlite = SqliteStore::open(path)?;
+        Self::with_sqlite_and_options_and_log_dir(path, options, None)
+    }
+
+    pub fn with_sqlite_and_options_and_log_dir(
+        path: impl AsRef<Path>,
+        options: EngineOptions,
+        log_dir: Option<std::path::PathBuf>,
+    ) -> Result<Self, EngineError> {
+        let sqlite = Arc::new(SqliteStore::open(path)?);
         let snapshot = sqlite.load_snapshot()?;
+        let logger = match log_dir {
+            Some(path) => {
+                Arc::new(AppLogger::new(path).map_err(|err| EngineError::Storage(err.to_string()))?)
+            }
+            None => Arc::new(AppLogger::disabled()),
+        };
         let store = RwLock::new(EngineStore {
             rules: snapshot.rules,
             firewalls: snapshot.firewalls,
@@ -115,9 +153,12 @@ impl RuleEngine {
             logs: snapshot.logs,
             log_seq: snapshot.log_seq,
             mcp_config: snapshot.mcp_config,
+            app_settings: snapshot.app_settings,
         });
         Ok(Self {
             store,
+            traffic: Arc::new(TrafficTracker::new(Some(Arc::clone(&sqlite)))),
+            logger,
             sqlite: Some(sqlite),
             options,
             active: Mutex::new(HashMap::new()),
@@ -130,6 +171,13 @@ impl RuleEngine {
 
     pub fn scan_topology(&self) -> TopologySnapshot {
         let hyperv = scan_hyperv();
+        if let Some(error) = hyperv.error.clone() {
+            self.logger.log_error(
+                ErrorLogEntry::new("topology_error", error).with_detail(json!({
+                  "source": "hyperv_scan"
+                })),
+            );
+        }
         TopologySnapshot {
             adapters: list_adapters(),
             wsl: list_wsl_instances(),
@@ -170,6 +218,28 @@ impl RuleEngine {
 
     pub fn get_mcp_config(&self) -> McpServerConfig {
         self.store.read().mcp_config.clone()
+    }
+
+    pub fn get_app_settings(&self) -> AppSettings {
+        self.store.read().app_settings.clone()
+    }
+
+    pub fn update_app_settings(&self, settings: AppSettings) -> Result<(), EngineError> {
+        let mut store = self.store.write();
+        store.app_settings = settings;
+        let detail = format!(
+            "close_behavior={:?},show_tray_on_start={}",
+            store.app_settings.close_behavior, store.app_settings.show_tray_on_start
+        );
+        append_log(
+            &mut store,
+            "info",
+            "engine",
+            "app_settings_updated",
+            &detail,
+        );
+        self.persist_store(&store);
+        Ok(())
     }
 
     pub fn update_mcp_config(&self, config: McpServerConfig) -> Result<(), EngineError> {
@@ -495,6 +565,10 @@ impl RuleEngine {
                         "rule_apply_failed",
                         &format!("rule_id={},reason={err}", rule.id),
                     );
+                    self.logger.log_error(
+                        ErrorLogEntry::new("listen_resolve_failed", err.clone())
+                            .with_rule_id(rule.id.clone()),
+                    );
                     continue;
                 }
             };
@@ -519,6 +593,11 @@ impl RuleEngine {
                     "rule_apply_failed",
                     &format!("rule_id={},reason={err}", rule.id),
                 );
+                self.logger.log_error(
+                    ErrorLogEntry::new("listen_conflict", err.clone())
+                        .with_rule_id(rule.id.clone())
+                        .with_target(listen_addr.to_string()),
+                );
                 continue;
             }
             seen_listens.insert(listen_addr, rule.id.clone());
@@ -542,6 +621,10 @@ impl RuleEngine {
                             "rule_apply_failed",
                             &format!("rule_id={},reason={err}", rule.id),
                         );
+                        self.logger.log_error(
+                            ErrorLogEntry::new("target_resolve_failed", err.clone())
+                                .with_rule_id(rule.id.clone()),
+                        );
                         continue;
                     }
                 },
@@ -554,28 +637,41 @@ impl RuleEngine {
                 .cloned()
                 .unwrap_or_else(|| FirewallPolicy::default_allow(rule.id.clone()));
 
-            let forwarder = match spawn_forwarder(forward_kind, listen_addr, target_addr) {
-                Ok(handle) => handle,
-                Err(err) => {
-                    let msg = format!("start forwarder failed: {err}");
-                    set_runtime_status(
-                        &mut store,
-                        &rule.id,
-                        RuntimeState::Error,
-                        Some(msg.clone()),
-                        now,
-                    );
-                    failed.push(rule.id.clone());
-                    append_log(
-                        &mut store,
-                        "error",
-                        "engine",
-                        "rule_apply_failed",
-                        &format!("rule_id={},reason={msg}", rule.id),
-                    );
-                    continue;
-                }
-            };
+            let traffic_recorder = self
+                .traffic
+                .recorder(rule.id.clone(), Arc::clone(&self.logger));
+            let forwarder =
+                match spawn_forwarder(forward_kind, listen_addr, target_addr, traffic_recorder) {
+                    Ok(handle) => handle,
+                    Err(err) => {
+                        let msg = format!("start forwarder failed: {err}");
+                        set_runtime_status(
+                            &mut store,
+                            &rule.id,
+                            RuntimeState::Error,
+                            Some(msg.clone()),
+                            now,
+                        );
+                        failed.push(rule.id.clone());
+                        append_log(
+                            &mut store,
+                            "error",
+                            "engine",
+                            "rule_apply_failed",
+                            &format!("rule_id={},reason={msg}", rule.id),
+                        );
+                        self.logger.log_error(
+                            ErrorLogEntry::new("forwarder_start_failed", msg.clone())
+                                .with_rule_id(rule.id.clone())
+                                .with_target(listen_addr.to_string())
+                                .with_detail(json!({
+                                  "listen": listen_addr.to_string(),
+                                  "forward_kind": format!("{forward_kind:?}")
+                                })),
+                        );
+                        continue;
+                    }
+                };
 
             let firewall_runtime =
                 match apply_firewall(self.options.firewall_mode, &rule, &firewall_policy) {
@@ -597,6 +693,15 @@ impl RuleEngine {
                             "engine",
                             "rule_apply_failed",
                             &format!("rule_id={},reason={msg}", rule.id),
+                        );
+                        self.logger.log_error(
+                            ErrorLogEntry::new("firewall_apply_failed", msg.clone())
+                                .with_rule_id(rule.id.clone())
+                                .with_target(listen_addr.to_string())
+                                .with_detail(json!({
+                                  "listen": listen_addr.to_string(),
+                                  "target": target_addr.map(|value| value.to_string()),
+                                })),
                         );
                         continue;
                     }
@@ -688,6 +793,14 @@ impl RuleEngine {
             next_cursor: store.logs.len(),
             events,
         }
+    }
+
+    pub fn get_traffic_window_data(&self, rule_ids: Vec<String>) -> Vec<TrafficWindowData> {
+        self.traffic.get_window_data(&rule_ids)
+    }
+
+    pub fn query_traffic_stats(&self, req: QueryTrafficStatsRequest) -> QueryTrafficStatsResult {
+        self.traffic.query_stats(&req)
     }
 
     pub fn query_logs(&self, req: LogQueryRequest) -> LogQueryResult {
@@ -902,15 +1015,19 @@ impl RuleEngine {
         }
 
         {
+            let detail = changed.join(" | ");
             let mut store = self.store.write();
-            append_log(
-                &mut store,
-                "warn",
-                "engine",
-                "topology_changed",
-                &changed.join(" | "),
-            );
+            append_log(&mut store, "warn", "engine", "topology_changed", &detail);
             self.persist_store(&store);
+            self.logger.log_error(
+                ErrorLogEntry::new(
+                    "topology_changed",
+                    "runtime topology changed, rules reapplied",
+                )
+                .with_detail(json!({
+                  "changes": detail
+                })),
+            );
         }
 
         Some(self.apply_rules())
@@ -997,6 +1114,7 @@ impl RuleEngine {
 
     fn stop_active_runtime(&self, rule_id: &str, runtime: ActiveRuleRuntime) {
         runtime.forwarder.stop_and_join();
+        self.traffic.flush_rule(rule_id);
         if let Err(err) = cleanup_firewall(self.options.firewall_mode, &runtime.firewall.names) {
             let mut store = self.store.write();
             append_log(
@@ -1005,6 +1123,13 @@ impl RuleEngine {
                 "engine",
                 "firewall_cleanup_failed",
                 &format!("rule_id={rule_id},reason={err}"),
+            );
+            self.logger.log_error(
+                ErrorLogEntry::new("firewall_cleanup_failed", err.to_string())
+                    .with_rule_id(rule_id.to_owned())
+                    .with_detail(json!({
+                      "rule_names": runtime.firewall.names
+                    })),
             );
             self.persist_store(&store);
         }
@@ -1021,6 +1146,7 @@ impl RuleEngine {
             logs: store.logs.clone(),
             log_seq: store.log_seq,
             mcp_config: store.mcp_config.clone(),
+            app_settings: store.app_settings.clone(),
         };
         if let Err(err) = sqlite.save_snapshot(&snapshot) {
             warn!("persist snapshot failed: {err}");
@@ -1177,8 +1303,8 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use wsl_bridge_shared::{
-        BindMode, CreateRuleRequest, LogQueryRequest, NewProxyRule, RuleLogStatsRequest, RulePatch,
-        RuleType, TargetKind,
+        AppSettings, BindMode, CloseBehavior, CreateRuleRequest, LogQueryRequest, NewProxyRule,
+        QueryTrafficStatsRequest, RuleLogStatsRequest, RulePatch, RuleType, TargetKind,
     };
 
     use super::RuleEngine;
@@ -1212,6 +1338,15 @@ mod tests {
         socket.local_addr().expect("local addr").port()
     }
 
+    fn distinct_free_udp_port(existing: u16) -> u16 {
+        loop {
+            let port = free_udp_port();
+            if port != existing {
+                return port;
+            }
+        }
+    }
+
     #[test]
     fn create_and_update_rule() {
         let engine = RuleEngine::new();
@@ -1231,14 +1366,13 @@ mod tests {
     }
 
     #[test]
-    fn apply_detects_conflict() {
+    fn create_rule_rejects_listen_conflict() {
         let engine = RuleEngine::new();
         let _id1 = engine.create_rule(test_rule("a", 38100)).expect("create a");
-        let _id2 = engine.create_rule(test_rule("b", 38100)).expect("create b");
-        let result = engine.apply_rules();
-        assert_eq!(result.applied, 1);
-        assert_eq!(result.failed.len(), 1);
-        let _ = engine.stop_rules();
+        let err = engine
+            .create_rule(test_rule("b", 38100))
+            .expect_err("conflict should fail");
+        assert!(err.to_string().contains("already used by rule"));
     }
 
     #[test]
@@ -1321,6 +1455,34 @@ mod tests {
     }
 
     #[test]
+    fn app_settings_roundtrip() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("duration")
+            .as_nanos();
+        let path = env::temp_dir().join(format!("wsl-bridge-settings-{now}.db"));
+
+        {
+            let engine = RuleEngine::with_sqlite(&path).expect("sqlite engine");
+            engine
+                .update_app_settings(AppSettings {
+                    close_behavior: CloseBehavior::Minimize,
+                    show_tray_on_start: false,
+                })
+                .expect("update app settings");
+        }
+
+        {
+            let engine = RuleEngine::with_sqlite(&path).expect("reload");
+            let settings = engine.get_app_settings();
+            assert_eq!(settings.close_behavior, CloseBehavior::Minimize);
+            assert!(!settings.show_tray_on_start);
+        }
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn tcp_forwarding_works() {
         let target_port = free_tcp_port();
         let listen_port = free_tcp_port();
@@ -1367,7 +1529,7 @@ mod tests {
     #[test]
     fn udp_forwarding_works() {
         let target_port = free_udp_port();
-        let listen_port = free_udp_port();
+        let listen_port = distinct_free_udp_port(target_port);
 
         let server = thread::spawn(move || {
             let socket = UdpSocket::bind(("127.0.0.1", target_port)).expect("udp target bind");
@@ -1375,6 +1537,7 @@ mod tests {
             let (len, src) = socket.recv_from(&mut buf).expect("recv");
             socket.send_to(&buf[..len], src).expect("send");
         });
+        thread::sleep(Duration::from_millis(80));
 
         let engine = RuleEngine::new();
         let req = CreateRuleRequest {
@@ -1410,6 +1573,77 @@ mod tests {
 
         let _ = engine.stop_rules();
         let _ = server.join();
+    }
+
+    #[test]
+    fn traffic_stats_roundtrip_works() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("duration")
+            .as_nanos();
+        let path = env::temp_dir().join(format!("wsl-bridge-traffic-{now}.db"));
+        let target_port = free_udp_port();
+        let listen_port = distinct_free_udp_port(target_port);
+
+        let server = thread::spawn(move || {
+            let socket = UdpSocket::bind(("127.0.0.1", target_port)).expect("udp target bind");
+            let mut buf = [0u8; 1024];
+            let (len, src) = socket.recv_from(&mut buf).expect("recv");
+            socket.send_to(&buf[..len], src).expect("send");
+        });
+        thread::sleep(Duration::from_millis(80));
+
+        let engine = RuleEngine::with_sqlite(&path).expect("sqlite engine");
+        let req = CreateRuleRequest {
+            rule: NewProxyRule {
+                name: "traffic-udp".to_owned(),
+                rule_type: RuleType::UdpFwd,
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port: Some(target_port),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            },
+            firewall: None,
+        };
+        let rule_id = engine.create_rule(req).expect("create rule");
+        let result = engine.apply_rules();
+        assert!(result.failed.is_empty());
+
+        let client = UdpSocket::bind(("127.0.0.1", 0)).expect("udp client bind");
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set timeout");
+        client
+            .send_to(b"stat", ("127.0.0.1", listen_port))
+            .expect("send");
+        let mut buf = [0u8; 16];
+        let (len, _) = client.recv_from(&mut buf).expect("recv");
+        assert_eq!(&buf[..len], b"stat");
+
+        thread::sleep(Duration::from_millis(150));
+
+        let window = engine.get_traffic_window_data(vec![rule_id.clone()]);
+        assert_eq!(window.len(), 1);
+        assert!(window[0].samples.iter().any(|item| item.bytes_in > 0));
+
+        let _ = engine.stop_rules();
+
+        let stats = engine.query_traffic_stats(QueryTrafficStatsRequest {
+            rule_id: rule_id.clone(),
+            ..QueryTrafficStatsRequest::default()
+        });
+        assert_eq!(stats.stats.len(), 1);
+        assert!(stats.total_bytes_in >= 4);
+        assert!(stats.total_bytes_out >= 4);
+        assert!(stats.total_connections >= 1);
+
+        let _ = server.join();
+        let _ = fs::remove_file(path);
     }
 
     #[test]

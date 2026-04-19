@@ -5,11 +5,12 @@ use chrono::{TimeZone, Utc};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use wsl_bridge_shared::{
-    AuditLog, BindMode, FirewallPolicy, McpServerConfig, ProxyRule, RuleType, RuntimeState,
-    RuntimeStatusItem, TargetKind,
+    AppSettings, AuditLog, BindMode, FirewallPolicy, McpServerConfig, ProxyRule, RuleType,
+    RuntimeState, RuntimeStatusItem, TargetKind, TrafficStatsPoint,
 };
 
 use crate::engine::EngineError;
+use crate::traffic::PersistedTrafficStat;
 
 #[derive(Debug, Clone, Default)]
 pub struct Snapshot {
@@ -19,6 +20,7 @@ pub struct Snapshot {
     pub logs: Vec<AuditLog>,
     pub log_seq: u64,
     pub mcp_config: McpServerConfig,
+    pub app_settings: AppSettings,
 }
 
 #[derive(Debug)]
@@ -51,6 +53,7 @@ impl SqliteStore {
         let mut runtime = HashMap::new();
         let mut logs = Vec::new();
         let mut mcp_config = McpServerConfig::default();
+        let mut app_settings = AppSettings::default();
 
         {
             let mut stmt = conn
@@ -165,8 +168,29 @@ impl SqliteStore {
                 .next()
                 .map_err(|err| EngineError::Storage(err.to_string()))?
             {
-                let raw: String = row.get(0).map_err(|err| EngineError::Storage(err.to_string()))?;
+                let raw: String = row
+                    .get(0)
+                    .map_err(|err| EngineError::Storage(err.to_string()))?;
                 mcp_config = serde_json::from_str(&raw)
+                    .map_err(|err| EngineError::Storage(err.to_string()))?;
+            }
+        }
+
+        {
+            let mut stmt = conn
+                .prepare("SELECT value FROM app_setting WHERE key = 'app_settings'")
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            let mut rows = stmt
+                .query([])
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            if let Some(row) = rows
+                .next()
+                .map_err(|err| EngineError::Storage(err.to_string()))?
+            {
+                let raw: String = row
+                    .get(0)
+                    .map_err(|err| EngineError::Storage(err.to_string()))?;
+                app_settings = serde_json::from_str(&raw)
                     .map_err(|err| EngineError::Storage(err.to_string()))?;
             }
         }
@@ -180,6 +204,7 @@ impl SqliteStore {
             logs,
             log_seq,
             mcp_config,
+            app_settings,
         })
     }
 
@@ -282,9 +307,104 @@ impl SqliteStore {
         )
         .map_err(|err| EngineError::Storage(err.to_string()))?;
 
+        tx.execute(
+            "INSERT INTO app_setting (key,value) VALUES (?1,?2)",
+            params![
+                "app_settings",
+                serde_json::to_string(&snapshot.app_settings)
+                    .map_err(|err| EngineError::Storage(err.to_string()))?
+            ],
+        )
+        .map_err(|err| EngineError::Storage(err.to_string()))?;
+
         tx.commit()
             .map_err(|err| EngineError::Storage(err.to_string()))?;
         Ok(())
+    }
+
+    pub fn upsert_traffic_stats(&self, rows: &[PersistedTrafficStat]) -> Result<(), EngineError> {
+        let mut conn = self.conn.lock();
+        let tx = conn
+            .transaction()
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+
+        for row in rows {
+            tx.execute(
+                "INSERT INTO traffic_stats (id,rule_id,time_bucket,bytes_in,bytes_out,connections,requests,total_duration_ms,avg_duration_ms,created_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+                 ON CONFLICT(rule_id, time_bucket) DO UPDATE SET
+                   bytes_in = traffic_stats.bytes_in + excluded.bytes_in,
+                   bytes_out = traffic_stats.bytes_out + excluded.bytes_out,
+                   connections = traffic_stats.connections + excluded.connections,
+                   requests = traffic_stats.requests + excluded.requests,
+                   total_duration_ms = traffic_stats.total_duration_ms + excluded.total_duration_ms,
+                   avg_duration_ms = CASE
+                     WHEN (traffic_stats.requests + excluded.requests) > 0
+                     THEN (traffic_stats.total_duration_ms + excluded.total_duration_ms) / (traffic_stats.requests + excluded.requests)
+                     WHEN (traffic_stats.connections + excluded.connections) > 0
+                     THEN (traffic_stats.total_duration_ms + excluded.total_duration_ms) / (traffic_stats.connections + excluded.connections)
+                     ELSE 0
+                   END,
+                   created_at = excluded.created_at",
+                params![
+                    format!("{}-{}", row.rule_id, row.time_bucket),
+                    row.rule_id,
+                    row.time_bucket,
+                    row.bytes_in,
+                    row.bytes_out,
+                    row.connections,
+                    row.requests,
+                    row.total_duration_ms,
+                    row.avg_duration_ms,
+                    row.created_at,
+                ],
+            )
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        }
+
+        tx.commit()
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        Ok(())
+    }
+
+    pub fn query_traffic_stats(
+        &self,
+        rule_id: &str,
+        start_bucket: Option<i64>,
+        end_bucket: Option<i64>,
+    ) -> Result<Vec<TrafficStatsPoint>, EngineError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT time_bucket,rule_id,bytes_in,bytes_out,connections,requests,total_duration_ms,avg_duration_ms
+                 FROM traffic_stats
+                 WHERE rule_id = ?1
+                   AND (?2 IS NULL OR time_bucket >= ?2)
+                   AND (?3 IS NULL OR time_bucket <= ?3)
+                 ORDER BY time_bucket ASC",
+            )
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+
+        let rows = stmt
+            .query_map(params![rule_id, start_bucket, end_bucket], |row| {
+                Ok(TrafficStatsPoint {
+                    time_bucket: row.get(0)?,
+                    rule_id: row.get(1)?,
+                    bytes_in: row.get(2)?,
+                    bytes_out: row.get(3)?,
+                    connections: row.get(4)?,
+                    requests: row.get(5)?,
+                    total_duration_ms: row.get(6)?,
+                    avg_duration_ms: row.get(7)?,
+                })
+            })
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+
+        let mut stats = Vec::new();
+        for row in rows {
+            stats.push(row.map_err(|err| EngineError::Storage(err.to_string()))?);
+        }
+        Ok(stats)
     }
 
     fn init_schema(&self) -> Result<(), EngineError> {
@@ -339,6 +459,24 @@ impl SqliteStore {
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS traffic_stats (
+                id TEXT PRIMARY KEY,
+                rule_id TEXT NOT NULL,
+                time_bucket INTEGER NOT NULL,
+                bytes_in INTEGER NOT NULL DEFAULT 0,
+                bytes_out INTEGER NOT NULL DEFAULT 0,
+                connections INTEGER NOT NULL DEFAULT 0,
+                requests INTEGER NOT NULL DEFAULT 0,
+                total_duration_ms INTEGER NOT NULL DEFAULT 0,
+                avg_duration_ms INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_traffic_stats_rule_bucket
+                ON traffic_stats(rule_id, time_bucket);
+            CREATE INDEX IF NOT EXISTS idx_traffic_stats_time
+                ON traffic_stats(time_bucket);
             "#,
         )
         .map_err(|err| EngineError::Storage(err.to_string()))?;

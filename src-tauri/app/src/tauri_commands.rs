@@ -1,10 +1,13 @@
 #[cfg(feature = "tauri")]
+use tauri::Manager;
+#[cfg(feature = "tauri")]
 use wsl_bridge_core::HyperVProbeDebug;
 #[cfg(feature = "tauri")]
 use wsl_bridge_shared::{
-    AppRuntimeStatus, ApplyRulesResult, CreateRuleRequest, LogQueryRequest, LogQueryResult, McpServerConfig,
-    McpServerStatus, ProxyRule, RuleLogStatsItem, RuleLogStatsRequest, RulePatch,
-    RuntimeStatusItem, StopRulesResult, TailLogsResult, TopologySnapshot,
+    AppRuntimeStatus, AppSettings, ApplyRulesResult, CreateRuleRequest, LogQueryRequest,
+    LogQueryResult, McpServerConfig, McpServerStatus, ProxyRule, QueryTrafficStatsRequest,
+    QueryTrafficStatsResult, RuleLogStatsItem, RuleLogStatsRequest, RulePatch, RuntimeStatusItem,
+    StopRulesResult, TailLogsResult, TopologySnapshot, TrafficWindowData,
 };
 
 #[cfg(feature = "tauri")]
@@ -34,6 +37,55 @@ pub async fn debug_hyperv_probe(
 #[tauri::command]
 pub fn get_app_runtime_status() -> AppRuntimeStatus {
     commands::get_app_runtime_status()
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn get_app_settings(state: tauri::State<'_, AppState>) -> AppSettings {
+    commands::get_app_settings(&state)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn update_app_settings(
+    state: tauri::State<'_, AppState>,
+    settings: AppSettings,
+) -> Result<(), String> {
+    commands::update_app_settings(&state, settings).map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn set_tray_visibility(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
+    let Some(tray) = app.tray_by_id("main-tray") else {
+        return Err("main tray not initialized".to_owned());
+    };
+    tray.set_visible(visible).map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn hide_main_window_to_tray(app: tauri::AppHandle) -> Result<(), String> {
+    let Some(tray) = app.tray_by_id("main-tray") else {
+        return Err("main tray not initialized".to_owned());
+    };
+    tray.set_visible(true).map_err(|err| err.to_string())?;
+
+    let Some(window) = app.get_webview_window("main") else {
+        return Err("main window not initialized".to_owned());
+    };
+    window.hide().map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn exit_application(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    commands::stop_rules(&state);
+    app.exit(0);
+    Ok(())
 }
 
 #[cfg(feature = "tauri")]
@@ -114,6 +166,24 @@ pub fn get_rule_log_stats(
     req: RuleLogStatsRequest,
 ) -> Vec<RuleLogStatsItem> {
     commands::get_rule_log_stats(&state, req)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn get_traffic_window_data(
+    state: tauri::State<'_, AppState>,
+    rule_ids: Vec<String>,
+) -> Vec<TrafficWindowData> {
+    commands::get_traffic_window_data(&state, rule_ids)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn query_traffic_stats(
+    state: tauri::State<'_, AppState>,
+    req: QueryTrafficStatsRequest,
+) -> QueryTrafficStatsResult {
+    commands::query_traffic_stats(&state, req)
 }
 
 #[cfg(feature = "tauri")]

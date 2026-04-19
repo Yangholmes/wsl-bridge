@@ -95,6 +95,17 @@
   grid-template-columns: repeat(2, minmax(200px, 320px));
 }
 
+.settings-lifecycle-grid {
+  display: grid;
+  gap: var(--space-16);
+  grid-template-columns: repeat(2, minmax(220px, 360px));
+  margin-top: var(--space-16);
+}
+
+.settings-lifecycle-toggle {
+  justify-content: flex-end;
+}
+
 .settings-field-row {
   display: flex;
   flex-direction: column;
@@ -179,6 +190,7 @@
   .settings-mcp-grid,
   .settings-mcp-paths,
   .settings-appearance-grid,
+  .settings-lifecycle-grid,
   .settings-mcp-config-grid {
     grid-template-columns: 1fr;
   }

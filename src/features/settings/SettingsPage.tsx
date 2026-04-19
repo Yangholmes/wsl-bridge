@@ -10,6 +10,8 @@ import "./SettingsPage.css";
 import { useI18n } from "../../i18n/context";
 import { SUPPORTED_LOCALES, type AppLocale } from "../../i18n/locale";
 import type {
+  AppSettings,
+  CloseBehavior,
   McpClientPreset,
   McpServerConfig,
   McpServerStatus,
@@ -18,7 +20,12 @@ import type {
 } from "../../lib/types";
 import { useTheme, type ThemeMode } from "../../lib/theme";
 import { listRules, scanTopology } from "../rules/api";
-import { getMcpServerStatus, updateMcpServerConfig } from "./api";
+import {
+  getAppSettings,
+  getMcpServerStatus,
+  updateAppSettings,
+  updateMcpServerConfig
+} from "./api";
 import { Hint } from "../../lib/Hint";
 import { useToast } from "../../lib/Toast";
 import FlagCn from "../../assets/flag-cn.svg?url";
@@ -53,13 +60,25 @@ const themeOptions: { value: ThemeMode; labelKey: string }[] = [
   { value: "auto", labelKey: "settings.themeAuto" }
 ];
 
+const closeBehaviorOptions: { value: CloseBehavior; labelKey: string }[] = [
+  { value: "ask", labelKey: "settings.closeBehaviorAsk" },
+  { value: "minimize", labelKey: "settings.closeBehaviorMinimize" },
+  { value: "exit", labelKey: "settings.closeBehaviorExit" }
+];
+
+const EMPTY_APP_SETTINGS: AppSettings = {
+  close_behavior: "ask",
+  show_tray_on_start: true
+};
+
 const EMPTY_MCP_CONFIG: McpServerConfig = {
   enabled: false,
   server_name: "wsl-bridge",
   listen_port: 13746,
   api_token: "",
   expose_topology_read: true,
-  expose_rule_config: true
+  expose_rule_config: true,
+  expose_traffic_stats: true
 };
 
 function presetOptionLabel(preset: McpClientPreset) {
@@ -71,10 +90,21 @@ export function SettingsPage() {
   const { mode: themeMode, setMode: setThemeMode } = useTheme();
   const toast = useToast();
 
+  const [appSettingsDraft, setAppSettingsDraft] = createSignal<AppSettings>(EMPTY_APP_SETTINGS);
+  const [appSettingsDirty, setAppSettingsDirty] = createSignal(false);
+  const [appSettingsSaving, setAppSettingsSaving] = createSignal(false);
   const [mcpDraft, setMcpDraft] = createSignal<McpServerConfig>(EMPTY_MCP_CONFIG);
   const [mcpDirty, setMcpDirty] = createSignal(false);
   const [mcpSaving, setMcpSaving] = createSignal(false);
   const [selectedPresetId, setSelectedPresetId] = createSignal("claude-code");
+
+  const appSettingsQuery = useQuery(() =>
+    queryOptions<AppSettings>({
+      queryKey: ["settings", "app-settings"],
+      queryFn: getAppSettings,
+      staleTime: 0
+    })
+  );
 
   const topologyQuery = useQuery(() =>
     queryOptions<TopologySnapshot>({
@@ -99,6 +129,12 @@ export function SettingsPage() {
       staleTime: 0
     })
   );
+
+  createEffect(() => {
+    const remote = appSettingsQuery.data;
+    if (!remote || appSettingsDirty()) return;
+    setAppSettingsDraft(remote);
+  });
 
   createEffect(() => {
     const remote = mcpStatusQuery.data?.config;
@@ -133,6 +169,20 @@ export function SettingsPage() {
   async function refreshMcpStatus() {
     await mcpStatusQuery.refetch();
     toast.info(t("settings.mcpReloaded"));
+  }
+
+  async function saveAppSettings() {
+    try {
+      setAppSettingsSaving(true);
+      await updateAppSettings(appSettingsDraft());
+      setAppSettingsDirty(false);
+      await appSettingsQuery.refetch();
+      toast.info(t("settings.appSettingsSaved"));
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setAppSettingsSaving(false);
+    }
   }
 
   async function saveMcpConfig() {
@@ -180,6 +230,11 @@ export function SettingsPage() {
   function updateDraft<K extends keyof McpServerConfig>(key: K, value: McpServerConfig[K]) {
     setMcpDraft((prev) => ({ ...prev, [key]: value }));
     setMcpDirty(true);
+  }
+
+  function updateAppSettingsDraft<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
+    setAppSettingsDraft((prev) => ({ ...prev, [key]: value }));
+    setAppSettingsDirty(true);
   }
 
   return (
@@ -268,6 +323,65 @@ export function SettingsPage() {
                 </KSelect.Content>
               </KSelect.Portal>
             </KSelect.Root>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <h2>{t("settings.lifecycleTitle")}</h2>
+          <KButton.Root
+            class="kb-btn accent"
+            onClick={saveAppSettings}
+            disabled={appSettingsSaving() || !appSettingsDirty()}
+          >
+            {t("settings.lifecycleSave")}
+          </KButton.Root>
+        </div>
+        <div class="muted">{t("settings.lifecycleSubtitle")}</div>
+
+        <div class="settings-lifecycle-grid">
+          <div class="settings-field-row">
+            <label class="kb-label">{t("settings.closeBehaviorLabel")}</label>
+            <KSelect.Root<{ value: CloseBehavior; labelKey: string }>
+              value={closeBehaviorOptions.find((opt) => opt.value === appSettingsDraft().close_behavior)}
+              onChange={(option) => option && updateAppSettingsDraft("close_behavior", option.value)}
+              options={closeBehaviorOptions}
+              optionValue="value"
+              optionTextValue="labelKey"
+              itemComponent={(itemProps) => (
+                <KSelect.Item item={itemProps.item} class="kb-select-item">
+                  <KSelect.ItemLabel>{t(itemProps.item.rawValue.labelKey)}</KSelect.ItemLabel>
+                </KSelect.Item>
+              )}
+            >
+              <KSelect.Trigger class="kb-input kb-select-trigger settings-select-narrow">
+                <KSelect.Value<{ value: CloseBehavior; labelKey: string }>>{(state) =>
+                  t(state.selectedOption()?.labelKey ?? "settings.closeBehaviorAsk")
+                }</KSelect.Value>
+                <KSelect.Icon class="kb-select-icon"><span class="kb-select-icon-triangle"></span></KSelect.Icon>
+              </KSelect.Trigger>
+              <KSelect.Portal>
+                <KSelect.Content class="kb-select-content">
+                  <KSelect.Listbox class="kb-select-listbox" />
+                </KSelect.Content>
+              </KSelect.Portal>
+            </KSelect.Root>
+          </div>
+
+          <div class="settings-field-row settings-lifecycle-toggle">
+            <div class="muted">{t("settings.showTrayOnStartLabel")}</div>
+            <KCheckbox.Root
+              checked={appSettingsDraft().show_tray_on_start}
+              onChange={(checked) => updateAppSettingsDraft("show_tray_on_start", checked)}
+              class="kb-checkbox"
+            >
+              <KCheckbox.Input />
+              <KCheckbox.Control class="kb-checkbox-control">
+                <KCheckbox.Indicator class="kb-checkbox-indicator" />
+              </KCheckbox.Control>
+              <KCheckbox.Label class="kb-checkbox-label">{t("settings.showTrayOnStartHint")}</KCheckbox.Label>
+            </KCheckbox.Root>
           </div>
         </div>
       </section>
@@ -374,6 +488,18 @@ export function SettingsPage() {
                     <KCheckbox.Indicator class="kb-checkbox-indicator" />
                   </KCheckbox.Control>
                   <KCheckbox.Label class="kb-checkbox-label">{t("settings.mcpCapabilityRules")}</KCheckbox.Label>
+                </KCheckbox.Root>
+
+                <KCheckbox.Root
+                  checked={mcpDraft().expose_traffic_stats}
+                  onChange={(checked) => updateDraft("expose_traffic_stats", checked)}
+                  class="kb-checkbox"
+                >
+                  <KCheckbox.Input />
+                  <KCheckbox.Control class="kb-checkbox-control">
+                    <KCheckbox.Indicator class="kb-checkbox-indicator" />
+                  </KCheckbox.Control>
+                  <KCheckbox.Label class="kb-checkbox-label">{t("settings.mcpCapabilityTraffic")}</KCheckbox.Label>
                 </KCheckbox.Root>
               </div>
             </div>

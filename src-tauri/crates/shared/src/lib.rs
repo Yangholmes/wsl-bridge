@@ -133,6 +133,7 @@ pub struct McpServerConfig {
     pub api_token: String,
     pub expose_topology_read: bool,
     pub expose_rule_config: bool,
+    pub expose_traffic_stats: bool,
 }
 
 impl Default for McpServerConfig {
@@ -144,6 +145,7 @@ impl Default for McpServerConfig {
             api_token: String::new(),
             expose_topology_read: true,
             expose_rule_config: true,
+            expose_traffic_stats: true,
         }
     }
 }
@@ -185,6 +187,31 @@ pub struct AppRuntimeStatus {
     pub build_flavor: BuildFlavor,
     pub is_admin: bool,
     pub admin_features_available: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CloseBehavior {
+    #[default]
+    Ask,
+    Minimize,
+    Exit,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct AppSettings {
+    pub close_behavior: CloseBehavior,
+    pub show_tray_on_start: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            close_behavior: CloseBehavior::Ask,
+            show_tray_on_start: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -279,4 +306,54 @@ pub struct RuleLogStatsItem {
     pub errors: usize,
     pub last_time: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrafficSample {
+    pub timestamp: i64,
+    pub bytes_in: u64,
+    pub bytes_out: u64,
+    pub connections: u64,
+    pub total_duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrafficWindowData {
+    pub rule_id: String,
+    pub samples: Vec<TrafficSample>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TrafficStatsInterval {
+    #[default]
+    Minute,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct QueryTrafficStatsRequest {
+    pub rule_id: String,
+    pub start_time: Option<DateTime<Utc>>,
+    pub end_time: Option<DateTime<Utc>>,
+    pub interval: Option<TrafficStatsInterval>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrafficStatsPoint {
+    pub time_bucket: i64,
+    pub rule_id: String,
+    pub bytes_in: u64,
+    pub bytes_out: u64,
+    pub connections: u64,
+    pub requests: u64,
+    pub total_duration_ms: u64,
+    pub avg_duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QueryTrafficStatsResult {
+    pub stats: Vec<TrafficStatsPoint>,
+    pub total_bytes_in: u64,
+    pub total_bytes_out: u64,
+    pub total_connections: u64,
 }

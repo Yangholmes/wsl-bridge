@@ -2,17 +2,15 @@ import { invokeBridge } from "../../lib/bridge";
 import type {
   ApplyRulesResult,
   CreateRuleRequest,
-  LogQueryRequest,
-  LogQueryResult,
   ProxyRule,
-  RuleLogStatsItem,
-  RuleLogStatsRequest,
   RulePatch,
   RuntimeStatusItem,
   StopRulesResult,
-  TailLogsResult,
   HyperVProbeDebug,
-  TopologySnapshot
+  TopologySnapshot,
+  QueryTrafficStatsRequest,
+  QueryTrafficStatsResult,
+  TrafficWindowData
 } from "../../lib/types";
 
 export function listRules() {
@@ -47,16 +45,12 @@ export function getRuntimeStatus() {
   return invokeBridge<RuntimeStatusItem[]>("get_runtime_status");
 }
 
-export function tailLogs(cursor = 0) {
-  return invokeBridge<TailLogsResult>("tail_logs", { cursor });
+export function getTrafficWindowData(ruleIds: string[]) {
+  return invokeBridge<TrafficWindowData[]>("get_traffic_window_data", { ruleIds });
 }
 
-export function queryLogs(req: LogQueryRequest) {
-  return invokeBridge<LogQueryResult>("query_logs", { req });
-}
-
-export function getRuleLogStats(req: RuleLogStatsRequest) {
-  return invokeBridge<RuleLogStatsItem[]>("get_rule_log_stats", { req });
+export function queryTrafficStats(req: QueryTrafficStatsRequest) {
+  return invokeBridge<QueryTrafficStatsResult>("query_traffic_stats", { req });
 }
 
 export function scanTopology() {
