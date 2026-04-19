@@ -1,7 +1,7 @@
 .settings-lang-row {
   display: grid;
   grid-template-columns: 180px minmax(0, 320px);
-  gap: 12px;
+  gap: var(--space-12);
   align-items: center;
 }
 
@@ -10,34 +10,54 @@
 }
 
 .settings-mcp-subtitle {
-  margin-top: 4px;
+  margin-top: var(--space-4);
 }
 
 .settings-mcp-summary {
   display: grid;
-  gap: 12px;
+  gap: var(--space-12);
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-top: 12px;
+  margin-top: var(--space-16);
+}
+
+.settings-mcp-config-section,
+.settings-mcp-client-section,
+.settings-mcp-tools-section {
+  margin-top: var(--space-24);
+  padding-top: var(--space-20);
+  border-top: 1px solid var(--line-soft);
+}
+
+.settings-mcp-config-section h3,
+.settings-mcp-client-section h3,
+.settings-mcp-tools-section h3 {
+  margin-bottom: var(--space-16);
+}
+
+.settings-mcp-save-row {
+  margin-top: var(--space-20);
+  display: flex;
+  justify-content: flex-end;
 }
 
 .settings-mcp-grid,
 .settings-mcp-paths {
   display: grid;
-  gap: 12px;
+  gap: var(--space-12);
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 14px;
+  margin-top: var(--space-14);
 }
 
 .settings-mcp-tools,
 .settings-mcp-tool-list {
-  margin-top: 14px;
+  margin-top: var(--space-14);
 }
 
 .settings-mcp-token,
 .settings-mcp-client-header {
   display: grid;
-  gap: 12px;
-  margin-top: 14px;
+  gap: var(--space-12);
+  margin-top: var(--space-14);
 }
 
 .settings-mcp-token-input,
@@ -48,21 +68,22 @@
 .settings-mcp-config {
   min-height: 220px;
   resize: vertical;
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: var(--font-mono);
   line-height: 1.5;
 }
 
 .settings-mcp-config-code {
   display: block;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: var(--font-mono);
   background: #0f172a;
   color: #e2e8f0;
   border-radius: var(--radius-md);
-  padding: 12px;
+  padding: var(--space-12);
   overflow: auto;
+  max-width: 100%;
   max-height: 360px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   white-space: pre;
@@ -70,14 +91,14 @@
 
 .settings-appearance-grid {
   display: grid;
-  gap: 16px;
+  gap: var(--space-16);
   grid-template-columns: repeat(2, minmax(200px, 320px));
 }
 
 .settings-field-row {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-6);
 }
 
 .settings-select-narrow {
@@ -86,30 +107,30 @@
 
 .settings-mcp-config-grid {
   display: grid;
-  gap: 12px;
+  gap: var(--space-12);
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 12px;
+  margin-top: var(--space-12);
 }
 
 .settings-mcp-toggles {
   display: grid;
-  gap: 16px;
+  gap: var(--space-16);
   grid-template-columns: auto 1fr;
-  margin-top: 16px;
-  padding-top: 16px;
+  margin-top: var(--space-16);
+  padding-top: var(--space-16);
   border-top: 1px solid var(--line-soft);
 }
 
 .settings-mcp-capabilities .muted {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-8);
 }
 
 .settings-mcp-token-row {
   display: flex;
-  gap: 12px;
+  gap: var(--space-12);
   align-items: flex-end;
-  margin-top: 16px;
-  padding-top: 16px;
+  margin-top: var(--space-16);
+  padding-top: var(--space-16);
   border-top: 1px solid var(--line-soft);
 }
 
@@ -119,14 +140,14 @@
 }
 
 .settings-mcp-baseurl {
-  margin-top: 16px;
-  padding-top: 16px;
+  margin-top: var(--space-16);
+  padding-top: var(--space-16);
   border-top: 1px solid var(--line-soft);
 }
 
 .settings-mcp-baseurl-row {
   display: flex;
-  gap: 8px;
+  gap: var(--space-8);
   align-items: center;
 }
 
@@ -136,16 +157,16 @@
 
 .settings-mcp-preset-row {
   display: flex;
-  gap: 12px;
+  gap: var(--space-12);
   align-items: flex-end;
-  margin: 16px 0;
+  margin: var(--space-16) 0;
 }
 
 .settings-mcp-preset-row .kb-field {
   flex: 1;
 }
 
-@media (max-width: 959px) {
+@media (max-width: var(--breakpoint-md)) {
   .settings-mcp-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -156,7 +177,19 @@
 
   .settings-mcp-summary,
   .settings-mcp-grid,
-  .settings-mcp-paths {
+  .settings-mcp-paths,
+  .settings-appearance-grid,
+  .settings-mcp-config-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-mcp-toggles {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-mcp-token-row,
+  .settings-mcp-preset-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

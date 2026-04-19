@@ -20,6 +20,7 @@ export const dict = {
     stopped: "Stopped",
     error: "Error",
     ready: "Ready",
+    adminMode: "Admin Mode",
     scanning: "Scanning...",
     rescan: "Rescan",
     loading: "Loading...",
@@ -98,6 +99,7 @@ export const dict = {
   dashboard: {
     title: "Dashboard",
     refreshOverview: "Refresh overview",
+    rescanTopology: "Rescan topology",
     appStatus: "App status",
     lastTopologyScan: "Last topology scan: {{ value }}",
     ruleStatus: "Rule status",

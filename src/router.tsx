@@ -1,10 +1,14 @@
-import { lazy, Suspense } from "solid-js";
-import { createRootRoute, createRoute, createRouter, Link, Outlet } from "@tanstack/solid-router";
+import { lazy, Suspense, createMemo, Show, For } from "solid-js";
+import { createRootRoute, createRoute, createRouter, Link, Outlet, useRouterState } from "@tanstack/solid-router";
 import { useI18n } from "./i18n/context";
 import IconBridge from "./assets/bridge-logo.svg?url";
 import { ErrorPage } from "./features/ErrorPage";
 import { SkeletonTitle, SkeletonLine } from "./lib/Skeleton";
 import { AppRuntimeBanner } from "./lib/AppRuntimeBanner";
+import { useAppRuntimeStatusQuery } from "./lib/appRuntime";
+import { useTheme } from "./lib/theme";
+import { toLocalTime } from "./lib/datetime";
+import * as KButton from "@kobalte/core/button";
 import "./lib/Layout.css";
 import "./lib/Table.css";
 import "./lib/Form.css";
@@ -48,39 +52,73 @@ function withSuspense(component: () => any) {
 
 function RootLayout() {
   const { t } = useI18n();
+  const routerState = useRouterState();
+  const runtimeStatusQuery = useAppRuntimeStatusQuery();
+  const theme = useTheme();
+
+  const currentPath = createMemo(() => routerState().location.pathname);
+  const hasBanner = createMemo(() => !runtimeStatusQuery.data?.admin_features_available && runtimeStatusQuery.data);
+
+  const navItems = createMemo(() => [
+    { path: "/dashboard", label: t("nav.dashboard") },
+    { path: "/rules", label: t("nav.rules") },
+    { path: "/runtime", label: t("nav.runtime") },
+    { path: "/topology", label: t("nav.topology") },
+    { path: "/logs", label: t("nav.logs") },
+    { path: "/settings", label: t("nav.settings") }
+  ]);
 
   return (
-    <div class="app-layout">
-      <aside class="sidebar">
+    <div class={`app-layout ${hasBanner() ? "" : "no-banner"}`}>
+      <header class="top-bar">
         <div class="brand">
-          <img src={IconBridge} class="brand-icon" />
-          {t("app.name")}
+          <img src={IconBridge} class="brand-icon" alt="WSL Bridge" />
+          <span>{t("app.name")}</span>
         </div>
-        <nav class="nav">
-          <Link to="/dashboard" class="nav-item">
-            {t("nav.dashboard")}
-          </Link>
-          <Link to="/rules" class="nav-item">
-            {t("nav.rules")}
-          </Link>
-          <Link to="/runtime" class="nav-item">
-            {t("nav.runtime")}
-          </Link>
-          <Link to="/topology" class="nav-item">
-            {t("nav.topology")}
-          </Link>
-          <Link to="/logs" class="nav-item">
-            {t("nav.logs")}
-          </Link>
-          <Link to="/settings" class="nav-item">
-            {t("nav.settings")}
-          </Link>
-        </nav>
-      </aside>
-      <main class="content">
+        
+        <div class="app-status-section">
+          <Show when={runtimeStatusQuery.data?.admin_features_available}>
+            <div class="status-chip running">{t("common.adminMode")}</div>
+          </Show>
+        </div>
+      </header>
+      
+      <nav class="tab-nav">
+        <For each={navItems()}>
+          {(item) => (
+            <Link 
+              to={item.path} 
+              class="tab-item"
+              data-status={currentPath() === item.path || (item.path === "/dashboard" && currentPath() === "/") ? "active" : undefined}
+            >
+              {item.label}
+            </Link>
+          )}
+        </For>
+      </nav>
+      
+      <Show when={hasBanner()}>
         <AppRuntimeBanner />
+      </Show>
+      
+      <main class="content">
         <Outlet />
       </main>
+      
+      <footer class="status-bar">
+        <div class="status-bar-left">
+          <Show when={runtimeStatusQuery.data}>
+            <div class="status-item">
+              <span>v{runtimeStatusQuery.data?.build_flavor}</span>
+            </div>
+          </Show>
+        </div>
+        <div class="status-bar-right">
+          <div class="status-item">
+            <span>{theme.resolvedTheme()}</span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
