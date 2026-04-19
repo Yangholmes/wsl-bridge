@@ -8,6 +8,7 @@
 
 table {
   width: 100%;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: var(--text-sm);
 }
@@ -15,6 +16,7 @@ table {
 .rules-table {
   min-width: 780px;
   table-layout: fixed;
+  min-width: 800px;
 }
 
 th,
