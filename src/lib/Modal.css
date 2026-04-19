@@ -27,6 +27,10 @@
   align-items: center;
 }
 
+.kb-dialog-content .panel-title {
+  align-items: center;
+}
+
 .close-guard-dialog {
   width: min(520px, calc(100vw - 32px));
 }

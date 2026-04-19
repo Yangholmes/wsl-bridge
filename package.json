@@ -1,6 +1,6 @@
 {
   "name": "wsl-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "WSL Bridge is a Windows desktop application that helps you easily expose WSL and Hyper-V virtual machine network services to external networks. Supports TCP/UDP port forwarding, HTTP proxy and SOCKS5 proxy, with intuitive rule management and firewall configuration.",
