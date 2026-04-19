@@ -13,6 +13,7 @@ import { SkeletonGrid } from "../../lib/Skeleton";
 import { Hint } from "../../lib/Hint";
 import { useToast } from "../../lib/Toast";
 import { TrafficChart } from "./TrafficChart";
+import { MetricCard, PageHeader, SectionCard, StatusBadge } from "../../lib/ui";
 
 export function DashboardPage() {
   const { t } = useI18n();
@@ -62,6 +63,12 @@ export function DashboardPage() {
   });
 
   const enabledRules = createMemo(() => (rulesQuery.data ?? []).filter((item) => item.enabled).length);
+  const totalRules = createMemo(() => rulesQuery.data?.length ?? 0);
+  const topologySummary = createMemo(() => ({
+    wsl: topologyQuery.data?.wsl.length ?? 0,
+    hyperv: topologyQuery.data?.hyperv.length ?? 0,
+    adapters: topologyQuery.data?.adapters.length ?? 0
+  }));
   const natWithoutRules = createMemo(() => {
     const hasNat = (topologyQuery.data?.wsl ?? []).some((item) => item.networking_mode.toLowerCase() === "nat");
     return hasNat && enabledRules() === 0;
@@ -97,52 +104,102 @@ export function DashboardPage() {
   }
 
   return (
-    <div class="page">
-      <section class="page-shell">
-        <div class="panel-title">
-          <h2>{t("dashboard.title")}</h2>
+<div class="page">
+      <PageHeader
+        title={t("dashboard.title")}
+        actions={
+          <>
+            <KButton.Root class="kb-btn ghost" onClick={refreshDashboard}>
+              {t("dashboard.refreshOverview")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn accent" onClick={rescanTopology}>
+              {t("dashboard.rescanTopology")}
+            </KButton.Root>
+          </>
+        }
+      />
+
+      <Show when={!isLoading()} fallback={<SkeletonGrid dashboard />}>
+        <div class="metric-grid">
+          <MetricCard
+            label={t("dashboard.appStatus")}
+            value={<StatusBadge state={appStatus()} label={t(`common.${appStatus()}`)} />}
+            detail={t("dashboard.lastTopologyScan", { value: toLocalTime(topologyQuery.data?.timestamp ?? null) })}
+          />
+          <MetricCard
+            label={t("dashboard.ruleStatus")}
+            value={`${totalRules()}`}
+            detail={t("dashboard.enabledRules", { count: enabledRules() })}
+          />
+          <MetricCard
+            label={t("dashboard.riskHint")}
+            value={natWithoutRules() ? t("common.error") : t("common.ready")}
+            detail={natWithoutRules() ? t("dashboard.natRisk") : t("dashboard.noHighRisk")}
+          />
         </div>
-        <div class="dashboard-actions">
-          <KButton.Root class="kb-btn primary" onClick={refreshDashboard}>
-            {t("dashboard.refreshOverview")}
-          </KButton.Root>
-          <KButton.Root class="kb-btn ghost" onClick={rescanTopology}>
-            {t("dashboard.rescanTopology")}
-          </KButton.Root>
-        </div>
-        <Show when={!isLoading()} fallback={<SkeletonGrid dashboard />}>
-          <div class="dashboard-grid">
-            <div class="dashboard-card">
-              <div class="dashboard-card-header">{t("dashboard.appStatus")}</div>
-              <div class={`status-chip ${appStatus()}`}>
-                {t(`common.${appStatus()}`)}
-              </div>
-              <div class="caption-text">
-                {t("dashboard.lastTopologyScan", { value: toLocalTime(topologyQuery.data?.timestamp ?? null) })}
-              </div>
-            </div>
-            <div class="dashboard-card">
-              <div class="dashboard-card-header">{t("dashboard.ruleStatus")}</div>
-              <div class="dashboard-stat-large">
-                {t("dashboard.totalRules", { count: rulesQuery.data?.length ?? 0 })}
-              </div>
-              <div class="dashboard-stat">{t("dashboard.enabledRules", { count: enabledRules() })}</div>
-              <div class="dashboard-stat">{t("dashboard.runningRules", { count: runtimeSummary().running })}</div>
-              <Show when={runtimeSummary().error > 0}>
-                <div class="dashboard-stat" style="color: var(--danger-text)">
-                  {t("dashboard.errorRules", { count: runtimeSummary().error })}
+
+<div class="dashboard-secondary-grid">
+          <SectionCard
+            title={t("dashboard.rulesSnapshotTitle")}
+          >
+            <div class="dashboard-summary-grid">
+              <div class="line-item">
+                <div class="line-item-content">
+                  <span class="line-item-title">{t("dashboard.runningRules", { count: runtimeSummary().running })}</span>
+                  <span class="line-item-subtitle">{t("dashboard.rulesRunningSubtitle")}</span>
                 </div>
-              </Show>
+                <StatusBadge state="running" label={t("common.running")} />
+              </div>
+              <div class="line-item">
+                <div class="line-item-content">
+                  <span class="line-item-title">{t("common.stopped")}</span>
+                  <span class="line-item-subtitle">{t("dashboard.rulesStoppedSubtitle", { count: runtimeSummary().stopped })}</span>
+                </div>
+                <StatusBadge state="stopped" label={String(runtimeSummary().stopped)} />
+              </div>
+              <div class="line-item">
+                <div class="line-item-content">
+                  <span class="line-item-title">{t("common.error")}</span>
+                  <span class="line-item-subtitle">{t("dashboard.rulesErrorSubtitle", { count: runtimeSummary().error })}</span>
+                </div>
+                <StatusBadge state={runtimeSummary().error > 0 ? "error" : "ready"} label={String(runtimeSummary().error)} />
+              </div>
             </div>
-            <div class="dashboard-card">
-              <div class="dashboard-card-header">{t("dashboard.riskHint")}</div>
-              <Show when={natWithoutRules()} fallback={<Hint variant="info">{t("dashboard.noHighRisk")}</Hint>}>
-                <Hint variant="error">{t("dashboard.natRisk")}</Hint>
-              </Show>
+          </SectionCard>
+
+          <SectionCard
+            title={t("dashboard.topologyOverviewTitle")}
+          >
+            <div class="dashboard-summary-grid">
+              <div class="line-item">
+                <div class="line-item-content">
+                  <span class="line-item-title">WSL</span>
+                  <span class="line-item-subtitle">{t("dashboard.wslDistroRecognized", { count: topologySummary().wsl })}</span>
+                </div>
+                <strong>{topologySummary().wsl}</strong>
+              </div>
+              <div class="line-item">
+                <div class="line-item-content">
+                  <span class="line-item-title">Hyper-V</span>
+                  <span class="line-item-subtitle">{t("dashboard.hypervVmAvailable", { count: topologySummary().hyperv })}</span>
+                </div>
+                <strong>{topologySummary().hyperv}</strong>
+              </div>
+              <div class="line-item">
+                <div class="line-item-content">
+                  <span class="line-item-title">Adapters</span>
+                  <span class="line-item-subtitle">{t("dashboard.adaptersListed", { count: topologySummary().adapters })}</span>
+                </div>
+                <strong>{topologySummary().adapters}</strong>
+              </div>
             </div>
-          </div>
-        </Show>
-      </section>
+
+            <Show when={natWithoutRules()}>
+              <Hint variant="error">{t("dashboard.natRisk")}</Hint>
+            </Show>
+          </SectionCard>
+        </div>
+      </Show>
 
       <TrafficChart rules={rulesQuery.data ?? []} />
     </div>

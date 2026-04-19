@@ -11,6 +11,7 @@ import { SimpleSelect, type SelectOption } from "../../lib/SimpleSelect";
 import { toLocalTime } from "../../lib/datetime";
 import { SkeletonLine } from "../../lib/Skeleton";
 import { Hint } from "../../lib/Hint";
+import { MetricCard, PageHeader, SectionCard, StatusBadge } from "../../lib/ui";
 
 type RuntimeRow = {
   rule_id: string;
@@ -88,22 +89,35 @@ export function RuntimePage() {
 
   return (
     <div class="page">
-      <section class="panel">
-        <div class="panel-title">
-          <h2>{t("runtime.title")}</h2>
-        </div>
-        <div class="runtime-tools runtime-tools-row">
-          <SimpleSelect
-            class="kb-input runtime-filter"
-            value={stateFilter()}
-            onChange={(v) => setStateFilter(v as "all" | RuntimeState)}
-            options={stateFilterOptions}
-          />
-          <KButton.Root class="kb-btn ghost" onClick={refreshAll}>
-            {t("common.refresh")}
-          </KButton.Root>
-        </div>
+      <PageHeader
+        title={t("runtime.title")}
+        actions={
+          <>
+            <SimpleSelect
+              class="runtime-filter"
+              value={stateFilter()}
+              onChange={(v) => setStateFilter(v as "all" | RuntimeState)}
+              options={stateFilterOptions}
+            />
+            <KButton.Root class="kb-btn ghost" onClick={refreshAll}>
+              {t("common.refresh")}
+            </KButton.Root>
+          </>
+        }
+      />
 
+      <div class="metric-grid">
+        <MetricCard label={t("runtime.totalLabel")} value={`${runtimeSummary().total}`} detail={t("runtime.totalDetail")} />
+        <MetricCard label={t("common.running")} value={`${runtimeSummary().running}`} detail={t("runtime.stoppedDetail", { count: runtimeSummary().stopped })} />
+        <MetricCard label={t("common.error")} value={`${runtimeSummary().error}`} detail={t("runtime.errorDetail")} />
+      </div>
+
+      <SectionCard title={t("runtime.title")} subtitle={t("runtime.summary", {
+        total: runtimeSummary().total,
+        running: runtimeSummary().running,
+        error: runtimeSummary().error,
+        stopped: runtimeSummary().stopped
+      })}>
         <Hint variant="info" class="runtime-summary">
           {t("runtime.summary", {
             total: runtimeSummary().total,
@@ -112,7 +126,6 @@ export function RuntimePage() {
             stopped: runtimeSummary().stopped
           })}
         </Hint>
-
         <div class="table-wrap">
           <table class="rules-table">
             <thead>
@@ -153,7 +166,7 @@ export function RuntimePage() {
                       return (
                         <tr class={item.state === "error" ? "runtime-row-error" : undefined}>
                           <td><EllipsisCell text={item.name} /></td>
-                          <td><EllipsisCell text={t(`common.${item.state}`)} /></td>
+                          <td><StatusBadge state={item.state} label={t(`common.${item.state}`)} /></td>
                           <td><EllipsisCell text={toLocalTime(item.last_apply_at)} /></td>
                           <td><EllipsisCell text={item.last_error ?? "-"} /></td>
                         </tr>
@@ -165,7 +178,7 @@ export function RuntimePage() {
             </tbody>
           </table>
         </div>
-      </section>
+      </SectionCard>
     </div>
   );
 }

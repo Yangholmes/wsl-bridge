@@ -117,8 +117,8 @@ fn main() {
 
 #[cfg(feature = "tauri")]
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let show_item = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
-    let quit_item = MenuItemBuilder::with_id("quit", "退出应用").build(app)?;
+    let show_item = MenuItemBuilder::with_id("show", "Show Window").build(app)?;
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
     let menu = MenuBuilder::new(app)
         .items(&[&show_item, &quit_item])
         .build()?;

@@ -35,5 +35,5 @@
 }
 
 .error {
-  color: #fca5a5;
+  color: var(--danger-600);
 }

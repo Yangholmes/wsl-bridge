@@ -831,42 +831,42 @@ fn describe_tools(config: &McpServerConfig) -> Vec<McpToolDescriptor> {
     vec![
         McpToolDescriptor {
             name: "read_virtualization_topology".to_owned(),
-            description: "读取 WSL / Hyper-V 当前配置与解析后的 IP 拓扑。".to_owned(),
+            description_key: "mcpToolTopology".to_owned(),
             enabled: config.expose_topology_read,
         },
         McpToolDescriptor {
             name: "list_forward_rules".to_owned(),
-            description: "读取当前 TCP / UDP 转发规则与防火墙配置。".to_owned(),
+            description_key: "mcpToolListRules".to_owned(),
             enabled: config.expose_rule_config,
         },
         McpToolDescriptor {
             name: "create_forward_rule".to_owned(),
-            description: "创建新的 TCP / UDP 转发规则。".to_owned(),
+            description_key: "mcpToolCreateRule".to_owned(),
             enabled: config.expose_rule_config,
         },
         McpToolDescriptor {
             name: "update_forward_rule".to_owned(),
-            description: "更新现有 TCP / UDP 转发规则。".to_owned(),
+            description_key: "mcpToolUpdateRule".to_owned(),
             enabled: config.expose_rule_config,
         },
         McpToolDescriptor {
             name: "delete_forward_rule".to_owned(),
-            description: "删除指定转发规则。".to_owned(),
+            description_key: "mcpToolDeleteRule".to_owned(),
             enabled: config.expose_rule_config,
         },
         McpToolDescriptor {
             name: "set_forward_rule_enabled".to_owned(),
-            description: "启用或禁用指定转发规则。".to_owned(),
+            description_key: "mcpToolToggleRule".to_owned(),
             enabled: config.expose_rule_config,
         },
         McpToolDescriptor {
             name: "query_traffic_stats".to_owned(),
-            description: "读取指定规则的分钟级流量统计。".to_owned(),
+            description_key: "mcpToolTrafficStats".to_owned(),
             enabled: config.expose_traffic_stats,
         },
         McpToolDescriptor {
             name: "get_traffic_window".to_owned(),
-            description: "读取指定规则的实时流量窗口数据。".to_owned(),
+            description_key: "mcpToolTrafficWindow".to_owned(),
             enabled: config.expose_traffic_stats,
         },
     ]

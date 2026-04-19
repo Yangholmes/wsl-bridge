@@ -153,7 +153,7 @@ impl Default for McpServerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpToolDescriptor {
     pub name: String,
-    pub description: String,
+    pub description_key: String,
     pub enabled: bool,
 }
 

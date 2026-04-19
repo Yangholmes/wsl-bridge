@@ -143,7 +143,7 @@ export type McpServerConfig = {
 
 export type McpToolDescriptor = {
   name: string;
-  description: string;
+  description_key: string;
   enabled: boolean;
 };
 

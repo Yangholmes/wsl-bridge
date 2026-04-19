@@ -35,6 +35,7 @@ import FlagJp from "../../assets/flag-jp.svg?url";
 import IconDesktop from "../../assets/desktop.svg?url";
 import IconSun from "../../assets/sun.svg?url";
 import IconMoon from "../../assets/moon.svg?url";
+import { CopyIcon, MetricCard, PageHeader, SectionCard, StatusBadge } from "../../lib/ui";
 
 const LOCALE_FLAG: Record<AppLocale, string> = {
   "zh-CN": FlagCn,
@@ -239,15 +240,15 @@ export function SettingsPage() {
 
   return (
     <div class="page">
-      <section class="panel">
-        <div class="panel-title">
-          <h2>{t("settings.title")}</h2>
-        </div>
-        <div class="muted">{t("settings.subtitle")}</div>
-      </section>
+      <PageHeader title={t("settings.title")} />
 
-      <section class="panel">
-        <h2>{t("settings.appearanceTitle")}</h2>
+      <div class="metric-grid">
+        <MetricCard label={t("settings.themeLabel")} value={t(`settings.theme${themeMode().charAt(0).toUpperCase()}${themeMode().slice(1)}` as never)} detail={t(`locale.${locale()}`)} />
+        <MetricCard label={t("settings.mcpSummaryStatus")} value={<StatusBadge state={mcpStatusQuery.data?.running ? "running" : "stopped"} label={mcpStatusQuery.data?.running ? t("common.running") : t("common.stopped")} />} detail={mcpStatusQuery.data?.base_url ?? "127.0.0.1"} />
+        <MetricCard label={t("settings.mcpSummaryTools")} value={`${enabledToolCount()}`} detail={t("settings.mcpSummaryToolsValue", { count: enabledToolCount() })} />
+      </div>
+
+      <SectionCard title={t("settings.appearanceTitle")}>
         <div class="settings-appearance-grid">
           <div class="settings-field-row">
             <label class="kb-label">{t("settings.themeLabel")}</label>
@@ -325,11 +326,11 @@ export function SettingsPage() {
             </KSelect.Root>
           </div>
         </div>
-      </section>
+      </SectionCard>
 
-      <section class="panel">
-        <div class="panel-title">
-          <h2>{t("settings.lifecycleTitle")}</h2>
+      <SectionCard
+        title={t("settings.lifecycleTitle")}
+        actions={
           <KButton.Root
             class="kb-btn accent"
             onClick={saveAppSettings}
@@ -337,8 +338,8 @@ export function SettingsPage() {
           >
             {t("settings.lifecycleSave")}
           </KButton.Root>
-        </div>
-        <div class="muted">{t("settings.lifecycleSubtitle")}</div>
+        }
+      >
 
         <div class="settings-lifecycle-grid">
           <div class="settings-field-row">
@@ -384,16 +385,16 @@ export function SettingsPage() {
             </KCheckbox.Root>
           </div>
         </div>
-      </section>
+      </SectionCard>
 
-      <section class="panel">
-        <div class="panel-title">
-          <h2>{t("settings.mcpTitle")}</h2>
+      <SectionCard
+        title={t("settings.mcpTitle")}
+        actions={
           <KButton.Root class="kb-btn ghost" onClick={refreshMcpStatus} disabled={mcpStatusQuery.isFetching}>
             {t("common.refresh")}
           </KButton.Root>
-        </div>
-        <div class="muted">{t("settings.mcpSubtitle")}</div>
+        }
+      >
 
         <Show when={mcpStatusQuery.data?.last_error}>
           {(err) => <Hint variant="error">{err()}</Hint>}
@@ -519,6 +520,7 @@ export function SettingsPage() {
                 {t("settings.mcpRegenerateToken")}
               </KButton.Root>
               <KButton.Root class="kb-btn ghost" onClick={() => void copyText(mcpDraft().api_token, "settings.mcpTokenCopied")}>
+                <CopyIcon size={14} />
                 {t("settings.mcpCopyToken")}
               </KButton.Root>
             </div>
@@ -534,6 +536,7 @@ export function SettingsPage() {
                   onClick={() => void copyText(mcpStatusQuery.data?.base_url ?? "", "settings.mcpBaseUrlCopied")}
                   disabled={!mcpStatusQuery.data?.base_url}
                 >
+                  <CopyIcon size={14} />
                   {t("settings.mcpCopyBaseUrl")}
                 </KButton.Root>
               </div>
@@ -583,6 +586,7 @@ export function SettingsPage() {
               onClick={() => void copyText(selectedPreset()?.content ?? "", "settings.mcpPresetCopied")}
               disabled={!selectedPreset()?.content}
             >
+              <CopyIcon size={14} />
               {t("settings.mcpCopyConfig")}
             </KButton.Root>
           </div>
@@ -619,7 +623,7 @@ export function SettingsPage() {
                     {(tool) => (
                       <tr>
                         <td>{tool.name}</td>
-                        <td>{tool.description}</td>
+                        <td>{t(`settings.${tool.description_key}`)}</td>
                         <td>{tool.enabled ? t("common.enabled") : t("common.disabled")}</td>
                       </tr>
                     )}
@@ -633,7 +637,7 @@ export function SettingsPage() {
         <Hint>
           {t("settings.mcpHint")}
         </Hint>
-      </section>
+      </SectionCard>
     </div>
   );
 }

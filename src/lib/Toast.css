@@ -70,15 +70,15 @@
 }
 
 .toast-success {
-  border-left: 3px solid #22c55e;
+  border-left: 3px solid var(--ok-600);
 }
 
 .toast-warn {
-  border-left: 3px solid #f59e0b;
+  border-left: 3px solid var(--warn-600);
 }
 
 .toast-error {
-  border-left: 3px solid #ef4444;
+  border-left: 3px solid var(--danger-600);
 }
 
 @media (max-width: 480px) {

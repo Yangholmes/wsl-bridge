@@ -354,10 +354,7 @@ export function TrafficChart(props: TrafficChartProps) {
   return (
     <div class="dashboard-section">
       <div class="panel-title dashboard-panel-header">
-        <div>
-          <h3>{t("dashboard.trafficTitle")}</h3>
-          <div class="muted">{t("dashboard.trafficSubtitle")}</div>
-        </div>
+        <h3>{t("dashboard.trafficTitle")}</h3>
         <div class="traffic-header-actions">
           <DropdownPanel
             actionLabel={t("dashboard.trafficConfig")}

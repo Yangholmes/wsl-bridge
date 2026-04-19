@@ -28,8 +28,9 @@
 }
 
 .skeleton-grid {
+  width: 100%;
   border-radius: var(--radius-lg);
-  min-height: 120px;
+  min-height: 180px;
   background: linear-gradient(
     100deg,
     var(--line-soft) 20%,
@@ -41,7 +42,24 @@
 }
 
 .dashboard-skeleton-grid {
-  min-height: 180px;
+  min-height: 220px;
+}
+
+.page-loading-card {
+  display: grid;
+  gap: var(--space-14);
+  min-height: 320px;
+  align-content: start;
+}
+
+.page-loading-metrics {
+  display: grid;
+  gap: var(--space-16);
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+}
+
+.page-loading-body {
+  min-height: 240px;
 }
 
 @keyframes shimmer {

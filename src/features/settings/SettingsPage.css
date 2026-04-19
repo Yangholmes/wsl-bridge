@@ -16,14 +16,17 @@
 .settings-mcp-summary {
   display: grid;
   gap: var(--space-12);
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-top: var(--space-16);
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+}
+
+.settings-mcp-summary > * {
+  min-width: 0;
 }
 
 .settings-mcp-config-section,
 .settings-mcp-client-section,
 .settings-mcp-tools-section {
-  margin-top: var(--space-24);
+  min-width: 0;
   padding-top: var(--space-20);
   border-top: 1px solid var(--line-soft);
 }
@@ -45,24 +48,21 @@
   display: grid;
   gap: var(--space-12);
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: var(--space-14);
 }
 
 .settings-mcp-tools,
 .settings-mcp-tool-list {
-  margin-top: var(--space-14);
 }
 
 .settings-mcp-token,
 .settings-mcp-client-header {
   display: grid;
   gap: var(--space-12);
-  margin-top: var(--space-14);
 }
 
 .settings-mcp-token-input,
 .settings-mcp-preset-select {
-  min-width: 280px;
+  min-width: 0;
 }
 
 .settings-mcp-config {
@@ -78,28 +78,27 @@
   font-size: var(--text-xs);
   line-height: 1.5;
   font-family: var(--font-mono);
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--code-bg);
+  color: var(--code-text);
   border-radius: var(--radius-md);
   padding: var(--space-12);
   overflow: auto;
   max-width: 100%;
   max-height: 360px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--line);
   white-space: pre;
 }
 
 .settings-appearance-grid {
   display: grid;
   gap: var(--space-16);
-  grid-template-columns: repeat(2, minmax(200px, 320px));
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
 }
 
 .settings-lifecycle-grid {
   display: grid;
   gap: var(--space-16);
-  grid-template-columns: repeat(2, minmax(220px, 360px));
-  margin-top: var(--space-16);
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
 }
 
 .settings-lifecycle-toggle {
@@ -113,21 +112,19 @@
 }
 
 .settings-select-narrow {
-  min-width: 180px;
+  min-width: 0;
 }
 
 .settings-mcp-config-grid {
   display: grid;
   gap: var(--space-12);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: var(--space-12);
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
 }
 
 .settings-mcp-toggles {
   display: grid;
   gap: var(--space-16);
-  grid-template-columns: auto 1fr;
-  margin-top: var(--space-16);
+  grid-template-columns: minmax(0, 1fr);
   padding-top: var(--space-16);
   border-top: 1px solid var(--line-soft);
 }
@@ -136,52 +133,73 @@
   margin-bottom: var(--space-8);
 }
 
+.settings-mcp-capabilities .checks {
+  display: grid;
+  gap: var(--space-10);
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+}
+
+.settings-mcp-capabilities .kb-checkbox {
+  min-width: 0;
+  align-items: flex-start;
+}
+
 .settings-mcp-token-row {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-12);
   align-items: flex-end;
-  margin-top: var(--space-16);
   padding-top: var(--space-16);
   border-top: 1px solid var(--line-soft);
 }
 
+.settings-mcp-token-row > * {
+  min-width: 0;
+}
+
 .settings-mcp-token-field {
   flex: 1;
-  min-width: 280px;
+  width: 100%;
+  min-width: 0;
 }
 
 .settings-mcp-baseurl {
-  margin-top: var(--space-16);
+  min-width: 0;
   padding-top: var(--space-16);
   border-top: 1px solid var(--line-soft);
 }
 
 .settings-mcp-baseurl-row {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-8);
   align-items: center;
+  min-width: 0;
 }
 
 .settings-mcp-baseurl-row .kb-input {
   flex: 1;
+  min-width: 0;
 }
 
 .settings-mcp-preset-row {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-12);
   align-items: flex-end;
-  margin: var(--space-16) 0;
+  min-width: 0;
 }
 
 .settings-mcp-preset-row .kb-field {
   flex: 1;
+  min-width: 0;
+}
+
+.settings-mcp-preset-row > * {
+  min-width: 0;
 }
 
 @media (max-width: var(--breakpoint-md)) {
-  .settings-mcp-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .settings-lang-row {
     grid-template-columns: 1fr;
   }

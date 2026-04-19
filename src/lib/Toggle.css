@@ -1,78 +1,35 @@
 .kb-switch {
-  min-height: 36px;
-  display: flex;
+  min-height: 32px;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-8);
 }
 
 .kb-switch-control {
-  width: 44px;
-  height: 24px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.12);
+  width: 40px;
+  height: 22px;
   padding: 2px;
-  display: flex;
-  align-items: center;
-  transition: background 0.16s ease, border-color 0.16s ease;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-full);
+  background: var(--bg-panel-strong);
 }
 
 .kb-switch[data-checked] .kb-switch-control {
-  background: rgba(59, 130, 246, 0.3);
-  border-color: rgba(59, 130, 246, 0.5);
+  background: var(--brand-500);
+  border-color: var(--brand-500);
 }
 
 .kb-switch-thumb {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: var(--radius-full);
-  background: #fff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  background: var(--text-inverse);
+  box-shadow: var(--shadow-xs);
   transform: translateX(0);
-  transition: transform 0.16s ease;
 }
 
 .kb-switch[data-checked] .kb-switch-thumb {
-  transform: translateX(20px);
-}
-
-.kb-switch.loading .kb-switch-control {
-  cursor: not-allowed;
-  opacity: 0.85;
-  position: relative;
-  overflow: hidden;
-}
-
-.kb-switch.loading .kb-switch-control::before {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: -100%;
-  width: 40%;
-  height: 200%;
-  background: linear-gradient(
-    120deg,
-    transparent 0%,
-    rgba(10, 100, 255, 0.35) 45%,
-    rgba(10, 100, 255, 0.5) 50%,
-    rgba(10, 100, 255, 0.35) 55%,
-    transparent 100%
-  );
-  box-shadow: 0 0 12px rgba(10, 100, 255, 0.3);
-  animation: switch-shimmer 1s ease-in-out infinite;
-}
-
-@keyframes switch-shimmer {
-  0% {
-    left: -100%;
-  }
-  100% {
-    left: 200%;
-  }
-}
-
-.kb-switch.small {
-  min-height: 28px;
+  transform: translateX(18px);
 }
 
 .kb-switch.small .kb-switch-control {
@@ -89,60 +46,48 @@
   transform: translateX(16px);
 }
 
-.kb-switch-label {
-  color: var(--text);
-  font-size: 13px;
-}
-
 .kb-checkbox {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
+  min-width: 0;
 }
 
 .kb-checkbox-control {
   position: relative;
   width: 18px;
   height: 18px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
   background: var(--checkbox-bg);
-  display: grid;
-  place-items: center;
-  font-size: 12px;
-  color: var(--checkbox-mark);
-  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.kb-checkbox[data-checked] .kb-checkbox-control {
+  background: var(--brand-500);
+  border-color: var(--brand-500);
 }
 
 .kb-checkbox-indicator {
   position: absolute;
   left: 50%;
   top: 50%;
-  display: block;
-  width: 9px;
-  height: 5px;
+  width: 8px;
+  height: 4px;
   border-left: 2px solid var(--checkbox-mark);
   border-bottom: 2px solid var(--checkbox-mark);
-  transform: translate(-50%, -58%) rotate(-45deg);
-}
-
-.kb-checkbox[data-checked] .kb-checkbox-control {
-  background: var(--accent);
-  border-color: var(--accent-strong);
+  transform: translate(-50%, -62%) rotate(-45deg);
 }
 
 .kb-checkbox-label {
-  font-size: 13px;
-  color: var(--text);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.checks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
+.checks,
 .kb-checks {
-  margin-top: 12px;
-  gap: 16px;
+  display: flex;
+  gap: var(--space-16);
+  flex-wrap: wrap;
 }
