@@ -47,6 +47,11 @@ tbody tr:last-child td {
   place-items: center;
 }
 
+.table-wrap .row-check.kb-checkbox {
+  display: grid;
+  place-items: center;
+}
+
 .row-selected {
   background: var(--brand-50);
 }

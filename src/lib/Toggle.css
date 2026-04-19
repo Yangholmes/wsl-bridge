@@ -91,3 +91,8 @@
   gap: var(--space-16);
   flex-wrap: wrap;
 }
+
+.hint,
+.kb-checks {
+  margin: var(--space-14) 0;
+}

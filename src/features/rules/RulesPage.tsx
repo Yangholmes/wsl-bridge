@@ -376,7 +376,7 @@ export function RulesPage() {
         <KCheckbox.Root
           checked={isCurrentPageFullySelected()}
           onChange={setCurrentPageSelected}
-          class="row-check"
+          class="row-check kb-checkbox"
         >
           <KCheckbox.Input />
           <KCheckbox.Control class="kb-checkbox-control">
@@ -388,7 +388,7 @@ export function RulesPage() {
         <KCheckbox.Root
           checked={isRuleSelected(ctx.row.original.id)}
           onChange={(checked) => setRuleSelected(ctx.row.original.id, checked)}
-          class="row-check"
+          class="row-check kb-checkbox"
         >
           <KCheckbox.Input />
           <KCheckbox.Control class="kb-checkbox-control">
