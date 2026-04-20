@@ -73,49 +73,6 @@ export type StopRulesResult = {
   stopped: number;
 };
 
-export type TailLogsResult = {
-  events: AuditLog[];
-  next_cursor: number;
-};
-
-export type LogQueryRequest = {
-  level?: string | null;
-  module?: string | null;
-  rule_id?: string | null;
-  keyword?: string | null;
-  start_time?: string | null;
-  end_time?: string | null;
-  limit?: number | null;
-  newest_first?: boolean | null;
-};
-
-export type LogQueryResult = {
-  total: number;
-  events: AuditLog[];
-};
-
-export type RuleLogStatsRequest = {
-  rule_ids?: string[] | null;
-  since_minutes?: number | null;
-};
-
-export type RuleLogStatsItem = {
-  rule_id: string;
-  total: number;
-  errors: number;
-  last_time: string | null;
-  last_error: string | null;
-};
-
-export type AuditLog = {
-  id: number;
-  time: string;
-  level: string;
-  module: string;
-  event: string;
-  detail: string;
-};
-
 export type AdapterInfo = {
   id: string;
   name: string;
@@ -167,6 +124,13 @@ export type AppRuntimeStatus = {
   admin_features_available: boolean;
 };
 
+export type CloseBehavior = "ask" | "minimize" | "exit";
+
+export type AppSettings = {
+  close_behavior: CloseBehavior;
+  show_tray_on_start: boolean;
+};
+
 export type McpServerConfig = {
   enabled: boolean;
   server_name: string;
@@ -174,11 +138,12 @@ export type McpServerConfig = {
   api_token: string;
   expose_topology_read: boolean;
   expose_rule_config: boolean;
+  expose_traffic_stats: boolean;
 };
 
 export type McpToolDescriptor = {
   name: string;
-  description: string;
+  description_key: string;
   enabled: boolean;
 };
 
@@ -196,4 +161,44 @@ export type McpClientPreset = {
   label: string;
   format: string;
   content: string;
+};
+
+export type TrafficSample = {
+  timestamp: number;
+  bytes_in: number;
+  bytes_out: number;
+  connections: number;
+  total_duration_ms: number;
+};
+
+export type TrafficWindowData = {
+  rule_id: string;
+  samples: TrafficSample[];
+};
+
+export type TrafficStatsInterval = "minute";
+
+export type QueryTrafficStatsRequest = {
+  rule_id: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  interval?: TrafficStatsInterval | null;
+};
+
+export type TrafficStatsPoint = {
+  time_bucket: number;
+  rule_id: string;
+  bytes_in: number;
+  bytes_out: number;
+  connections: number;
+  requests: number;
+  total_duration_ms: number;
+  avg_duration_ms: number;
+};
+
+export type QueryTrafficStatsResult = {
+  stats: TrafficStatsPoint[];
+  total_bytes_in: number;
+  total_bytes_out: number;
+  total_connections: number;
 };

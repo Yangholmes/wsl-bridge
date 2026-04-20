@@ -49,7 +49,7 @@ src/                      # 前端代码（Solid.js）
 │   ├── topology/
 │   ├── logs/
 │   └── settings/
-├── lib/                  # 工具函数与类型
+├── lib/                  # 公共组件、工具函数与类型
 ├── i18n/                 # 国际化
 ├── assets/               # 静态资源
 ├── router.tsx            # 路由配置
@@ -66,6 +66,11 @@ src-tauri/                # Tauri 后端代码（Rust）
     ├── core/             # 核心业务逻辑
     └── shared/           # 共享 DTO/类型
 ```
+
+## 组件
+
+- 必须复用已有组件，公共组件位于 `src/lib` 目录下
+- 使用 css module
 
 ### Tauri App 目录规范
 
@@ -121,7 +126,7 @@ const result = await invokeBridge<ReturnType>("command_name", {
 - 支持: `zh-CN`, `zh-HK`, `en-US`, `ja-JP`
 - 使用 `useI18n` hook 获取翻译
 
-## 注意事项
+## 约束
 
 1. **不要读取 node_modules** - 使用 Context7 查询文档
 2. **保持 2 空格缩进** - 检查编辑器配置
@@ -130,6 +135,12 @@ const result = await invokeBridge<ReturnType>("command_name", {
 5. **使用 pnpm** - 不要使用 npm 或 yarn
 6. **记录开发日志** - 每一个功能开发都需要记录开发日志
 7. **禁止使用 emoji 作为图标** - 项目中不应使用 emoji（如 ✓、▾ 等）作为 UI 图标，应使用 CSS 样式或 SVG 图标替代
+8. **测试必须 100% 通过** - 所有功能、算法开发完之后，必须自测，自测 100% 通过才能收敛开发，否则根据测试结果修正代码；如果尝试超过 5 次还不能 100% 通过，必须将测试不通过的模块详细写入开发日志
+
+## 图片识别
+
+- 纯 UI 视觉测试可以使用 agent-browser skill 测试
+- 如果需要理解图片，使用具有多模态能力的 `Qwen3.6 Plus` model 理解图片
 
 ## 代码提交
 

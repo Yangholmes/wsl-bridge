@@ -2,25 +2,24 @@
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: rgba(7, 18, 40, 0.35);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.24);
+  backdrop-filter: blur(3px);
 }
 
 .kb-dialog-content {
   position: fixed;
-  z-index: 71;
   left: 50%;
   top: 50%;
+  z-index: 71;
   transform: translate(-50%, -50%);
-  width: min(980px, calc(100vw - 24px));
-  max-height: calc(100vh - 24px);
+  width: min(960px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
   overflow: auto;
+  padding: var(--space-20);
   border: 1px solid var(--line);
-  background: var(--surface-strong);
-  backdrop-filter: blur(20px) saturate(1.2);
   border-radius: var(--radius-xl);
-  padding: 16px;
-  box-shadow: var(--shadow);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-md);
 }
 
 .modal-title-actions {
@@ -28,19 +27,18 @@
   align-items: center;
 }
 
-.modal-header-switch {
-  gap: 0;
+.kb-dialog-content .panel-title {
+  align-items: center;
 }
 
-.modal-actions {
-  margin-top: 14px;
+.close-guard-dialog {
+  width: min(520px, calc(100vw - 32px));
 }
 
-@media (max-width: 959px) {
+@media (max-width: var(--breakpoint-md)) {
   .kb-dialog-content {
-    width: calc(100vw - 14px);
-    max-height: calc(100vh - 14px);
-    padding: 12px;
-    border-radius: var(--radius-xl);
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    padding: var(--space-16);
   }
 }

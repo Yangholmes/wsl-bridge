@@ -1,82 +1,68 @@
+.kb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  min-height: 36px;
+  padding: 0 var(--space-14);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--bg-panel-muted);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.kb-btn:hover {
+  background: var(--bg-hover);
+}
+
+.kb-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kb-btn.accent,
+.kb-btn.primary {
+  background: var(--brand-500);
+  color: var(--text-inverse);
+}
+
+.kb-btn.accent:hover,
+.kb-btn.primary:hover {
+  background: var(--brand-600);
+}
+
 .kb-btn.ghost {
-  background: var(--input-bg);
-  color: var(--text);
   border-color: var(--line);
+  background: var(--bg-panel);
 }
 
 .kb-btn.ghost:hover {
-  background: var(--hover-bg);
-  color: var(--hover-text);
-  border-color: var(--accent);
-}
-
-.kb-btn {
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  min-height: 34px;
-  padding: 6px 12px;
-  font-size: 13px;
-  font-weight: 560;
-  cursor: pointer;
-  transition: transform 0.12s ease, background 0.16s ease, border-color 0.16s ease;
-}
-
-.kb-btn:active {
-  transform: translateY(1px);
-}
-
-.kb-btn.accent {
-  background: linear-gradient(180deg, #1e76ff, #0a64ff);
-  color: #fff;
-}
-
-.kb-btn.accent:hover {
-  background: linear-gradient(180deg, #1a70f6, #075ee9);
+  border-color: var(--line-strong);
+  background: var(--bg-hover);
 }
 
 .kb-btn.danger {
-  background: rgba(196, 43, 28, 0.15);
-  color: #ef4444;
-  border-color: rgba(196, 43, 28, 0.3);
+  background: var(--danger-50);
+  color: var(--danger-600);
+  border-color: transparent;
 }
 
 .kb-btn.danger:hover {
-  background: rgba(196, 43, 28, 0.25);
+  background: var(--danger-50);
+  border-color: var(--danger-600);
 }
 
 .kb-btn.small {
-  min-height: 28px;
-  border-radius: var(--radius-md);
-  padding: 3px 8px;
-  font-size: 12px;
+  min-height: 30px;
+  padding: 0 var(--space-10);
 }
 
-.link-btn {
-  display: inline-flex;
-  align-items: center;
-  text-decoration: none;
-}
-
-.actions {
-  margin-top: 12px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.top-actions {
-  margin-top: 2px;
-  margin-bottom: 12px;
-}
-
-.pagination-bar {
-  margin-top: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.page-size-select {
-  min-width: 106px;
+.kb-btn.icon-btn {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
 }

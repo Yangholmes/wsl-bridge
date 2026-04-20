@@ -1,19 +1,19 @@
-import { createMemo, For, Show } from "solid-js";
-import { Link } from "@tanstack/solid-router";
+import { createMemo, Show } from "solid-js";
 import { queryOptions, useQuery } from "@tanstack/solid-query";
 import * as KButton from "@kobalte/core/button";
 
 import "./DashboardPage.css";
 
-import { getRuntimeStatus, listRules, queryLogs, scanTopology } from "../rules/api";
+import { getRuntimeStatus, listRules, scanTopology } from "../rules/api";
 import { appQueryClient } from "../../lib/queryClient";
-import type { AuditLog, ProxyRule, RuntimeStatusItem, RuntimeState, TopologySnapshot } from "../../lib/types";
+import type { ProxyRule, RuntimeStatusItem, RuntimeState, TopologySnapshot } from "../../lib/types";
 import { useI18n } from "../../i18n/context";
 import { toLocalTime } from "../../lib/datetime";
-import { EllipsisCell } from "../../lib/EllipsisCell";
-import { SkeletonGrid, SkeletonLine } from "../../lib/Skeleton";
+import { SkeletonGrid } from "../../lib/Skeleton";
 import { Hint } from "../../lib/Hint";
 import { useToast } from "../../lib/Toast";
+import { TrafficChart } from "./TrafficChart";
+import { MetricCard, PageHeader, SectionCard, StatusBadge } from "../../lib/ui";
 
 export function DashboardPage() {
   const { t } = useI18n();
@@ -53,24 +53,6 @@ export function DashboardPage() {
     () => appQueryClient
   );
 
-  const errorLogsQuery = useQuery(
-    () =>
-      queryOptions<{ total: number; events: AuditLog[] }>({
-        queryKey: ["dashboard", "error-logs"],
-        queryFn: () =>
-          queryLogs({
-            level: "error",
-            start_time: new Date(Date.now() - 24 * 3600_000).toISOString(),
-            newest_first: true,
-            limit: 8
-          }),
-        staleTime: 8_000,
-        refetchInterval: 8_000,
-        refetchOnWindowFocus: false
-      }),
-    () => appQueryClient
-  );
-
   const runtimeSummary = createMemo(() => {
     const items = runtimeQuery.data ?? [];
     return {
@@ -81,6 +63,12 @@ export function DashboardPage() {
   });
 
   const enabledRules = createMemo(() => (rulesQuery.data ?? []).filter((item) => item.enabled).length);
+  const totalRules = createMemo(() => rulesQuery.data?.length ?? 0);
+  const topologySummary = createMemo(() => ({
+    wsl: topologyQuery.data?.wsl.length ?? 0,
+    hyperv: topologyQuery.data?.hyperv.length ?? 0,
+    adapters: topologyQuery.data?.adapters.length ?? 0
+  }));
   const natWithoutRules = createMemo(() => {
     const hasNat = (topologyQuery.data?.wsl ?? []).some((item) => item.networking_mode.toLowerCase() === "nat");
     return hasNat && enabledRules() === 0;
@@ -94,17 +82,12 @@ export function DashboardPage() {
   });
 
   const isLoading = createMemo(
-    () => rulesQuery.isPending || runtimeQuery.isPending || topologyQuery.isPending || errorLogsQuery.isPending
+    () => rulesQuery.isPending || runtimeQuery.isPending || topologyQuery.isPending
   );
 
   async function refreshDashboard() {
     try {
-      await Promise.all([
-        rulesQuery.refetch(),
-        runtimeQuery.refetch(),
-        topologyQuery.refetch(),
-        errorLogsQuery.refetch()
-      ]);
+      await Promise.all([rulesQuery.refetch(), runtimeQuery.refetch(), topologyQuery.refetch()]);
       toast.info(t("dashboard.refreshed"));
     } catch (error) {
       toast.error(String(error));
@@ -121,106 +104,104 @@ export function DashboardPage() {
   }
 
   return (
-    <div class="page">
-      <section class="page-shell">
-        <div class="panel-title">
-          <h2>{t("dashboard.title")}</h2>
-        </div>
-        <div class="dashboard-actions">
-          <KButton.Root class="kb-btn primary" onClick={refreshDashboard}>
-            {t("dashboard.refreshOverview")}
-          </KButton.Root>
-          <KButton.Root class="kb-btn ghost" onClick={rescanTopology}>
-            {t("dashboard.rescanTopology")}
-          </KButton.Root>
-        </div>
-        <Show when={!isLoading()} fallback={<SkeletonGrid dashboard />}>
-          <div class="dashboard-grid">
-            <div class="dashboard-card">
-              <div class="dashboard-card-header">{t("dashboard.appStatus")}</div>
-              <div class={`status-chip ${appStatus()}`}>
-                {t(`common.${appStatus()}`)}
-              </div>
-              <div class="caption-text">
-                {t("dashboard.lastTopologyScan", { value: toLocalTime(topologyQuery.data?.timestamp ?? null) })}
-              </div>
-            </div>
-            <div class="dashboard-card">
-              <div class="dashboard-card-header">{t("dashboard.ruleStatus")}</div>
-              <div class="dashboard-stat-large">
-                {t("dashboard.totalRules", { count: rulesQuery.data?.length ?? 0 })}
-              </div>
-              <div class="dashboard-stat">{t("dashboard.enabledRules", { count: enabledRules() })}</div>
-              <div class="dashboard-stat">{t("dashboard.runningRules", { count: runtimeSummary().running })}</div>
-              <Show when={runtimeSummary().error > 0}>
-                <div class="dashboard-stat" style="color: var(--danger-text)">
-                  {t("dashboard.errorRules", { count: runtimeSummary().error })}
-                </div>
-              </Show>
-            </div>
-            <div class="dashboard-card">
-              <div class="dashboard-card-header">{t("dashboard.riskHint")}</div>
-              <Show when={natWithoutRules()} fallback={<Hint variant="info">{t("dashboard.noHighRisk")}</Hint>}>
-                <Hint variant="error">{t("dashboard.natRisk")}</Hint>
-              </Show>
-            </div>
-          </div>
-        </Show>
-      </section>
+<div class="page">
+      <PageHeader
+        title={t("dashboard.title")}
+        actions={
+          <>
+            <KButton.Root class="kb-btn ghost" onClick={refreshDashboard}>
+              {t("dashboard.refreshOverview")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn accent" onClick={rescanTopology}>
+              {t("dashboard.rescanTopology")}
+            </KButton.Root>
+          </>
+        }
+      />
 
-      <section class="page-shell dashboard-section">
-        <h3>{t("dashboard.recentErrorLogs")}</h3>
-        <div class="table-wrap">
-          <table class="rules-table">
-            <thead>
-              <tr>
-                <th>{t("dashboard.tableTime")}</th>
-                <th>{t("dashboard.tableModule")}</th>
-                <th>{t("dashboard.tableEvent")}</th>
-                <th>{t("dashboard.tableDetail")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <Show
-                when={!errorLogsQuery.isPending}
-                fallback={
-                  <For each={[1, 2, 3, 4]}>
-                    {() => (
-                      <tr>
-                        <td colspan={4}>
-                          <SkeletonLine />
-                        </td>
-                      </tr>
-                    )}
-                  </For>
-                }
-              >
-                <Show
-                  when={(errorLogsQuery.data?.events.length ?? 0) > 0}
-                  fallback={
-                    <tr>
-                      <td colspan={4} class="muted">
-                        {t("dashboard.noErrorLogs")}
-                      </td>
-                    </tr>
-                  }
-                >
-                  <For each={errorLogsQuery.data?.events ?? []}>
-                    {(item) => (
-                      <tr>
-                        <td><EllipsisCell text={toLocalTime(item.time)} /></td>
-                        <td><EllipsisCell text={item.module} /></td>
-                        <td><EllipsisCell text={item.event} /></td>
-                        <td><EllipsisCell text={item.detail} /></td>
-                      </tr>
-                    )}
-                  </For>
-                </Show>
-              </Show>
-            </tbody>
-          </table>
+      <Show when={!isLoading()} fallback={<SkeletonGrid dashboard />}>
+        <div class="metric-grid">
+          <MetricCard
+            label={t("dashboard.appStatus")}
+            value={<StatusBadge state={appStatus()} label={t(`common.${appStatus()}`)} />}
+            detail={t("dashboard.lastTopologyScan", { value: toLocalTime(topologyQuery.data?.timestamp ?? null) })}
+          />
+          <MetricCard
+            label={t("dashboard.ruleStatus")}
+            value={`${totalRules()}`}
+            detail={t("dashboard.enabledRules", { count: enabledRules() })}
+          />
+          <MetricCard
+            label={t("dashboard.riskHint")}
+            value={natWithoutRules() ? t("common.error") : t("common.ready")}
+            detail={natWithoutRules() ? t("dashboard.natRisk") : t("dashboard.noHighRisk")}
+          />
         </div>
-      </section>
+
+<div class="dashboard-secondary-grid">
+          <SectionCard
+            title={t("dashboard.rulesSnapshotTitle")}
+          >
+            <div class="dashboard-summary-grid">
+              <div class="line-item">
+                <div class="line-item-content">
+                  <span class="line-item-title">{t("dashboard.runningRules", { count: runtimeSummary().running })}</span>
+                  <span class="line-item-subtitle">{t("dashboard.rulesRunningSubtitle")}</span>
+                </div>
+                <StatusBadge state="running" label={t("common.running")} />
+              </div>
+              <div class="line-item">
+                <div class="line-item-content">
+                  <span class="line-item-title">{t("common.stopped")}</span>
+                  <span class="line-item-subtitle">{t("dashboard.rulesStoppedSubtitle", { count: runtimeSummary().stopped })}</span>
+                </div>
+                <StatusBadge state="stopped" label={String(runtimeSummary().stopped)} />
+              </div>
+              <div class="line-item">
+                <div class="line-item-content">
+                  <span class="line-item-title">{t("common.error")}</span>
+                  <span class="line-item-subtitle">{t("dashboard.rulesErrorSubtitle", { count: runtimeSummary().error })}</span>
+                </div>
+                <StatusBadge state={runtimeSummary().error > 0 ? "error" : "ready"} label={String(runtimeSummary().error)} />
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title={t("dashboard.topologyOverviewTitle")}
+          >
+            <div class="dashboard-summary-grid">
+              <div class="line-item">
+                <div class="line-item-content">
+                  <span class="line-item-title">WSL</span>
+                  <span class="line-item-subtitle">{t("dashboard.wslDistroRecognized", { count: topologySummary().wsl })}</span>
+                </div>
+                <strong>{topologySummary().wsl}</strong>
+              </div>
+              <div class="line-item">
+                <div class="line-item-content">
+                  <span class="line-item-title">Hyper-V</span>
+                  <span class="line-item-subtitle">{t("dashboard.hypervVmAvailable", { count: topologySummary().hyperv })}</span>
+                </div>
+                <strong>{topologySummary().hyperv}</strong>
+              </div>
+              <div class="line-item">
+                <div class="line-item-content">
+                  <span class="line-item-title">Adapters</span>
+                  <span class="line-item-subtitle">{t("dashboard.adaptersListed", { count: topologySummary().adapters })}</span>
+                </div>
+                <strong>{topologySummary().adapters}</strong>
+              </div>
+            </div>
+
+            <Show when={natWithoutRules()}>
+              <Hint variant="error">{t("dashboard.natRisk")}</Hint>
+            </Show>
+          </SectionCard>
+        </div>
+      </Show>
+
+      <TrafficChart rules={rulesQuery.data ?? []} />
     </div>
   );
 }

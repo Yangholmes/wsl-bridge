@@ -9,6 +9,7 @@ import { ThemeProvider } from "./lib/theme";
 import { ContextMenu, showContextMenu, hideContextMenu, handleKeyDown } from "./lib/ContextMenu";
 import { ToastProvider, ToastContainer } from "./lib/Toast";
 import { initClarity } from "./lib/clarity";
+import { WindowCloseGuard } from "./lib/WindowCloseGuard";
 import "./lib/NumberInput.css";
 import "./styles.css";
 
@@ -30,6 +31,7 @@ render(
           <QueryClientProvider client={appQueryClient}>
             <RouterProvider router={router} />
             {!import.meta.env.DEV && <ContextMenu />}
+            <WindowCloseGuard />
             <ToastContainer />
           </QueryClientProvider>
         </I18nProvider>

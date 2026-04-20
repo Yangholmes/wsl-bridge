@@ -3,9 +3,10 @@
 use anyhow::Result;
 use wsl_bridge_core::HyperVProbeDebug;
 use wsl_bridge_shared::{
-    AppRuntimeStatus, ApplyRulesResult, CreateRuleRequest, LogQueryRequest, LogQueryResult, McpServerConfig,
-    McpServerStatus, ProxyRule, RuleLogStatsItem, RuleLogStatsRequest, RulePatch,
-    RuntimeStatusItem, StopRulesResult, TailLogsResult, TopologySnapshot,
+    AppRuntimeStatus, AppSettings, ApplyRulesResult, CreateRuleRequest, LogQueryRequest,
+    LogQueryResult, McpServerConfig, McpServerStatus, ProxyRule, QueryTrafficStatsRequest,
+    QueryTrafficStatsResult, RuleLogStatsItem, RuleLogStatsRequest, RulePatch, RuntimeStatusItem,
+    StopRulesResult, TailLogsResult, TopologySnapshot, TrafficWindowData,
 };
 
 use crate::{mcp, runtime_status, state::AppState};
@@ -22,6 +23,17 @@ pub fn debug_hyperv_probe(state: &AppState) -> HyperVProbeDebug {
 
 pub fn get_app_runtime_status() -> AppRuntimeStatus {
     runtime_status::current_runtime_status()
+}
+
+pub fn get_app_settings(state: &AppState) -> AppSettings {
+    state.engine.get_app_settings()
+}
+
+pub fn update_app_settings(state: &AppState, settings: AppSettings) -> Result<()> {
+    state
+        .engine
+        .update_app_settings(settings)
+        .map_err(Into::into)
 }
 
 pub fn list_rules(state: &AppState) -> Vec<ProxyRule> {
@@ -66,6 +78,17 @@ pub fn query_logs(state: &AppState, req: LogQueryRequest) -> LogQueryResult {
 
 pub fn get_rule_log_stats(state: &AppState, req: RuleLogStatsRequest) -> Vec<RuleLogStatsItem> {
     state.engine.get_rule_log_stats(req)
+}
+
+pub fn get_traffic_window_data(state: &AppState, rule_ids: Vec<String>) -> Vec<TrafficWindowData> {
+    state.engine.get_traffic_window_data(rule_ids)
+}
+
+pub fn query_traffic_stats(
+    state: &AppState,
+    req: QueryTrafficStatsRequest,
+) -> QueryTrafficStatsResult {
+    state.engine.query_traffic_stats(req)
 }
 
 pub fn get_mcp_server_status(state: &AppState) -> McpServerStatus {

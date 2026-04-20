@@ -1,83 +1,183 @@
-.dashboard-grid {
+.dashboard-secondary-grid {
   display: grid;
-  gap: var(--space-20);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-16);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.dashboard-card {
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-  backdrop-filter: blur(18px) saturate(1.2);
-  padding: var(--space-24);
+.dashboard-summary-grid {
   display: grid;
   gap: var(--space-12);
-  box-shadow: var(--shadow-md);
-  transition: all var(--transition-normal) var(--ease-in-out);
-  min-height: 160px;
-}
-
-.dashboard-card:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
-}
-
-.dashboard-card-header {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  font-weight: var(--font-medium);
-}
-
-.dashboard-stat {
-  font-size: var(--text-base);
-  color: var(--text);
-  font-weight: var(--font-normal);
-}
-
-.dashboard-stat-large {
-  font-size: var(--text-xl);
-  color: var(--text);
-  font-weight: var(--font-semibold);
-}
-
-.dashboard-actions {
-  display: flex;
-  gap: var(--space-12);
-  margin-bottom: var(--space-20);
-  flex-wrap: wrap;
-}
-
-.dashboard-actions button {
-  flex-shrink: 0;
 }
 
 .dashboard-section {
-  margin-top: var(--space-32);
+  display: grid;
+  gap: var(--space-16);
 }
 
-.dashboard-section h3 {
-  font-size: var(--text-lg);
-  font-weight: var(--font-semibold);
-  margin-bottom: var(--space-16);
+.dashboard-panel-header {
+  align-items: center;
 }
 
-@media (max-width: var(--breakpoint-lg)) {
-  .dashboard-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.traffic-header-actions {
+  flex-shrink: 0;
+}
+
+.traffic-chart-shell {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  padding: var(--space-12);
+}
+
+.traffic-chart-host {
+  width: 100%;
+  min-height: 300px;
+}
+
+.traffic-chart-host.is-empty {
+  opacity: 0.7;
+}
+
+.traffic-chart-empty-overlay,
+.traffic-chart-loading-overlay {
+  position: absolute;
+  inset: var(--space-12);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  border-radius: calc(var(--radius-lg) - 4px);
+}
+
+.traffic-chart-empty-overlay {
+  border: 1px dashed var(--line-strong);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .traffic-chart-empty-overlay {
+  background: rgba(35, 42, 51, 0.8);
+}
+
+.traffic-chart-empty-overlay.error {
+  color: var(--danger-600);
+}
+
+.traffic-chart-loading-overlay {
+  background: rgba(243, 244, 246, 0.6);
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .traffic-chart-loading-overlay {
+  background: rgba(26, 31, 38, 0.62);
+}
+
+.traffic-config-panel {
+  display: grid;
+  gap: var(--space-10);
+}
+
+.traffic-config-section {
+  display: grid;
+  gap: var(--space-8);
+  padding: var(--space-10);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel-muted);
+}
+
+.traffic-config-title,
+.traffic-summary-label {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.traffic-config-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+
+.traffic-config-chip {
+  min-height: 30px;
+  padding: 0 var(--space-10);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.traffic-config-chip.active {
+  background: var(--bg-accent-soft);
+  color: var(--brand-600);
+  border-color: rgba(10, 100, 255, 0.3);
+}
+
+.traffic-config-rule-list {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.traffic-config-rule {
+  display: grid;
+  grid-template-columns: 18px 10px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  padding: var(--space-8) var(--space-10);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+}
+
+.traffic-config-rule.selected {
+  border-color: rgba(10, 100, 255, 0.28);
+  background: var(--bg-accent-soft);
+}
+
+.traffic-config-rule-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traffic-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+}
+
+.traffic-empty-inline {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.traffic-summary-strip {
+  display: grid;
+  gap: var(--space-12);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.traffic-summary-card {
+  display: grid;
+  gap: var(--space-8);
+  padding: var(--space-14);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel-muted);
 }
 
 @media (max-width: var(--breakpoint-md)) {
-  .dashboard-grid {
+  .dashboard-secondary-grid,
+  .traffic-summary-strip {
     grid-template-columns: 1fr;
   }
-  
-  .dashboard-card {
-    min-height: 120px;
-    padding: var(--space-20);
-  }
-  
-  .dashboard-actions {
-    gap: var(--space-8);
+
+  .dashboard-panel-header {
+    align-items: flex-start;
   }
 }

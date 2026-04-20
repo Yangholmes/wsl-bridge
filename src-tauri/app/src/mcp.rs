@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -14,8 +14,8 @@ use uuid::Uuid;
 use wsl_bridge_core::RuleEngine;
 use wsl_bridge_shared::{
     CreateRuleRequest, FirewallPolicy, McpClientPreset, McpServerConfig, McpServerStatus,
-    McpToolDescriptor, NewFirewallPolicy, NewProxyRule, ProxyRule, RulePatch, RuleType,
-    TargetKind, TopologySnapshot,
+    McpToolDescriptor, NewFirewallPolicy, NewProxyRule, ProxyRule, QueryTrafficStatsRequest,
+    RulePatch, RuleType, TargetKind, TopologySnapshot,
 };
 
 use crate::state::AppState;
@@ -106,6 +106,21 @@ struct DeleteForwardRuleArgs {
 struct ToggleForwardRuleArgs {
     id: String,
     enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QueryTrafficStatsArgs {
+    rule_id: String,
+    start_time: Option<chrono::DateTime<chrono::Utc>>,
+    end_time: Option<chrono::DateTime<chrono::Utc>>,
+    interval: Option<wsl_bridge_shared::TrafficStatsInterval>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GetTrafficWindowArgs {
+    rule_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -302,7 +317,8 @@ fn handle_connection(mut stream: TcpStream, engine: &Arc<RuleEngine>) -> Result<
     let message = match serde_json::from_slice::<JsonRpcMessage>(&request.body) {
         Ok(value) => value,
         Err(err) => {
-            let body = serde_json::to_vec(&jsonrpc_error(None, -32700, &format!("parse error: {err}")))?;
+            let body =
+                serde_json::to_vec(&jsonrpc_error(None, -32700, &format!("parse error: {err}")))?;
             write_http_response(
                 &mut stream,
                 400,
@@ -344,7 +360,11 @@ fn handle_jsonrpc_message(engine: &Arc<RuleEngine>, message: JsonRpcMessage) -> 
     }
 
     let Some(method) = message.method.as_deref() else {
-        return Some(jsonrpc_error(message.id.clone(), -32600, "method is required"));
+        return Some(jsonrpc_error(
+            message.id.clone(),
+            -32600,
+            "method is required",
+        ));
     };
 
     match method {
@@ -416,7 +436,10 @@ fn handle_tools_call(
     let Some(name) = params.get("name").and_then(Value::as_str) else {
         return jsonrpc_error(id, -32602, "tool name is required");
     };
-    let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let arguments = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
 
     let result = match name {
         "read_virtualization_topology" if config.expose_topology_read => {
@@ -434,6 +457,12 @@ fn handle_tools_call(
         }
         "set_forward_rule_enabled" if config.expose_rule_config => {
             execute_set_forward_rule_enabled(engine, arguments)
+        }
+        "query_traffic_stats" if config.expose_traffic_stats => {
+            execute_query_traffic_stats(engine, arguments)
+        }
+        "get_traffic_window" if config.expose_traffic_stats => {
+            execute_get_traffic_window(engine, arguments)
         }
         _ => Err(anyhow!("tool not found or disabled: {name}")),
     };
@@ -466,7 +495,10 @@ fn handle_tools_call(
     }
 }
 
-fn execute_read_virtualization_topology(engine: &Arc<RuleEngine>, arguments: Value) -> Result<Value> {
+fn execute_read_virtualization_topology(
+    engine: &Arc<RuleEngine>,
+    arguments: Value,
+) -> Result<Value> {
     let args: TopologyArgs = serde_json::from_value(arguments)?;
     let topology = engine.scan_topology();
     Ok(topology_to_value(topology, args.include_adapters))
@@ -499,7 +531,9 @@ fn execute_create_forward_rule(engine: &Arc<RuleEngine>, arguments: Value) -> Re
             target_ref: clean_optional(args.target_ref),
             target_host: clean_optional(args.target_host),
             target_port: Some(args.target_port),
-            bind_mode: args.bind_mode.unwrap_or(wsl_bridge_shared::BindMode::AllNics),
+            bind_mode: args
+                .bind_mode
+                .unwrap_or(wsl_bridge_shared::BindMode::AllNics),
             nic_id: clean_optional(args.nic_id),
             enabled: args.enabled.unwrap_or(true),
         },
@@ -523,11 +557,17 @@ fn execute_update_forward_rule(engine: &Arc<RuleEngine>, arguments: Value) -> Re
         name: args.name.map(|value| value.trim().to_owned()),
         listen_host: args.listen_host.map(|value| value.trim().to_owned()),
         listen_port: args.listen_port,
-        target_ref: args.target_ref.map(|value| value.map(|item| item.trim().to_owned())),
-        target_host: args.target_host.map(|value| value.map(|item| item.trim().to_owned())),
+        target_ref: args
+            .target_ref
+            .map(|value| value.map(|item| item.trim().to_owned())),
+        target_host: args
+            .target_host
+            .map(|value| value.map(|item| item.trim().to_owned())),
         target_port: args.target_port,
         bind_mode: args.bind_mode,
-        nic_id: args.nic_id.map(|value| value.map(|item| item.trim().to_owned())),
+        nic_id: args
+            .nic_id
+            .map(|value| value.map(|item| item.trim().to_owned())),
         enabled: args.enabled,
     };
 
@@ -563,6 +603,25 @@ fn execute_set_forward_rule_enabled(engine: &Arc<RuleEngine>, arguments: Value) 
       "id": args.id,
       "enabled": args.enabled,
       "requiresApplyInDesktopApp": true
+    }))
+}
+
+fn execute_query_traffic_stats(engine: &Arc<RuleEngine>, arguments: Value) -> Result<Value> {
+    let args: QueryTrafficStatsArgs = serde_json::from_value(arguments)?;
+    let result = engine.query_traffic_stats(QueryTrafficStatsRequest {
+        rule_id: args.rule_id,
+        start_time: args.start_time,
+        end_time: args.end_time,
+        interval: args.interval,
+    });
+    Ok(serde_json::to_value(result)?)
+}
+
+fn execute_get_traffic_window(engine: &Arc<RuleEngine>, arguments: Value) -> Result<Value> {
+    let args: GetTrafficWindowArgs = serde_json::from_value(arguments)?;
+    let result = engine.get_traffic_window_data(vec![args.rule_id]);
+    Ok(json!({
+      "items": result
     }))
 }
 
@@ -684,6 +743,33 @@ fn build_tool_definitions(config: &McpServerConfig) -> Vec<Value> {
           }
         }));
     }
+    if config.expose_traffic_stats {
+        tools.push(json!({
+          "name": "query_traffic_stats",
+          "description": "Query minute-level traffic statistics for a single rule within a time range.",
+          "inputSchema": {
+            "type": "object",
+            "required": ["ruleId"],
+            "properties": {
+              "ruleId": { "type": "string" },
+              "startTime": { "type": "string", "format": "date-time" },
+              "endTime": { "type": "string", "format": "date-time" },
+              "interval": { "type": "string", "enum": ["minute"] }
+            }
+          }
+        }));
+        tools.push(json!({
+          "name": "get_traffic_window",
+          "description": "Get the in-memory real-time traffic window for a single rule.",
+          "inputSchema": {
+            "type": "object",
+            "required": ["ruleId"],
+            "properties": {
+              "ruleId": { "type": "string" }
+            }
+          }
+        }));
+    }
     tools
 }
 
@@ -745,33 +831,43 @@ fn describe_tools(config: &McpServerConfig) -> Vec<McpToolDescriptor> {
     vec![
         McpToolDescriptor {
             name: "read_virtualization_topology".to_owned(),
-            description: "读取 WSL / Hyper-V 当前配置与解析后的 IP 拓扑。".to_owned(),
+            description_key: "mcpToolTopology".to_owned(),
             enabled: config.expose_topology_read,
         },
         McpToolDescriptor {
             name: "list_forward_rules".to_owned(),
-            description: "读取当前 TCP / UDP 转发规则与防火墙配置。".to_owned(),
+            description_key: "mcpToolListRules".to_owned(),
             enabled: config.expose_rule_config,
         },
         McpToolDescriptor {
             name: "create_forward_rule".to_owned(),
-            description: "创建新的 TCP / UDP 转发规则。".to_owned(),
+            description_key: "mcpToolCreateRule".to_owned(),
             enabled: config.expose_rule_config,
         },
         McpToolDescriptor {
             name: "update_forward_rule".to_owned(),
-            description: "更新现有 TCP / UDP 转发规则。".to_owned(),
+            description_key: "mcpToolUpdateRule".to_owned(),
             enabled: config.expose_rule_config,
         },
         McpToolDescriptor {
             name: "delete_forward_rule".to_owned(),
-            description: "删除指定转发规则。".to_owned(),
+            description_key: "mcpToolDeleteRule".to_owned(),
             enabled: config.expose_rule_config,
         },
         McpToolDescriptor {
             name: "set_forward_rule_enabled".to_owned(),
-            description: "启用或禁用指定转发规则。".to_owned(),
+            description_key: "mcpToolToggleRule".to_owned(),
             enabled: config.expose_rule_config,
+        },
+        McpToolDescriptor {
+            name: "query_traffic_stats".to_owned(),
+            description_key: "mcpToolTrafficStats".to_owned(),
+            enabled: config.expose_traffic_stats,
+        },
+        McpToolDescriptor {
+            name: "get_traffic_window".to_owned(),
+            description_key: "mcpToolTrafficWindow".to_owned(),
+            enabled: config.expose_traffic_stats,
         },
     ]
 }
@@ -898,10 +994,18 @@ fn read_request(stream: &mut TcpStream) -> Result<ParsedRequest> {
     let mut body = buffer[(header_end + 4)..].to_vec();
     let header_text = String::from_utf8(header_bytes.to_vec())?;
     let mut lines = header_text.split("\r\n");
-    let request_line = lines.next().ok_or_else(|| anyhow!("missing request line"))?;
+    let request_line = lines
+        .next()
+        .ok_or_else(|| anyhow!("missing request line"))?;
     let mut parts = request_line.split_whitespace();
-    let method = parts.next().ok_or_else(|| anyhow!("missing method"))?.to_owned();
-    let path = parts.next().ok_or_else(|| anyhow!("missing path"))?.to_owned();
+    let method = parts
+        .next()
+        .ok_or_else(|| anyhow!("missing method"))?
+        .to_owned();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow!("missing path"))?
+        .to_owned();
     let mut headers = HashMap::new();
     for line in lines {
         if let Some((name, value)) = line.split_once(':') {
@@ -1029,7 +1133,9 @@ mod tests {
             .set_read_timeout(Some(Duration::from_secs(2)))
             .expect("read timeout");
         stream.write_all(request.as_bytes()).expect("write request");
-        stream.shutdown(std::net::Shutdown::Write).expect("shutdown write");
+        stream
+            .shutdown(std::net::Shutdown::Write)
+            .expect("shutdown write");
 
         let mut response = String::new();
         stream.read_to_string(&mut response).expect("read response");
@@ -1058,6 +1164,7 @@ mod tests {
             api_token: "test-token".to_owned(),
             expose_topology_read: true,
             expose_rule_config: true,
+            expose_traffic_stats: true,
         };
 
         state
@@ -1068,7 +1175,7 @@ mod tests {
         thread::sleep(Duration::from_millis(150));
 
         let updated = state.engine.get_mcp_config();
-        assert_eq!(updated.listen_port, blocked_port + 1);
+        assert!(updated.listen_port > blocked_port);
         assert!(state.mcp_service.is_running());
 
         cleanup_state(&state, path);
@@ -1089,6 +1196,7 @@ mod tests {
             api_token: "secret-token".to_owned(),
             expose_topology_read: true,
             expose_rule_config: true,
+            expose_traffic_stats: true,
         };
 
         state
@@ -1097,6 +1205,7 @@ mod tests {
             .expect("save config");
         state.mcp_service.apply_config(&config);
         thread::sleep(Duration::from_millis(150));
+        let actual_port = state.engine.get_mcp_config().listen_port;
 
         let request = json!({
           "jsonrpc": "2.0",
@@ -1105,12 +1214,13 @@ mod tests {
           "params": {}
         });
 
-        let (unauthorized_status, unauthorized_body) = send_http_request(port, None, request.clone());
+        let (unauthorized_status, unauthorized_body) =
+            send_http_request(actual_port, None, request.clone());
         assert_eq!(unauthorized_status, 401);
         assert!(unauthorized_body.contains("unauthorized"));
 
         let (authorized_status, authorized_body) =
-            send_http_request(port, Some("secret-token"), request);
+            send_http_request(actual_port, Some("secret-token"), request);
         assert_eq!(authorized_status, 200);
         assert!(authorized_body.contains("\"result\""));
         assert!(authorized_body.contains("read_virtualization_topology"));

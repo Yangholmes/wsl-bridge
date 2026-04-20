@@ -109,7 +109,7 @@ pub fn scan_hyperv() -> HyperVScanResult {
             None => {
                 return HyperVScanResult {
                     items: Vec::new(),
-                    error: Some("无法启动 PowerShell，无法读取 Hyper-V 虚拟机列表。".to_owned()),
+                    error: Some("hyperv_powershell_failed".to_owned()),
                 }
             }
         };
@@ -378,7 +378,7 @@ fn normalize_hyperv_error(capture: &PowerShellCapture) -> String {
         || joined.contains("virtualization")
         || joined.contains("cmdlet");
     if hyperv_not_enabled {
-        return "Hyper-V 功能未启用，请先在 Windows 功能中启用 Hyper-V 后重试。".to_owned();
+        return "hyperv_not_enabled".to_owned();
     }
 
     if joined.contains("elevation_required")
@@ -386,7 +386,7 @@ fn normalize_hyperv_error(capture: &PowerShellCapture) -> String {
         || joined.contains("administrator")
         || joined.contains("权限")
     {
-        return "Hyper-V 查询需要管理员权限，请以管理员身份启动应用后重试。".to_owned();
+        return "hyperv_admin_required".to_owned();
     }
 
     let text = if !stderr.trim().is_empty() {
@@ -395,12 +395,9 @@ fn normalize_hyperv_error(capture: &PowerShellCapture) -> String {
         clean_text(&stdout)
     };
     if text.is_empty() {
-        format!(
-            "Hyper-V 查询失败（status={}），请确认 Hyper-V 模块可用且当前进程具备权限。",
-            capture.status_code
-        )
+        format!("hyperv_query_failed:{}", capture.status_code)
     } else {
-        format!("Hyper-V 查询失败：{text}")
+        format!("hyperv_error:{}", text)
     }
 }
 
@@ -606,7 +603,7 @@ fn parse_hyperv_json_output(stdout: &[u8]) -> Result<Vec<HyperVVmInfo>, String> 
     }
 
     let parsed = serde_json::from_str::<JsonOneOrMany<HyperVAdapterRow>>(&text)
-        .map_err(|err| format!("Hyper-V 输出 JSON 解析失败: {err}"))?;
+        .map_err(|err| format!("hyperv_json_parse_error:{}", err))?;
     let rows = match parsed {
         JsonOneOrMany::One(row) => vec![row],
         JsonOneOrMany::Many(rows) => rows,

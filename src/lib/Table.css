@@ -1,46 +1,47 @@
 .table-wrap {
   overflow: auto;
   max-width: 100%;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: var(--surface-strong);
+  background: var(--bg-panel);
 }
 
 table {
   width: 100%;
   min-width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .rules-table {
+  min-width: 780px;
   table-layout: fixed;
   min-width: 800px;
 }
 
 th,
 td {
+  padding: var(--space-12) var(--space-10);
   border-bottom: 1px solid var(--line-soft);
-  padding: 9px 8px;
   text-align: left;
   vertical-align: middle;
 }
 
-tbody tr:last-child td {
-  border-bottom: none;
-}
-
-th {
-  color: var(--sub);
-  font-weight: 600;
-  background: var(--surface-strong);
+thead th {
   position: sticky;
   top: 0;
   z-index: 1;
+  background: var(--bg-panel-muted);
+  color: var(--text-secondary);
+  font-weight: var(--font-semibold);
 }
 
 tbody tr:hover {
-  background: var(--hover-bg);
+  background: var(--bg-hover);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .row-check {
@@ -48,30 +49,23 @@ tbody tr:hover {
   place-items: center;
 }
 
-.row-check .kb-checkbox-control {
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+.table-wrap .row-check.kb-checkbox {
+  display: grid;
+  place-items: center;
 }
 
 .row-selected {
-  background: rgba(10, 100, 255, 0.1);
-}
-
-.row-selected:hover {
-  background: rgba(10, 100, 255, 0.14);
+  background: var(--brand-50);
 }
 
 .runtime-row-error {
-  background: rgba(196, 43, 28, 0.08);
+  background: var(--danger-50);
 }
 
 .row-actions {
   display: flex;
-  gap: 6px;
-  flex-wrap: nowrap;
   align-items: center;
+  gap: var(--space-6);
 }
 
 .row-enable-switch {
@@ -82,16 +76,12 @@ tbody tr:hover {
 .table-cell-ellipsis {
   display: block;
   width: 100%;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.4;
+  color: inherit;
   background: transparent;
   border: 0;
   padding: 0;
-  margin: 0;
   text-align: left;
-  color: inherit;
-  cursor: default;
 }

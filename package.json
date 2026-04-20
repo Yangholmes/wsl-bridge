@@ -1,6 +1,6 @@
 {
   "name": "wsl-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "WSL Bridge is a Windows desktop application that helps you easily expose WSL and Hyper-V virtual machine network services to external networks. Supports TCP/UDP port forwarding, HTTP proxy and SOCKS5 proxy, with intuitive rule management and firewall configuration.",
@@ -21,7 +21,8 @@
     "@tanstack/solid-router": "^1.140.1",
     "@tanstack/solid-table": "^8.21.3",
     "@tauri-apps/api": "^2.8.0",
-    "solid-js": "^1.9.9"
+    "solid-js": "^1.9.9",
+    "uplot": "^1.6.31"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.8.2",

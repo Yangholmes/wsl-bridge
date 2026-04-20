@@ -4831,9 +4831,10 @@ dependencies = [
 
 [[package]]
 name = "wsl-bridge-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "parking_lot",
  "serde",
  "serde_json",
@@ -4848,7 +4849,7 @@ dependencies = [
 
 [[package]]
 name = "wsl-bridge-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4865,7 +4866,7 @@ dependencies = [
 
 [[package]]
 name = "wsl-bridge-shared"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde",

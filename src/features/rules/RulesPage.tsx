@@ -15,17 +15,17 @@ import {
 } from "@tanstack/solid-table";
 import * as KButton from "@kobalte/core/button";
 import * as KCheckbox from "@kobalte/core/checkbox";
-import * as KSelect from "@kobalte/core/select";
 import * as KSwitch from "@kobalte/core/switch";
 import * as KTextField from "@kobalte/core/text-field";
-import * as KTooltip from "@kobalte/core/tooltip";
 import { useI18n } from "../../i18n/context";
 import { appQueryClient } from "../../lib/queryClient";
 import { EllipsisCell } from "../../lib/EllipsisCell";
 import { toLocalTime } from "../../lib/datetime";
 import { SkeletonLine } from "../../lib/Skeleton";
+import { SimpleSelect } from "../../lib/SimpleSelect";
 import { useToast } from "../../lib/Toast";
 import { useAppRuntimeStatusQuery } from "../../lib/appRuntime";
+import { EditIcon, MetricCard, PageHeader, PlayIcon, SectionCard, StatusBadge, StopIcon, TrashIcon } from "../../lib/ui";
 
 import {
   applyRules,
@@ -35,7 +35,6 @@ import {
   getRuntimeStatus,
   listRules,
   stopRules,
-  tailLogs,
   updateRule
 } from "./api";
 import {
@@ -60,15 +59,6 @@ type RuleRow = ProxyRule & {
   runtime_state: RuntimeState | "unknown";
   last_error: string | null;
   last_apply_at: string | null;
-};
-
-type AppSelectProps = {
-  value: string;
-  onChange: (value: string) => void;
-  options: SelectOption[];
-  disabled?: boolean;
-  placeholder?: string;
-  triggerClass?: string;
 };
 
 const defaultForm: FormState = {
@@ -106,11 +96,6 @@ const bindModeOptions: SelectOption[] = [
   { value: "single_nic", label: "single_nic" }
 ];
 
-const booleanOptions: SelectOption[] = [
-  { value: "true", label: "true" },
-  { value: "false", label: "false" }
-];
-
 const filterTypeOptions: SelectOption[] = [
   { value: "all", label: "all" },
   ...ruleTypeOptions
@@ -122,52 +107,11 @@ const filterEnabledOptions: SelectOption[] = [
   { value: "disabled", label: "disabled" }
 ];
 
-const RUNTIME_STATE_EMOJI: Record<string, string> = {
-  running: "🟢",
-  stopped: "🔴",
-  error: "⚠️",
-  unknown: "❓"
-};
-
 const getPageSizeOptions = (t: ReturnType<typeof useI18n>["t"]): SelectOption[] => [
   { value: "10", label: t("rules.pageSize10") },
   { value: "20", label: t("rules.pageSize20") },
   { value: "50", label: t("rules.pageSize50") }
 ];
-
-function AppSelect(props: AppSelectProps & { placeholderText?: string }) {
-  const selectedOption = () => props.options.find((option) => option.value === props.value) ?? null;
-
-  return (
-    <KSelect.Root<SelectOption>
-      options={props.options}
-      optionValue="value"
-      optionTextValue="label"
-      value={selectedOption()}
-      onChange={(option) => {
-        if (option) props.onChange(option.value);
-      }}
-      itemComponent={(itemProps) => (
-        <KSelect.Item item={itemProps.item} class="kb-select-item">
-          <KSelect.ItemLabel>{itemProps.item.rawValue.label}</KSelect.ItemLabel>
-          <KSelect.ItemIndicator class="kb-select-item-indicator" />
-        </KSelect.Item>
-      )}
-      disabled={props.disabled}
-      placeholder={props.placeholderText ?? ""}
-    >
-      <KSelect.Trigger class={`kb-select-trigger ${props.triggerClass ?? ""}`}>
-        <KSelect.Value<SelectOption>>{(state) => state.selectedOption()?.label}</KSelect.Value>
-        <KSelect.Icon class="kb-select-icon"><span class="kb-select-icon-triangle"></span></KSelect.Icon>
-      </KSelect.Trigger>
-      <KSelect.Portal>
-        <KSelect.Content class="kb-select-content">
-          <KSelect.Listbox class="kb-select-listbox" />
-        </KSelect.Content>
-      </KSelect.Portal>
-    </KSelect.Root>
-  );
-}
 
 export function RulesPage() {
   const { t } = useI18n();
@@ -264,6 +208,11 @@ export function RulesPage() {
     return filteredRows().slice(start, start + pageSize());
   });
   const selectedCount = createMemo(() => selectedRuleIds().size);
+  const runtimeCounts = createMemo(() => ({
+    running: rows().filter((item) => item.runtime_state === "running").length,
+    stopped: rows().filter((item) => item.runtime_state === "stopped").length,
+    error: rows().filter((item) => item.runtime_state === "error").length
+  }));
   const isCurrentPageFullySelected = createMemo(() => {
     const rowsInPage = pagedRows();
     return rowsInPage.length > 0 && rowsInPage.every((rule) => selectedRuleIds().has(rule.id));
@@ -427,7 +376,7 @@ export function RulesPage() {
         <KCheckbox.Root
           checked={isCurrentPageFullySelected()}
           onChange={setCurrentPageSelected}
-          class="row-check"
+          class="row-check kb-checkbox"
         >
           <KCheckbox.Input />
           <KCheckbox.Control class="kb-checkbox-control">
@@ -439,7 +388,7 @@ export function RulesPage() {
         <KCheckbox.Root
           checked={isRuleSelected(ctx.row.original.id)}
           onChange={(checked) => setRuleSelected(ctx.row.original.id, checked)}
-          class="row-check"
+          class="row-check kb-checkbox"
         >
           <KCheckbox.Input />
           <KCheckbox.Control class="kb-checkbox-control">
@@ -468,7 +417,7 @@ export function RulesPage() {
       header: () => t("rules.tableRuntime"),
       cell: (ctx) => {
         const state = ctx.row.original.runtime_state;
-        return <EllipsisCell text={RUNTIME_STATE_EMOJI[state] ?? "❓"} />;
+        return <StatusBadge state={state} label={state === "unknown" ? "Unknown" : t(`common.${state}`)} />;
       }
     },
     {
@@ -488,11 +437,11 @@ export function RulesPage() {
         const row = ctx.row.original;
         return (
           <div class="row-actions">
-            <KButton.Root class="kb-btn ghost small" onClick={() => handleEdit(row)}>
-              ✏️
+            <KButton.Root class="kb-btn ghost small icon-btn" onClick={() => handleEdit(row)} aria-label="Edit rule">
+              <EditIcon size={14} />
             </KButton.Root>
-            <KButton.Root class="kb-btn danger small" onClick={() => handleDelete(row.id)}>
-              ❌
+            <KButton.Root class="kb-btn danger small icon-btn" onClick={() => handleDelete(row.id)} aria-label="Delete rule">
+              <TrashIcon size={14} />
             </KButton.Root>
           </div>
         );
@@ -871,79 +820,66 @@ export function RulesPage() {
     }
   }
 
-  async function loadLogs() {
-    try {
-      const result = await tailLogs(0);
-      setDebugOutput(JSON.stringify(result, null, 2));
-    } catch (err) {
-      toast.error(String(err));
-    }
-  }
-
   return (
-    <div class="page">
-      <section class="panel main-panel">
-        <div class="panel-title">
-          <h2>{t("rules.title")}</h2>
-          <span class="muted">
-            {filteredRows().length} / {rows().length}，{t("rules.selected")} {selectedCount()}
-          </span>
-        </div>
+<div class="page">
+      <PageHeader
+        title={t("rules.title")}
+        actions={
+          <>
+            <KButton.Root class="kb-btn accent" onClick={openCreateModal}>
+              {t("rules.btnNewRule")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn ghost" onClick={runApply}>
+              <PlayIcon size={14} />
+              {t("rules.btnApply")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn ghost" onClick={runStop}>
+              <StopIcon size={14} />
+              {t("rules.btnStop")}
+            </KButton.Root>
+          </>
+        }
+      />
 
-        <div class="toolbar toolbar-kobalte">
+<div class="metric-grid">
+        <MetricCard label={t("rules.totalLabel")} value={`${rows().length}`} detail={t("rules.visibleDetail", { count: filteredRows().length })} />
+        <MetricCard label={t("common.running")} value={`${runtimeCounts().running}`} detail={t("rules.stoppedDetail", { count: runtimeCounts().stopped })} />
+        <MetricCard label={t("common.error")} value={`${runtimeCounts().error}`} detail={t("rules.selectedDetail", { count: selectedCount() })} />
+      </div>
+
+      <SectionCard
+        title={t("rules.ruleLibraryTitle")}
+        subtitle={`${filteredRows().length} / ${rows().length} · ${t("rules.selected")} ${selectedCount()}`}
+        actions={<KButton.Root class="kb-btn ghost" onClick={() => refreshAll()}>{t("rules.btnRefresh")}</KButton.Root>}
+      >
+        <div class="toolbar">
           <KTextField.Root class="kb-text-inline" value={filter.name} onChange={(value) => setFilter("name", value)}>
             <KTextField.Input class="kb-input" placeholder={t("rules.placeholderNameKeyword")} />
           </KTextField.Root>
-          <AppSelect
-            value={filter.type}
-            onChange={(value) => setFilter("type", value)}
-            options={filterTypeOptions}
-            triggerClass="kb-select-compact"
-          />
-          <AppSelect
-            value={filter.enabled}
-            onChange={(value) => setFilter("enabled", value)}
-            options={filterEnabledOptions}
-            triggerClass="kb-select-compact"
-          />
-          <KButton.Root class="kb-btn ghost" onClick={() => refreshAll()}>
-            {t("rules.btnRefresh")}
-          </KButton.Root>
-        </div>
-
-        <div class="actions top-actions">
-          <KButton.Root class="kb-btn accent" onClick={openCreateModal}>{t("rules.btnNewRule")}</KButton.Root>
-          <KButton.Root class="kb-btn ghost" onClick={loadLogs}>{t("rules.btnViewLogs")}</KButton.Root>
-          <KButton.Root class="kb-btn ghost" onClick={runApply}>{t("rules.btnApply")}</KButton.Root>
-          <KButton.Root class="kb-btn ghost" onClick={runStop}>{t("rules.btnStop")}</KButton.Root>
-          <KButton.Root
-            class="kb-btn ghost"
-            disabled={selectedCount() === 0 || (!hasAdminPrivileges() && rows().some((row) => selectedRuleIds().has(row.id) && row.target_kind === "hyperv"))}
-            onClick={() => handleBatchEnable(true)}
-          >
-            {t("rules.btnBatchEnable")}
-          </KButton.Root>
-          <KButton.Root
-            class="kb-btn ghost"
-            disabled={selectedCount() === 0 || (!hasAdminPrivileges() && rows().some((row) => selectedRuleIds().has(row.id) && row.target_kind === "hyperv"))}
-            onClick={() => handleBatchEnable(false)}
-          >
-            {t("rules.btnBatchDisable")}
-          </KButton.Root>
-          <KButton.Root
-            class="kb-btn danger"
-            disabled={selectedCount() === 0}
-            onClick={handleBatchDelete}
-          >
-            {t("rules.btnBatchDelete")}
-          </KButton.Root>
-          <KButton.Root
-            class="kb-btn ghost"
-            disabled={selectedCount() === 0}
-            onClick={() => setSelectedRuleIds(new Set<string>())}
-          >
-            {t("rules.btnClearSelection")}
-          </KButton.Root>
+          <SimpleSelect value={filter.type} onChange={(value) => setFilter("type", value)} options={filterTypeOptions} />
+          <SimpleSelect value={filter.enabled} onChange={(value) => setFilter("enabled", value)} options={filterEnabledOptions} />
+          <div class="actions">
+            <KButton.Root
+              class="kb-btn ghost"
+              disabled={selectedCount() === 0 || (!hasAdminPrivileges() && rows().some((row) => selectedRuleIds().has(row.id) && row.target_kind === "hyperv"))}
+              onClick={() => handleBatchEnable(true)}
+            >
+              {t("rules.btnBatchEnable")}
+            </KButton.Root>
+            <KButton.Root
+              class="kb-btn ghost"
+              disabled={selectedCount() === 0 || (!hasAdminPrivileges() && rows().some((row) => selectedRuleIds().has(row.id) && row.target_kind === "hyperv"))}
+              onClick={() => handleBatchEnable(false)}
+            >
+              {t("rules.btnBatchDisable")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn danger" disabled={selectedCount() === 0} onClick={handleBatchDelete}>
+              {t("rules.btnBatchDelete")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn ghost" disabled={selectedCount() === 0} onClick={() => setSelectedRuleIds(new Set<string>())}>
+              {t("rules.btnClearSelection")}
+            </KButton.Root>
+          </div>
         </div>
 
         <div class="table-wrap">
@@ -1009,7 +945,7 @@ export function RulesPage() {
           <span class="muted">
             {t("rules.pageInfo", { current: Math.min(pageIndex() + 1, pageCount()), total: pageCount() })}
           </span>
-          <AppSelect
+          <SimpleSelect
             value={String(pageSize())}
             onChange={(value) => {
               setPageSize(Number(value));
@@ -1017,48 +953,55 @@ export function RulesPage() {
             }}
             options={getPageSizeOptions(t)}
           />
-          <KButton.Root
-            class="kb-btn ghost"
-            disabled={pageIndex() <= 0}
-            onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
-          >
+          <KButton.Root class="kb-btn ghost" disabled={pageIndex() <= 0} onClick={() => setPageIndex((value) => Math.max(0, value - 1))}>
             {t("rules.prevPage")}
           </KButton.Root>
-          <KButton.Root
-            class="kb-btn ghost"
-            disabled={pageIndex() >= pageCount() - 1}
-            onClick={() => setPageIndex((value) => Math.min(pageCount() - 1, value + 1))}
-          >
+          <KButton.Root class="kb-btn ghost" disabled={pageIndex() >= pageCount() - 1} onClick={() => setPageIndex((value) => Math.min(pageCount() - 1, value + 1))}>
             {t("rules.nextPage")}
           </KButton.Root>
         </div>
-      </section>
+      </SectionCard>
 
-      <section class="panel">
-        <h2>{t("rules.statusTitle")}</h2>
-        <div class="status-grid">
-          <div>rules: {rulesQuery.data?.length ?? 0}</div>
-          <div>runtime: {runtimeQuery.data?.length ?? 0}</div>
-          <div>adapters: {topologyQuery.data?.adapters.length ?? 0}</div>
-          <Show
-            when={isStatusLoading()}
-            fallback={
-              <Show when={statusError()} fallback={<div>ready</div>}>
-                {(err) => <div class="error">{String(err())}</div>}
-              </Show>
-            }
-          >
-            <div>loading...</div>
-          </Show>
-        </div>
-      </section>
+<div class="split-grid">
+        <SectionCard title={t("rules.statusTitle")} subtitle={t("rules.ruleLibrarySubtitle")}>
+          <div class="status-grid">
+            <div class="line-item">
+              <div class="line-item-content">
+                <span class="line-item-title">{t("rules.ruleLabel")}</span>
+                <span class="line-item-subtitle">{t("rules.rulesConfigItems", { count: rulesQuery.data?.length ?? 0 })}</span>
+              </div>
+            </div>
+            <div class="line-item">
+              <div class="line-item-content">
+                <span class="line-item-title">{t("rules.runtimeLabel")}</span>
+                <span class="line-item-subtitle">{t("rules.runtimeRecords", { count: runtimeQuery.data?.length ?? 0 })}</span>
+              </div>
+            </div>
+            <div class="line-item">
+              <div class="line-item-content">
+                <span class="line-item-title">{t("rules.adapterLabel")}</span>
+                <span class="line-item-subtitle">{t("rules.adaptersRecognized", { count: topologyQuery.data?.adapters.length ?? 0 })}</span>
+              </div>
+            </div>
+            <div class="line-item">
+              <div class="line-item-content">
+                <span class="line-item-title">{t("rules.bridgeStatusLabel")}</span>
+                <span class="line-item-subtitle">
+                  <Show when={isStatusLoading()} fallback={<Show when={statusError()} fallback={t("rules.bridgeStatusReady")}>{(err) => String(err())}</Show>}>
+                    {t("common.loading")}
+                  </Show>
+                </span>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
 
-      <section class="panel">
-        <h2>{t("rules.debugOutput")}</h2>
-        <div class="debug-output-wrap">
-          <pre class="debug-output">{debugOutput()}</pre>
-        </div>
-      </section>
+        <SectionCard title={t("rules.debugOutput")} subtitle={t("rules.debugOutputSubtitle")}>
+          <div class="debug-output-wrap">
+            <pre class="debug-output">{debugOutput()}</pre>
+          </div>
+        </SectionCard>
+      </div>
 
       <RuleFormModal
         open={isModalOpen()}
