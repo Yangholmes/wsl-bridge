@@ -1468,6 +1468,7 @@ mod tests {
                 .update_app_settings(AppSettings {
                     close_behavior: CloseBehavior::Minimize,
                     show_tray_on_start: false,
+                    user_uid: None,
                 })
                 .expect("update app settings");
         }

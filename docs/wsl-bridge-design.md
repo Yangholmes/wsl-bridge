@@ -3,8 +3,8 @@
 ## 1. 文档信息
 
 - 项目名称：`wsl-bridge`
-- 文档版本：`v2.1`
-- 更新时间：`2026-04-15`
+- 文档版本：`v2.2`
+- 更新时间：`2026-04-29`
 - 目标读者：产品、研发、测试
 
 ## 2. 背景与目标
@@ -389,7 +389,32 @@ WSL Bridge 内置 MCP 服务器，支持 AI 助手（如 Claude、Cursor 等）�
 
 应用内置多种客户端预设配置（Claude Desktop、Cursor、Windsurf 等），用户可一键复制配置快速集成。
 
-## 17. 实施建议（代码仓库）
+## 17. 数据分析与埋点
+
+应用集成 Microsoft Clarity 进行用户行为分析，详见 `docs/clarity-analytics-design.md`。
+
+### 17.1 埋点数据
+
+| 数据 | 类型 | 来源 | 说明 |
+|------|------|------|------|
+| 用户 UID | `string` | 首次启动时生成 UUID | 跨设备用户追踪 |
+| 应用版本 | `string` | `package.json` version | 版本分布统计 |
+| 下载渠道 | `string` | 构建环境变量 `channel` | 渠道效果分析 |
+
+### 17.2 数据存储
+
+- UID 存储于 SQLite `app_setting` 表的 `AppSettings.user_uid` 字段
+- 与其他用户配置（关闭行为、托盘设置）集中管理
+
+### 17.3 数据上报
+
+- 开发模式不启用埋点（`!import.meta.env.DEV`）
+- 生产环境通过 Clarity API 上报：
+  - `Clarity.identify(uid)` 上报用户 ID
+  - `Clarity.setTag("version", value)` 上报版本号
+  - `Clarity.setTag("channel", value)` 上报渠道
+
+## 18. 实施建议（代码仓库）
 
 - 建议 workspace 结构：
   - `src-tauri`（Tauri + Rust Core）

@@ -195,6 +195,10 @@ impl SqliteStore {
             }
         }
 
+        if app_settings.user_uid.is_none() {
+            app_settings.user_uid = Some(uuid::Uuid::new_v4().to_string());
+        }
+
         let log_seq = logs.last().map(|item| item.id).unwrap_or(0);
 
         Ok(Snapshot {
