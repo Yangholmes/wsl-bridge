@@ -203,6 +203,7 @@ pub enum CloseBehavior {
 pub struct AppSettings {
     pub close_behavior: CloseBehavior,
     pub show_tray_on_start: bool,
+    pub user_uid: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -210,6 +211,7 @@ impl Default for AppSettings {
         Self {
             close_behavior: CloseBehavior::Ask,
             show_tray_on_start: true,
+            user_uid: None,
         }
     }
 }
