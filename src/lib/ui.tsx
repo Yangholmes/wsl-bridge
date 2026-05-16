@@ -1,3 +1,6 @@
+import * as KButton from "@kobalte/core/button";
+import * as KCheckbox from "@kobalte/core/checkbox";
+import * as KTextField from "@kobalte/core/text-field";
 import type { Component, JSX } from "solid-js";
 import { Show } from "solid-js";
 
@@ -88,6 +91,35 @@ export const TopologyIcon: Component<IconProps> = (props) => (
         <rect x="9" y="14.5" width="6" height="6" rx="1.5" />
         <path d="M9.5 6.5h5" />
         <path d="M12 9.5v5" />
+      </>
+    }
+  />
+);
+
+export const HostsIcon: Component<IconProps> = (props) => (
+  <AppIconBase
+    {...props}
+    path={
+      <>
+        <path d="M4 6h16" />
+        <path d="M4 12h16" />
+        <path d="M4 18h10" />
+        <path d="M16.5 15.5v5" />
+        <path d="M14 18h5" />
+      </>
+    }
+  />
+);
+
+export const ProxyIcon: Component<IconProps> = (props) => (
+  <AppIconBase
+    {...props}
+    path={
+      <>
+        <path d="M5 7.5h8" />
+        <path d="M5 12h14" />
+        <path d="M5 16.5h8" />
+        <path d="M14 5l5 7-5 7" />
       </>
     }
   />
@@ -249,4 +281,63 @@ export const SectionCard: Component<{
     </div>
     {props.children}
   </section>
+);
+
+export const ActionButton: Component<{
+  variant?: "primary" | "ghost" | "danger";
+  size?: "default" | "small";
+  disabled?: boolean;
+  onClick?: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent>;
+  children: JSX.Element;
+}> = (props) => (
+  <KButton.Root
+    class={`kb-btn ${props.variant ?? "ghost"} ${props.size === "small" ? "small" : ""}`.trim()}
+    disabled={props.disabled}
+    onClick={props.onClick}
+  >
+    {props.children}
+  </KButton.Root>
+);
+
+export const SelectableCard: Component<{
+  selected?: boolean;
+  onClick?: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent>;
+  children: JSX.Element;
+}> = (props) => (
+  <KButton.Root
+    class="panel selectable-card"
+    data-selected={props.selected ? "true" : undefined}
+    onClick={props.onClick}
+  >
+    {props.children}
+  </KButton.Root>
+);
+
+export const TextFieldControl: Component<{
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}> = (props) => (
+  <KTextField.Root class="kb-field" value={props.value} onChange={props.onChange}>
+    <KTextField.Label class="kb-label">{props.label}</KTextField.Label>
+    <KTextField.Input class="kb-input" value={props.value} placeholder={props.placeholder} />
+  </KTextField.Root>
+);
+
+export const CheckboxField: Component<{
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}> = (props) => (
+  <KCheckbox.Root
+    class="kb-checkbox"
+    checked={props.checked}
+    onChange={(checked) => props.onChange(Boolean(checked))}
+  >
+    <KCheckbox.Control class="kb-checkbox-control">
+      <KCheckbox.Indicator class="kb-checkbox-indicator" />
+    </KCheckbox.Control>
+    <KCheckbox.Label class="kb-checkbox-label">{props.label}</KCheckbox.Label>
+  </KCheckbox.Root>
 );

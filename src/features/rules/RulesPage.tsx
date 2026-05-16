@@ -15,6 +15,7 @@ import {
 } from "@tanstack/solid-table";
 import * as KButton from "@kobalte/core/button";
 import * as KCheckbox from "@kobalte/core/checkbox";
+import * as KDialog from "@kobalte/core/dialog";
 import * as KSwitch from "@kobalte/core/switch";
 import * as KTextField from "@kobalte/core/text-field";
 import { useI18n } from "../../i18n/context";
@@ -34,6 +35,9 @@ import {
   enableRule,
   getRuntimeStatus,
   listRules,
+  listRuleMigrations,
+  migrateRuleToProxy,
+  rollbackRuleMigration,
   stopRules,
   updateRule
 } from "./api";
@@ -48,6 +52,7 @@ import type {
   BindMode,
   CreateRuleRequest,
   ProxyRule,
+  RuleMigrationRecord,
   RuntimeStatusItem,
   RuleType,
   RuntimeState,
@@ -61,9 +66,30 @@ type RuleRow = ProxyRule & {
   last_apply_at: string | null;
 };
 
+type DeleteDialogState = {
+  ids: string[];
+  title: string;
+  prompt: string;
+} | null;
+
+type MigrateDialogState = {
+  rule: RuleRow;
+  title: string;
+  summary: string;
+  details: string[];
+  warning?: string;
+} | null;
+
+type RollbackDialogState = {
+  rule: RuleRow;
+  title: string;
+  summary: string;
+  details: string[];
+} | null;
+
 const defaultForm: FormState = {
-  name: "web-forward",
-  type: "tcp_fwd",
+  name: "udp-forward",
+  type: "udp_fwd",
   listen_host: "127.0.0.1",
   listen_port: "18081",
   target_kind: "static",
@@ -82,6 +108,11 @@ const ruleTypeOptions: SelectOption[] = [
   { value: "tcp_fwd", label: "tcp_fwd" },
   { value: "udp_fwd", label: "udp_fwd" },
   { value: "http_proxy", label: "http_proxy" },
+  { value: "socks5_proxy", label: "socks5_proxy" }
+];
+
+const creatableRuleTypeOptions: SelectOption[] = [
+  { value: "udp_fwd", label: "udp_fwd" },
   { value: "socks5_proxy", label: "socks5_proxy" }
 ];
 
@@ -125,6 +156,9 @@ export function RulesPage() {
   const [pageSize, setPageSize] = createSignal(10);
   const [debugOutput, setDebugOutput] = createSignal("ready");
   const [togglingRuleId, setTogglingRuleId] = createSignal<string | null>(null);
+  const [deleteDialog, setDeleteDialog] = createSignal<DeleteDialogState>(null);
+  const [migrateDialog, setMigrateDialog] = createSignal<MigrateDialogState>(null);
+  const [rollbackDialog, setRollbackDialog] = createSignal<RollbackDialogState>(null);
 
   const [filter, setFilter] = createStore({
     name: "",
@@ -155,6 +189,13 @@ export function RulesPage() {
     queryOptions<RuntimeStatusItem[]>({
     queryKey: ["runtime"],
     queryFn: getRuntimeStatus
+    }),
+    () => appQueryClient
+  );
+  const migrationsQuery = useQuery(() =>
+    queryOptions<RuleMigrationRecord[]>({
+      queryKey: ["rule-migrations"],
+      queryFn: listRuleMigrations
     }),
     () => appQueryClient
   );
@@ -213,6 +254,9 @@ export function RulesPage() {
     stopped: rows().filter((item) => item.runtime_state === "stopped").length,
     error: rows().filter((item) => item.runtime_state === "error").length
   }));
+  const migrationMap = createMemo(
+    () => new Map((migrationsQuery.data ?? []).map((item) => [item.rule_id, item] as const))
+  );
   const isCurrentPageFullySelected = createMemo(() => {
     const rowsInPage = pagedRows();
     return rowsInPage.length > 0 && rowsInPage.every((rule) => selectedRuleIds().has(rule.id));
@@ -260,6 +304,9 @@ export function RulesPage() {
   const isProxyType = createMemo(() => form.type === "http_proxy" || form.type === "socks5_proxy");
   const isSingleNic = createMemo(() => form.bind_mode === "single_nic");
   const isEditing = createMemo(() => editingId() !== null);
+  const formRuleTypeOptions = createMemo(() =>
+    isEditing() ? ruleTypeOptions : creatableRuleTypeOptions
+  );
   const statusError = createMemo(() => rulesQuery.error ?? runtimeQuery.error ?? topologyQuery.error ?? null);
   const isStatusLoading = createMemo(() => rulesQuery.isPending || runtimeQuery.isPending || topologyQuery.isPending);
   const isTableLoading = createMemo(
@@ -369,6 +416,20 @@ export function RulesPage() {
     });
   }
 
+  function getLegacyBadgeLabel(migration: RuleMigrationRecord | undefined) {
+    if (migration?.status === "migrated") {
+      return t("rules.migratedBadge");
+    }
+    if (migration?.status === "rollbacked") {
+      return t("rules.rollbackedBadge");
+    }
+    return t("rules.legacyBadge");
+  }
+
+  function getLegacyBadgeState(migration: RuleMigrationRecord | undefined) {
+    return migration?.status === "migrated" ? "running" : "ready";
+  }
+
   const columns: ColumnDef<RuleRow>[] = [
     {
       id: "select",
@@ -398,7 +459,26 @@ export function RulesPage() {
       )
     },
     { id: "name", header: () => t("rules.tableName"), cell: (ctx) => <EllipsisCell text={ctx.row.original.name} /> },
-    { id: "type", header: () => t("rules.tableType"), cell: (ctx) => <EllipsisCell text={ctx.row.original.type} /> },
+    {
+      id: "type",
+      header: () => t("rules.tableType"),
+      cell: (ctx) => {
+        const type = ctx.row.original.type;
+        const isLegacy = type === "tcp_fwd" || type === "http_proxy";
+        const migration = migrationMap().get(ctx.row.original.id);
+        return (
+          <div class="row-actions">
+            <EllipsisCell text={type} />
+            <Show when={isLegacy}>
+              <StatusBadge
+                state={getLegacyBadgeState(migration)}
+                label={getLegacyBadgeLabel(migration)}
+              />
+            </Show>
+          </div>
+        );
+      }
+    },
     {
       id: "listen",
       header: () => t("rules.tableListen"),
@@ -435,8 +515,29 @@ export function RulesPage() {
       header: () => t("rules.tableAction"),
       cell: (ctx) => {
         const row = ctx.row.original;
+        const migration = migrationMap().get(row.id);
+        const canMigrate =
+          (row.type === "tcp_fwd" || row.type === "http_proxy") &&
+          migration?.status !== "migrated";
+        const canRollback = migration?.status === "migrated";
         return (
           <div class="row-actions">
+            <Show when={canMigrate}>
+              <KButton.Root
+                class="kb-btn ghost small"
+                onClick={() => void handleMigrate(row)}
+              >
+                {t("rules.migrateAction")}
+              </KButton.Root>
+            </Show>
+            <Show when={canRollback}>
+              <KButton.Root
+                class="kb-btn ghost small"
+                onClick={() => handleRollback(row)}
+              >
+                {t("rules.rollbackAction")}
+              </KButton.Root>
+            </Show>
             <KButton.Root class="kb-btn ghost small icon-btn" onClick={() => handleEdit(row)} aria-label="Edit rule">
               <EditIcon size={14} />
             </KButton.Root>
@@ -488,6 +589,7 @@ export function RulesPage() {
     setEditingId(null);
     setForm({
       ...defaultForm,
+      type: "udp_fwd",
       target_kind: getGlobalTargetKind(),
       target_ref: getGlobalTargetRef()
     });
@@ -539,7 +641,7 @@ export function RulesPage() {
   }
 
   async function refreshAll() {
-    const jobs: Promise<unknown>[] = [rulesQuery.refetch(), runtimeQuery.refetch()];
+    const jobs: Promise<unknown>[] = [rulesQuery.refetch(), runtimeQuery.refetch(), migrationsQuery.refetch()];
     if (shouldLoadTopology()) {
       jobs.push(topologyQuery.refetch());
     }
@@ -676,12 +778,120 @@ export function RulesPage() {
   }
 
   async function handleDelete(id: string) {
+    const row = rows().find((item) => item.id === id);
+    setDeleteDialog({
+      ids: [id],
+      title: t("rules.deleteConfirmTitle"),
+      prompt: t("rules.deletePromptSingle", { name: row?.name ?? id })
+    });
+  }
+
+  async function confirmDelete() {
+    const dialog = deleteDialog();
+    if (!dialog) return;
+    setDeleteDialog(null);
+    if (dialog.ids.length > 1) {
+      await performBatchDelete(dialog.ids);
+      return;
+    }
+    await performDelete(dialog.ids[0]!);
+  }
+
+  async function performDelete(id: string) {
     try {
       await deleteRule(id);
       if (editingId() === id) closeFormModal();
       await refreshAll();
       toast.info(t("rules.successDeleted", { id }));
       setDebugOutput(JSON.stringify({ deleted_rule_id: id }, null, 2));
+    } catch (err) {
+      toast.error(String(err));
+    }
+  }
+
+  async function handleMigrate(rule: RuleRow) {
+    const details = [
+      `${t("rules.migratePreviewListen")}: ${rule.listen_host}:${rule.listen_port}`,
+      `${t("rules.migratePreviewListenerProtocol")}: HTTP`,
+      `${t("rules.migratePreviewRoute")}: ${
+        rule.type === "tcp_fwd" ? t("rules.migratePreviewDefaultRoute") : "127.0.0.1"
+      }`
+    ];
+    if (rule.type === "tcp_fwd") {
+      details.push(
+        `${t("rules.migratePreviewUpstream")}: ${
+          rule.target_ref ?? rule.target_host ?? "-"
+        }:${rule.target_port ?? "-"}`
+      );
+    } else {
+      details.push(
+        `${t("rules.migratePreviewUpstream")}: ${t("rules.migratePreviewDraftUpstream")}`
+      );
+    }
+    setMigrateDialog({
+      rule,
+      title: t("rules.migratePreviewTitle"),
+      summary:
+        rule.type === "tcp_fwd"
+          ? t("rules.migratePreviewSummaryTcp", { name: rule.name })
+          : t("rules.migratePreviewSummaryHttpProxy", { name: rule.name }),
+      details,
+      warning:
+        rule.type === "http_proxy" ? t("rules.migratePreviewWarningHttpProxy") : undefined
+    });
+  }
+
+  async function confirmMigrate() {
+    const dialog = migrateDialog();
+    if (!dialog) return;
+    setMigrateDialog(null);
+    try {
+      const result = await migrateRuleToProxy(dialog.rule.id);
+      await refreshAll();
+      toast.info(
+        t("rules.migrateSuccess", {
+          name: dialog.rule.name
+        })
+      );
+      setDebugOutput(JSON.stringify({ migrated_rule_id: dialog.rule.id, result }, null, 2));
+    } catch (err) {
+      toast.error(String(err));
+    }
+  }
+
+  function handleRollback(rule: RuleRow) {
+    const migration = migrationMap().get(rule.id);
+    if (!migration) {
+      toast.error(t("rules.rollbackMissingMigration"));
+      return;
+    }
+    setRollbackDialog({
+      rule,
+      title: t("rules.rollbackConfirmTitle"),
+      summary: t("rules.rollbackSummary", { name: rule.name }),
+      details: [
+        `${t("rules.rollbackDetailListener")}: ${migration.proxy_listener_id}`,
+        `${t("rules.rollbackDetailRoute")}: ${migration.proxy_route_id}`,
+        `${t("rules.rollbackDetailLegacyState")}: ${
+          migration.original_rule_enabled ? t("common.enabled") : t("common.disabled")
+        }`
+      ]
+    });
+  }
+
+  async function confirmRollback() {
+    const dialog = rollbackDialog();
+    if (!dialog) return;
+    setRollbackDialog(null);
+    try {
+      const result = await rollbackRuleMigration(dialog.rule.id);
+      await refreshAll();
+      toast.info(
+        t("rules.rollbackSuccess", {
+          name: dialog.rule.name
+        })
+      );
+      setDebugOutput(JSON.stringify({ rollbacked_rule_id: dialog.rule.id, result }, null, 2));
     } catch (err) {
       toast.error(String(err));
     }
@@ -765,9 +975,14 @@ export function RulesPage() {
       toast.error(t("rules.errorNoSelection"));
       return;
     }
-    const confirmed = window.confirm(t("rules.confirmBatchDelete", { count: ids.length }));
-    if (!confirmed) return;
+    setDeleteDialog({
+      ids,
+      title: t("rules.deleteConfirmTitle"),
+      prompt: t("rules.deletePromptBatch", { count: ids.length })
+    });
+  }
 
+  async function performBatchDelete(ids: string[]) {
     const failed: string[] = [];
     for (const id of ids) {
       try {
@@ -852,6 +1067,9 @@ export function RulesPage() {
         subtitle={`${filteredRows().length} / ${rows().length} · ${t("rules.selected")} ${selectedCount()}`}
         actions={<KButton.Root class="kb-btn ghost" onClick={() => refreshAll()}>{t("rules.btnRefresh")}</KButton.Root>}
       >
+        <div class="panel panel-muted" style={{ "margin-bottom": "12px" }}>
+          {t("rules.legacyNotice")}
+        </div>
         <div class="toolbar">
           <KTextField.Root class="kb-text-inline" value={filter.name} onChange={(value) => setFilter("name", value)}>
             <KTextField.Input class="kb-input" placeholder={t("rules.placeholderNameKeyword")} />
@@ -1015,7 +1233,7 @@ export function RulesPage() {
         isSingleNic={isSingleNic()}
         targetPreview={targetPreview()}
         topologyTimestamp={topologyQuery.data?.timestamp ?? null}
-        ruleTypeOptions={ruleTypeOptions}
+        ruleTypeOptions={formRuleTypeOptions()}
         targetKindOptions={targetKindOptions()}
         bindModeOptions={bindModeOptions}
         adapterOptions={adapterOptions()}
@@ -1032,6 +1250,86 @@ export function RulesPage() {
         onSubmit={submitForm}
         onCancel={closeFormModal}
       />
+      <KDialog.Root open={deleteDialog() !== null} onOpenChange={(open) => !open && setDeleteDialog(null)}>
+        <KDialog.Portal>
+          <KDialog.Overlay class="kb-dialog-overlay" />
+          <KDialog.Content class="kb-dialog-content">
+            <div class="panel-title">
+              <KDialog.Title>{deleteDialog()?.title ?? t("rules.deleteConfirmTitle")}</KDialog.Title>
+            </div>
+            <div style={{ display: "grid", gap: "16px" }}>
+              <KDialog.Description>{deleteDialog()?.prompt ?? ""}</KDialog.Description>
+              <div class="row-actions" style={{ "justify-content": "flex-end" }}>
+                <KButton.Root class="kb-btn ghost" onClick={() => setDeleteDialog(null)}>
+                  {t("rules.formCancel")}
+                </KButton.Root>
+                <KButton.Root class="kb-btn danger" onClick={() => void confirmDelete()}>
+                  {t("rules.confirmDeleteAction")}
+                </KButton.Root>
+              </div>
+            </div>
+          </KDialog.Content>
+        </KDialog.Portal>
+      </KDialog.Root>
+      <KDialog.Root open={migrateDialog() !== null} onOpenChange={(open) => !open && setMigrateDialog(null)}>
+        <KDialog.Portal>
+          <KDialog.Overlay class="kb-dialog-overlay" />
+          <KDialog.Content class="kb-dialog-content">
+            <div class="panel-title">
+              <KDialog.Title>{migrateDialog()?.title ?? t("rules.migratePreviewTitle")}</KDialog.Title>
+            </div>
+            <div style={{ display: "grid", gap: "16px" }}>
+              <KDialog.Description>{migrateDialog()?.summary ?? ""}</KDialog.Description>
+              <div class="panel panel-muted" style={{ display: "grid", gap: "8px" }}>
+                <For each={migrateDialog()?.details ?? []}>
+                  {(detail) => <div>{detail}</div>}
+                </For>
+              </div>
+              <Show when={migrateDialog()?.warning}>
+                {(warning) => (
+                  <div class="panel panel-muted" style={{ border: "1px solid var(--warning-500, #d97706)" }}>
+                    {warning()}
+                  </div>
+                )}
+              </Show>
+              <div class="row-actions" style={{ "justify-content": "flex-end" }}>
+                <KButton.Root class="kb-btn ghost" onClick={() => setMigrateDialog(null)}>
+                  {t("rules.formCancel")}
+                </KButton.Root>
+                <KButton.Root class="kb-btn accent" onClick={() => void confirmMigrate()}>
+                  {t("rules.migrateConfirmAction")}
+                </KButton.Root>
+              </div>
+            </div>
+          </KDialog.Content>
+        </KDialog.Portal>
+      </KDialog.Root>
+      <KDialog.Root open={rollbackDialog() !== null} onOpenChange={(open) => !open && setRollbackDialog(null)}>
+        <KDialog.Portal>
+          <KDialog.Overlay class="kb-dialog-overlay" />
+          <KDialog.Content class="kb-dialog-content">
+            <div class="panel-title">
+              <KDialog.Title>{rollbackDialog()?.title ?? t("rules.rollbackConfirmTitle")}</KDialog.Title>
+            </div>
+            <div style={{ display: "grid", gap: "16px" }}>
+              <KDialog.Description>{rollbackDialog()?.summary ?? ""}</KDialog.Description>
+              <div class="panel panel-muted" style={{ display: "grid", gap: "8px" }}>
+                <For each={rollbackDialog()?.details ?? []}>
+                  {(detail) => <div>{detail}</div>}
+                </For>
+              </div>
+              <div class="row-actions" style={{ "justify-content": "flex-end" }}>
+                <KButton.Root class="kb-btn ghost" onClick={() => setRollbackDialog(null)}>
+                  {t("rules.formCancel")}
+                </KButton.Root>
+                <KButton.Root class="kb-btn danger" onClick={() => void confirmRollback()}>
+                  {t("rules.rollbackConfirmAction")}
+                </KButton.Root>
+              </div>
+            </div>
+          </KDialog.Content>
+        </KDialog.Portal>
+      </KDialog.Root>
     </div>
   );
 }

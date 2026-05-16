@@ -45,6 +45,11 @@
   box-shadow: 0 0 0 3px rgba(10, 100, 255, 0.16);
 }
 
+.kb-input[data-invalid="true"] {
+  border-color: var(--danger-600);
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.12);
+}
+
 .kb-input:disabled,
 .kb-select-trigger[data-disabled],
 .kb-select-trigger:disabled {

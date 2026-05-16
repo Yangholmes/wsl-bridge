@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream};
+#[cfg(windows)]
+use std::os::windows::io::AsRawSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -10,6 +12,7 @@ use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use socket2::{Domain, Protocol, Socket, Type};
 use uuid::Uuid;
 use wsl_bridge_core::RuleEngine;
 use wsl_bridge_shared::{
@@ -19,6 +22,10 @@ use wsl_bridge_shared::{
 };
 
 use crate::state::AppState;
+#[cfg(windows)]
+use windows_sys::Win32::Networking::WinSock::{
+    setsockopt, SOCKET_ERROR, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+};
 
 const MCP_PATH: &str = "/mcp";
 const HEALTH_PATH: &str = "/health";
@@ -939,7 +946,7 @@ fn generate_api_token() -> String {
 fn bind_listener(start_port: u16) -> Result<(TcpListener, u16)> {
     let mut port = start_port;
     loop {
-        match TcpListener::bind(("127.0.0.1", port)) {
+        match bind_listener_on_port(port) {
             Ok(listener) => return Ok((listener, port)),
             Err(err) if err.kind() == std::io::ErrorKind::AddrInUse => {
                 if port == u16::MAX {
@@ -952,6 +959,39 @@ fn bind_listener(start_port: u16) -> Result<(TcpListener, u16)> {
             }
         }
     }
+}
+
+fn bind_listener_on_port(port: u16) -> std::io::Result<TcpListener> {
+    let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
+    #[cfg(windows)]
+    set_exclusive_address_use(&socket)?;
+    let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
+    socket.bind(&addr.into())?;
+    socket.listen(1024)?;
+    Ok(socket.into())
+}
+
+#[cfg(windows)]
+fn set_exclusive_address_use(socket: &Socket) -> std::io::Result<()> {
+    let enabled: i32 = 1;
+    let result = unsafe {
+        setsockopt(
+            socket.as_raw_socket() as usize,
+            SOL_SOCKET,
+            SO_EXCLUSIVEADDRUSE,
+            &enabled as *const i32 as *const u8,
+            std::mem::size_of::<i32>() as i32,
+        )
+    };
+    if result == SOCKET_ERROR {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn set_exclusive_address_use(_socket: &Socket) -> std::io::Result<()> {
+    Ok(())
 }
 
 fn is_authorized(request: &ParsedRequest, api_token: &str) -> bool {

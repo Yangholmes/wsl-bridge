@@ -288,6 +288,23 @@ a {
   padding: var(--space-20);
 }
 
+.selectable-card {
+  display: grid;
+  gap: var(--space-10);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.selectable-card:hover {
+  background: var(--bg-hover);
+}
+
+.selectable-card[data-selected="true"] {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-500) 35%, transparent);
+}
+
 .main-panel {
   padding: var(--space-20);
 }

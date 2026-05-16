@@ -2,6 +2,10 @@ export type RuleType = "tcp_fwd" | "udp_fwd" | "http_proxy" | "socks5_proxy";
 export type TargetKind = "wsl" | "hyperv" | "static";
 export type BindMode = "single_nic" | "all_nics";
 export type RuntimeState = "running" | "stopped" | "error";
+export type ProxyProtocol = "http" | "https";
+export type ProxyTlsMode = "disabled" | "manual_cert" | "local_ca";
+export type UpstreamScheme = "http" | "https" | "ws" | "wss" | "grpc" | "grpcs";
+export type ProxyCertificateSourceType = "manual_upload" | "local_ca";
 
 export type ProxyRule = {
   id: string;
@@ -25,6 +29,49 @@ export type RuntimeStatusItem = {
   state: RuntimeState;
   last_error: string | null;
   last_apply_at: string | null;
+};
+
+export type ProxyRuntimeStatusItem = {
+  listener_id: string;
+  state: RuntimeState;
+  last_error: string | null;
+  last_apply_at: string | null;
+};
+
+export type ProxyRouteRuntimeItem = {
+  route_id: string;
+  listener_id: string;
+  hit_count: number;
+  error_count: number;
+  last_match_at: string | null;
+  last_server_name: string | null;
+  last_request_path: string | null;
+  last_error: string | null;
+};
+
+export type ProxyUpstreamRuntimeItem = {
+  upstream_id: string;
+  route_id: string;
+  hit_count: number;
+  error_count: number;
+  last_used_at: string | null;
+  last_target: string | null;
+  last_request_path: string | null;
+  last_error: string | null;
+};
+
+export type RuleMigrationStatus = "pending" | "migrated" | "rollbacked";
+
+export type RuleMigrationRecord = {
+  rule_id: string;
+  status: RuleMigrationStatus;
+  original_rule_enabled: boolean;
+  proxy_listener_id: string;
+  proxy_route_id: string;
+  proxy_upstream_id: string | null;
+  detail: string | null;
+  migrated_at: string;
+  rollbacked_at: string | null;
 };
 
 export type FirewallPolicyInput = {
@@ -125,10 +172,179 @@ export type AppRuntimeStatus = {
 };
 
 export type CloseBehavior = "ask" | "minimize" | "exit";
+export type HostsGroupSourceType = "system_imported" | "copied" | "manual" | "file_imported";
 
 export type AppSettings = {
   close_behavior: CloseBehavior;
   show_tray_on_start: boolean;
+};
+
+export type HostsGroup = {
+  id: string;
+  name: string;
+  description: string | null;
+  source_type: HostsGroupSourceType;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type HostsEntry = {
+  id: string;
+  group_id: string;
+  ip: string;
+  domain: string;
+  comment: string | null;
+  enabled: boolean;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProxyListener = {
+  id: string;
+  name: string;
+  listen_host: string;
+  listen_port: number;
+  protocol: ProxyProtocol;
+  tls_mode: ProxyTlsMode;
+  cert_id: string | null;
+  bind_mode: BindMode;
+  nic_id: string | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProxyRoute = {
+  id: string;
+  listener_id: string;
+  server_names: string[];
+  path_prefix: string | null;
+  is_default: boolean;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProxyUpstream = {
+  id: string;
+  route_id: string;
+  target_kind: TargetKind;
+  target_ref: string | null;
+  target_host: string | null;
+  target_port: number;
+  upstream_scheme: UpstreamScheme;
+  path_rewrite_from: string | null;
+  path_rewrite_to: string | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProxyCertificate = {
+  id: string;
+  name: string;
+  source_type: ProxyCertificateSourceType;
+  cert_path: string;
+  key_path: string;
+  domains: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateProxyListenerRequest = {
+  name: string;
+  listen_host: string;
+  listen_port: number;
+  protocol: ProxyProtocol;
+  tls_mode: ProxyTlsMode;
+  cert_id?: string | null;
+  bind_mode: BindMode;
+  nic_id?: string | null;
+  enabled: boolean;
+};
+
+export type UpdateProxyListenerRequest = CreateProxyListenerRequest;
+
+export type CreateProxyRouteRequest = {
+  listener_id: string;
+  server_names: string[];
+  path_prefix?: string | null;
+  is_default: boolean;
+  enabled: boolean;
+};
+
+export type UpdateProxyRouteRequest = {
+  server_names: string[];
+  path_prefix?: string | null;
+  is_default: boolean;
+  enabled: boolean;
+};
+
+export type CreateProxyUpstreamRequest = {
+  route_id: string;
+  target_kind: TargetKind;
+  target_ref?: string | null;
+  target_host?: string | null;
+  target_port: number;
+  upstream_scheme: UpstreamScheme;
+  path_rewrite_from?: string | null;
+  path_rewrite_to?: string | null;
+  enabled: boolean;
+};
+
+export type UpdateProxyUpstreamRequest = CreateProxyUpstreamRequest;
+
+export type CreateProxyCertificateRequest = {
+  name: string;
+  source_type: ProxyCertificateSourceType;
+  cert_path: string;
+  key_path: string;
+  domains: string[];
+};
+
+export type UpdateProxyCertificateRequest = CreateProxyCertificateRequest;
+
+export type CreateHostsGroupRequest = {
+  name: string;
+  description?: string | null;
+};
+
+export type UpdateHostsGroupRequest = {
+  name: string;
+  description?: string | null;
+};
+
+export type CopyHostsGroupRequest = {
+  source_group_id: string;
+  name: string;
+  description?: string | null;
+};
+
+export type HostsEntryInput = {
+  id?: string | null;
+  ip: string;
+  domain: string;
+  comment?: string | null;
+  enabled: boolean;
+  order_index: number;
+};
+
+export type SaveHostsEntriesRequest = {
+  group_id: string;
+  entries: HostsEntryInput[];
+};
+
+export type ImportHostsGroupRequest = {
+  path: string;
+  name?: string | null;
+  description?: string | null;
+};
+
+export type ExportHostsGroupRequest = {
+  group_id: string;
+  path: string;
 };
 
 export type McpServerConfig = {

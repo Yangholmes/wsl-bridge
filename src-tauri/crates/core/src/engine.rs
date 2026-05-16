@@ -1,25 +1,43 @@
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, SocketAddr, TcpListener, ToSocketAddrs};
-use std::path::Path;
+use std::fs;
+use std::net::{IpAddr, SocketAddr, TcpListener, ToSocketAddrs, UdpSocket};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::Utc;
 use parking_lot::{Mutex, RwLock};
+use rcgen::{BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair};
 use serde_json::json;
 use thiserror::Error;
 use tracing::warn;
 use uuid::Uuid;
 use wsl_bridge_shared::{
-    AppSettings, ApplyRulesResult, AuditLog, BindMode, CreateRuleRequest, FirewallPolicy,
-    LogQueryRequest, LogQueryResult, McpServerConfig, NewFirewallPolicy, NewProxyRule, ProxyRule,
+    AppSettings, ApplyRulesResult, AuditLog, BindMode, CopyHostsGroupRequest,
+    CreateHostsGroupRequest, CreateProxyCertificateRequest, CreateProxyListenerRequest,
+    CreateProxyRouteRequest, CreateProxyUpstreamRequest, CreateRuleRequest,
+    ExportHostsGroupRequest, FirewallPolicy, HostsEntry, HostsEntryInput, HostsGroup,
+    HostsGroupSourceType, ImportHostsGroupRequest, LogQueryRequest, LogQueryResult,
+    McpServerConfig, NewFirewallPolicy, NewProxyRule, ProxyCertificate, ProxyCertificateSourceType,
+    ProxyListener, ProxyProtocol, ProxyRoute, ProxyRouteRuntimeItem, ProxyRule,
+    ProxyRuntimeStatusItem, ProxyTlsMode, ProxyUpstream, ProxyUpstreamRuntimeItem,
     QueryTrafficStatsRequest, QueryTrafficStatsResult, RuleLogStatsItem, RuleLogStatsRequest,
-    RulePatch, RuleType, RuntimeState, RuntimeStatusItem, StopRulesResult, TailLogsResult,
-    TargetKind, TopologySnapshot, TrafficWindowData,
+    RuleMigrationRecord, RuleMigrationStatus, RulePatch, RuleType, RuntimeState, RuntimeStatusItem,
+    SaveHostsEntriesRequest, StopRulesResult, TailLogsResult, TargetKind, TopologySnapshot,
+    TrafficWindowData, UpdateHostsGroupRequest, UpdateProxyCertificateRequest,
+    UpdateProxyListenerRequest, UpdateProxyRouteRequest, UpdateProxyUpstreamRequest,
+    UpstreamScheme,
 };
 
 use crate::app_logs::{AppLogger, ErrorLogEntry};
 use crate::firewall::{apply_firewall, cleanup_firewall, FirewallMode, FirewallRuleRuntime};
-use crate::forwarder::{spawn as spawn_forwarder, ForwarderHandle, ForwarderKind};
+use crate::forwarder::{
+    spawn as spawn_forwarder, spawn_http_reverse_proxy, spawn_https_reverse_proxy, ForwarderHandle,
+    ForwarderKind,
+};
+use crate::hosts::{
+    read_hosts_file, render_hosts_text, resolve_system_hosts_path, write_hosts_file,
+};
+use crate::proxy_metrics::ProxyMetricsTracker;
 use crate::sqlite_store::{Snapshot, SqliteStore};
 use crate::topology::{
     debug_hyperv_probe, list_adapters, list_wsl_instances, resolve_dynamic_target_host,
@@ -31,8 +49,22 @@ use crate::traffic::TrafficTracker;
 pub enum EngineError {
     #[error("rule not found: {0}")]
     RuleNotFound(String),
+    #[error("hosts group not found: {0}")]
+    HostsGroupNotFound(String),
+    #[error("proxy listener not found: {0}")]
+    ProxyListenerNotFound(String),
+    #[error("proxy route not found: {0}")]
+    ProxyRouteNotFound(String),
+    #[error("proxy upstream not found: {0}")]
+    ProxyUpstreamNotFound(String),
+    #[error("proxy certificate not found: {0}")]
+    ProxyCertificateNotFound(String),
     #[error("invalid rule: {0}")]
     InvalidRule(String),
+    #[error("invalid hosts data: {0}")]
+    InvalidHosts(String),
+    #[error("invalid proxy data: {0}")]
+    InvalidProxy(String),
     #[error("storage error: {0}")]
     Storage(String),
 }
@@ -55,6 +87,14 @@ struct EngineStore {
     rules: HashMap<String, ProxyRule>,
     firewalls: HashMap<String, FirewallPolicy>,
     runtime: HashMap<String, RuntimeStatusItem>,
+    hosts_groups: HashMap<String, HostsGroup>,
+    hosts_entries: HashMap<String, Vec<HostsEntry>>,
+    proxy_listeners: HashMap<String, ProxyListener>,
+    proxy_routes: HashMap<String, Vec<ProxyRoute>>,
+    proxy_upstreams: HashMap<String, Vec<ProxyUpstream>>,
+    proxy_certificates: HashMap<String, ProxyCertificate>,
+    proxy_runtime: HashMap<String, ProxyRuntimeStatusItem>,
+    rule_migrations: HashMap<String, RuleMigrationRecord>,
     logs: Vec<AuditLog>,
     log_seq: u64,
     mcp_config: McpServerConfig,
@@ -75,9 +115,11 @@ pub struct RuleEngine {
     store: RwLock<EngineStore>,
     sqlite: Option<Arc<SqliteStore>>,
     traffic: Arc<TrafficTracker>,
+    proxy_metrics: Arc<ProxyMetricsTracker>,
     logger: Arc<AppLogger>,
     options: EngineOptions,
     active: Mutex<HashMap<String, ActiveRuleRuntime>>,
+    active_proxy: Mutex<HashMap<String, ForwarderHandle>>,
 }
 
 impl Default for RuleEngine {
@@ -89,6 +131,7 @@ impl Default for RuleEngine {
 impl Drop for RuleEngine {
     fn drop(&mut self) {
         self.stop_all_active_rules();
+        self.stop_all_active_proxy_listeners();
     }
 }
 
@@ -115,10 +158,12 @@ impl RuleEngine {
         Self {
             store: RwLock::new(EngineStore::default()),
             traffic: Arc::new(TrafficTracker::new(sqlite.clone())),
+            proxy_metrics: Arc::new(ProxyMetricsTracker::new()),
             logger,
             sqlite,
             options,
             active: Mutex::new(HashMap::new()),
+            active_proxy: Mutex::new(HashMap::new()),
         }
     }
 
@@ -150,6 +195,14 @@ impl RuleEngine {
             rules: snapshot.rules,
             firewalls: snapshot.firewalls,
             runtime: snapshot.runtime,
+            hosts_groups: snapshot.hosts_groups,
+            hosts_entries: snapshot.hosts_entries,
+            proxy_listeners: snapshot.proxy_listeners,
+            proxy_routes: snapshot.proxy_routes,
+            proxy_upstreams: snapshot.proxy_upstreams,
+            proxy_certificates: snapshot.proxy_certificates,
+            proxy_runtime: HashMap::new(),
+            rule_migrations: snapshot.rule_migrations,
             logs: snapshot.logs,
             log_seq: snapshot.log_seq,
             mcp_config: snapshot.mcp_config,
@@ -158,10 +211,12 @@ impl RuleEngine {
         Ok(Self {
             store,
             traffic: Arc::new(TrafficTracker::new(Some(Arc::clone(&sqlite)))),
+            proxy_metrics: Arc::new(ProxyMetricsTracker::new()),
             logger,
             sqlite: Some(sqlite),
             options,
             active: Mutex::new(HashMap::new()),
+            active_proxy: Mutex::new(HashMap::new()),
         })
     }
 
@@ -220,8 +275,394 @@ impl RuleEngine {
         self.store.read().mcp_config.clone()
     }
 
+    pub fn list_hosts_groups(&self) -> Vec<HostsGroup> {
+        let store = self.store.read();
+        let mut items = store.hosts_groups.values().cloned().collect::<Vec<_>>();
+        items.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        items
+    }
+
+    pub fn list_hosts_entries(&self, group_id: &str) -> Result<Vec<HostsEntry>, EngineError> {
+        let store = self.store.read();
+        if !store.hosts_groups.contains_key(group_id) {
+            return Err(EngineError::HostsGroupNotFound(group_id.to_owned()));
+        }
+        let mut items = store
+            .hosts_entries
+            .get(group_id)
+            .cloned()
+            .unwrap_or_default();
+        items.sort_by_key(|entry| entry.order_index);
+        Ok(items)
+    }
+
+    pub fn list_proxy_listeners(&self) -> Vec<ProxyListener> {
+        let store = self.store.read();
+        let mut items = store.proxy_listeners.values().cloned().collect::<Vec<_>>();
+        items.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        items
+    }
+
+    pub fn list_proxy_certificates(&self) -> Vec<ProxyCertificate> {
+        let store = self.store.read();
+        let mut items = store
+            .proxy_certificates
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        items.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        items
+    }
+
+    pub fn list_proxy_routes(&self, listener_id: &str) -> Result<Vec<ProxyRoute>, EngineError> {
+        let store = self.store.read();
+        if !store.proxy_listeners.contains_key(listener_id) {
+            return Err(EngineError::ProxyListenerNotFound(listener_id.to_owned()));
+        }
+        let mut items = store
+            .proxy_routes
+            .get(listener_id)
+            .cloned()
+            .unwrap_or_default();
+        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(items)
+    }
+
+    pub fn list_proxy_upstreams(&self, route_id: &str) -> Result<Vec<ProxyUpstream>, EngineError> {
+        let store = self.store.read();
+        if !store
+            .proxy_routes
+            .values()
+            .any(|routes| routes.iter().any(|route| route.id == route_id))
+        {
+            return Err(EngineError::ProxyRouteNotFound(route_id.to_owned()));
+        }
+        let mut items = store
+            .proxy_upstreams
+            .get(route_id)
+            .cloned()
+            .unwrap_or_default();
+        items.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        Ok(items)
+    }
+
+    pub fn get_proxy_runtime_status(&self) -> Vec<ProxyRuntimeStatusItem> {
+        let store = self.store.read();
+        let mut items = store.proxy_runtime.values().cloned().collect::<Vec<_>>();
+        items.sort_by(|a, b| a.listener_id.cmp(&b.listener_id));
+        items
+    }
+
+    pub fn list_proxy_route_runtime(&self, listener_id: &str) -> Vec<ProxyRouteRuntimeItem> {
+        self.proxy_metrics.list_route_runtime(listener_id)
+    }
+
+    pub fn list_proxy_upstream_runtime(&self, route_id: &str) -> Vec<ProxyUpstreamRuntimeItem> {
+        self.proxy_metrics.list_upstream_runtime(route_id)
+    }
+
+    pub fn list_rule_migrations(&self) -> Vec<RuleMigrationRecord> {
+        let store = self.store.read();
+        let mut items = store.rule_migrations.values().cloned().collect::<Vec<_>>();
+        items.sort_by(|a, b| b.migrated_at.cmp(&a.migrated_at));
+        items
+    }
+
     pub fn get_app_settings(&self) -> AppSettings {
         self.store.read().app_settings.clone()
+    }
+
+    pub fn bootstrap_default_hosts_group(&self) -> Result<HostsGroup, EngineError> {
+        let path = resolve_system_hosts_path();
+        self.bootstrap_default_hosts_group_from_path(&path)
+    }
+
+    pub fn create_hosts_group(&self, req: CreateHostsGroupRequest) -> Result<String, EngineError> {
+        let name = req.name.trim();
+        if name.is_empty() {
+            return Err(EngineError::InvalidHosts(
+                "hosts group name is required".to_owned(),
+            ));
+        }
+
+        let now = Utc::now();
+        let group_id = Uuid::new_v4().to_string();
+        let group = HostsGroup {
+            id: group_id.clone(),
+            name: name.to_owned(),
+            description: clean_optional_text(req.description),
+            source_type: HostsGroupSourceType::Manual,
+            is_active: false,
+            created_at: now,
+            updated_at: now,
+        };
+
+        let mut store = self.store.write();
+        store.hosts_groups.insert(group_id.clone(), group);
+        store.hosts_entries.insert(group_id.clone(), Vec::new());
+        append_log(
+            &mut store,
+            "info",
+            "hosts",
+            "hosts_group_created",
+            &format!("group_id={group_id}"),
+        );
+        self.persist_store(&store);
+        Ok(group_id)
+    }
+
+    pub fn update_hosts_group(
+        &self,
+        id: &str,
+        req: UpdateHostsGroupRequest,
+    ) -> Result<(), EngineError> {
+        let name = req.name.trim();
+        if name.is_empty() {
+            return Err(EngineError::InvalidHosts(
+                "hosts group name is required".to_owned(),
+            ));
+        }
+
+        let mut store = self.store.write();
+        let group = store
+            .hosts_groups
+            .get_mut(id)
+            .ok_or_else(|| EngineError::HostsGroupNotFound(id.to_owned()))?;
+        group.name = name.to_owned();
+        group.description = clean_optional_text(req.description);
+        group.updated_at = Utc::now();
+        append_log(
+            &mut store,
+            "info",
+            "hosts",
+            "hosts_group_updated",
+            &format!("group_id={id}"),
+        );
+        self.persist_store(&store);
+        Ok(())
+    }
+
+    pub fn delete_hosts_group(&self, id: &str) -> Result<(), EngineError> {
+        let mut store = self.store.write();
+        let Some(group) = store.hosts_groups.get(id) else {
+            return Err(EngineError::HostsGroupNotFound(id.to_owned()));
+        };
+        if group.is_active {
+            return Err(EngineError::InvalidHosts(
+                "active hosts group cannot be deleted".to_owned(),
+            ));
+        }
+        store.hosts_groups.remove(id);
+        store.hosts_entries.remove(id);
+        append_log(
+            &mut store,
+            "info",
+            "hosts",
+            "hosts_group_deleted",
+            &format!("group_id={id}"),
+        );
+        self.persist_store(&store);
+        Ok(())
+    }
+
+    pub fn copy_hosts_group(&self, req: CopyHostsGroupRequest) -> Result<String, EngineError> {
+        let name = req.name.trim();
+        if name.is_empty() {
+            return Err(EngineError::InvalidHosts(
+                "copied hosts group name is required".to_owned(),
+            ));
+        }
+
+        let mut store = self.store.write();
+        let source_group = store
+            .hosts_groups
+            .get(&req.source_group_id)
+            .cloned()
+            .ok_or_else(|| EngineError::HostsGroupNotFound(req.source_group_id.clone()))?;
+        let source_entries = store
+            .hosts_entries
+            .get(&req.source_group_id)
+            .cloned()
+            .unwrap_or_default();
+
+        let now = Utc::now();
+        let group_id = Uuid::new_v4().to_string();
+        store.hosts_groups.insert(
+            group_id.clone(),
+            HostsGroup {
+                id: group_id.clone(),
+                name: name.to_owned(),
+                description: clean_optional_text(req.description).or(source_group.description),
+                source_type: HostsGroupSourceType::Copied,
+                is_active: false,
+                created_at: now,
+                updated_at: now,
+            },
+        );
+        store.hosts_entries.insert(
+            group_id.clone(),
+            source_entries
+                .into_iter()
+                .enumerate()
+                .map(|(index, entry)| HostsEntry {
+                    id: Uuid::new_v4().to_string(),
+                    group_id: group_id.clone(),
+                    ip: entry.ip,
+                    domain: entry.domain,
+                    comment: entry.comment,
+                    enabled: entry.enabled,
+                    order_index: index as u32,
+                    created_at: now,
+                    updated_at: now,
+                })
+                .collect(),
+        );
+        append_log(
+            &mut store,
+            "info",
+            "hosts",
+            "hosts_group_copied",
+            &format!(
+                "group_id={group_id},source_group_id={}",
+                req.source_group_id
+            ),
+        );
+        self.persist_store(&store);
+        Ok(group_id)
+    }
+
+    pub fn save_hosts_entries(&self, req: SaveHostsEntriesRequest) -> Result<(), EngineError> {
+        let mut store = self.store.write();
+        if !store.hosts_groups.contains_key(&req.group_id) {
+            return Err(EngineError::HostsGroupNotFound(req.group_id));
+        }
+
+        let now = Utc::now();
+        let mut entries = Vec::with_capacity(req.entries.len());
+        for (index, entry) in req.entries.into_iter().enumerate() {
+            validate_hosts_entry_input(&entry)?;
+            entries.push(HostsEntry {
+                id: entry.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
+                group_id: req.group_id.clone(),
+                ip: entry.ip.trim().to_owned(),
+                domain: entry.domain.trim().to_owned(),
+                comment: clean_optional_text(entry.comment),
+                enabled: entry.enabled,
+                order_index: index as u32,
+                created_at: now,
+                updated_at: now,
+            });
+        }
+
+        store.hosts_entries.insert(req.group_id.clone(), entries);
+        if let Some(group) = store.hosts_groups.get_mut(&req.group_id) {
+            group.updated_at = now;
+        }
+        append_log(
+            &mut store,
+            "info",
+            "hosts",
+            "hosts_entries_saved",
+            &format!("group_id={}", req.group_id),
+        );
+        self.persist_store(&store);
+        Ok(())
+    }
+
+    pub fn import_hosts_group(&self, req: ImportHostsGroupRequest) -> Result<String, EngineError> {
+        let path = PathBuf::from(req.path.trim());
+        let parsed = read_hosts_file(&path)
+            .map_err(|err| EngineError::Storage(format!("read hosts import file failed: {err}")))?;
+        let group_name = req
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                path.file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("imported-hosts")
+                    .to_owned()
+            });
+
+        let now = Utc::now();
+        let group_id = Uuid::new_v4().to_string();
+        let entries = parsed
+            .into_iter()
+            .enumerate()
+            .map(|(index, item)| HostsEntry {
+                id: Uuid::new_v4().to_string(),
+                group_id: group_id.clone(),
+                ip: item.ip,
+                domain: item.domain,
+                comment: clean_optional_text(item.comment),
+                enabled: true,
+                order_index: index as u32,
+                created_at: now,
+                updated_at: now,
+            })
+            .collect::<Vec<_>>();
+
+        let mut store = self.store.write();
+        store.hosts_groups.insert(
+            group_id.clone(),
+            HostsGroup {
+                id: group_id.clone(),
+                name: group_name,
+                description: clean_optional_text(req.description),
+                source_type: HostsGroupSourceType::FileImported,
+                is_active: false,
+                created_at: now,
+                updated_at: now,
+            },
+        );
+        store.hosts_entries.insert(group_id.clone(), entries);
+        append_log(
+            &mut store,
+            "info",
+            "hosts",
+            "hosts_group_imported",
+            &format!("group_id={group_id},path={}", path.display()),
+        );
+        self.persist_store(&store);
+        Ok(group_id)
+    }
+
+    pub fn export_hosts_group(&self, req: ExportHostsGroupRequest) -> Result<(), EngineError> {
+        let entries = self.list_hosts_entries(&req.group_id)?;
+        let content = render_hosts_text(
+            &entries
+                .into_iter()
+                .map(|entry| HostsEntryInput {
+                    id: Some(entry.id),
+                    ip: entry.ip,
+                    domain: entry.domain,
+                    comment: entry.comment,
+                    enabled: entry.enabled,
+                    order_index: entry.order_index,
+                })
+                .collect::<Vec<_>>(),
+        );
+        let path = PathBuf::from(req.path.trim());
+        write_hosts_file(&path, &content).map_err(|err| {
+            EngineError::Storage(format!("write hosts export file failed: {err}"))
+        })?;
+        let mut store = self.store.write();
+        append_log(
+            &mut store,
+            "info",
+            "hosts",
+            "hosts_group_exported",
+            &format!("group_id={},path={}", req.group_id, path.display()),
+        );
+        self.persist_store(&store);
+        Ok(())
+    }
+
+    pub fn activate_hosts_group(&self, group_id: &str) -> Result<(), EngineError> {
+        let path = resolve_system_hosts_path();
+        self.activate_hosts_group_to_path(group_id, &path)
     }
 
     pub fn update_app_settings(&self, settings: AppSettings) -> Result<(), EngineError> {
@@ -283,6 +724,756 @@ impl RuleEngine {
         Ok(())
     }
 
+    pub fn apply_proxy_listeners(&self) {
+        self.stop_all_active_proxy_listeners();
+
+        let (listeners, routes_map, upstreams_map, certificates_map) = {
+            let store = self.store.read();
+            (
+                store.proxy_listeners.values().cloned().collect::<Vec<_>>(),
+                store.proxy_routes.clone(),
+                store.proxy_upstreams.clone(),
+                store.proxy_certificates.clone(),
+            )
+        };
+
+        let mut new_active = HashMap::new();
+        let mut runtime_updates = Vec::new();
+        let now = Utc::now();
+
+        for listener in listeners {
+            if !listener.enabled {
+                runtime_updates.push(ProxyRuntimeStatusItem {
+                    listener_id: listener.id.clone(),
+                    state: RuntimeState::Stopped,
+                    last_error: None,
+                    last_apply_at: Some(now),
+                });
+                continue;
+            }
+            let listen_addr = match self.resolve_proxy_listen_addr(&listener) {
+                Ok(addr) => addr,
+                Err(err) => {
+                    self.append_engine_log(
+                        "error",
+                        "proxy",
+                        "proxy_listener_start_failed",
+                        &format!("listener_id={},reason={err}", listener.id),
+                    );
+                    self.logger.log_error(
+                        ErrorLogEntry::new("proxy_listen_resolve_failed", err.clone())
+                            .with_rule_id(listener.id.clone()),
+                    );
+                    runtime_updates.push(ProxyRuntimeStatusItem {
+                        listener_id: listener.id.clone(),
+                        state: RuntimeState::Error,
+                        last_error: Some(err),
+                        last_apply_at: Some(now),
+                    });
+                    continue;
+                }
+            };
+
+            let mut runtime_routes = Vec::new();
+            let mut runtime_upstreams = HashMap::<String, Vec<ProxyUpstream>>::new();
+
+            for route in routes_map
+                .get(&listener.id)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|route| route.enabled)
+            {
+                let mut resolved_upstreams = Vec::new();
+                for mut upstream in upstreams_map
+                    .get(&route.id)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|upstream| upstream.enabled)
+                {
+                    let resolved_host = match upstream.target_kind {
+                        TargetKind::Static => upstream
+                            .target_host
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(str::to_owned),
+                        TargetKind::Wsl | TargetKind::Hyperv => upstream
+                            .target_ref
+                            .as_deref()
+                            .and_then(|value| {
+                                resolve_dynamic_target_host(upstream.target_kind, value)
+                            })
+                            .or_else(|| {
+                                upstream
+                                    .target_host
+                                    .as_deref()
+                                    .map(str::trim)
+                                    .filter(|value| !value.is_empty())
+                                    .map(str::to_owned)
+                            }),
+                    };
+
+                    match resolved_host {
+                        Some(host) => {
+                            upstream.target_host = Some(host);
+                            resolved_upstreams.push(upstream);
+                        }
+                        None => {
+                            self.append_engine_log(
+                                "warn",
+                                "proxy",
+                                "proxy_upstream_skipped",
+                                &format!(
+                                    "listener_id={},route_id={},upstream_id={},reason=target_not_resolved",
+                                    listener.id, route.id, upstream.id
+                                ),
+                            );
+                        }
+                    }
+                }
+
+                if resolved_upstreams.is_empty() {
+                    self.append_engine_log(
+                        "warn",
+                        "proxy",
+                        "proxy_route_skipped",
+                        &format!(
+                            "listener_id={},route_id={},reason=no_resolved_upstream",
+                            listener.id, route.id
+                        ),
+                    );
+                    continue;
+                }
+
+                runtime_upstreams.insert(route.id.clone(), resolved_upstreams);
+                runtime_routes.push(route);
+            }
+
+            if runtime_routes.is_empty() {
+                let message = "no valid proxy routes are available".to_owned();
+                self.append_engine_log(
+                    "warn",
+                    "proxy",
+                    "proxy_listener_skipped",
+                    &format!("listener_id={},reason=no_runtime_route", listener.id),
+                );
+                runtime_updates.push(ProxyRuntimeStatusItem {
+                    listener_id: listener.id.clone(),
+                    state: RuntimeState::Error,
+                    last_error: Some(message),
+                    last_apply_at: Some(now),
+                });
+                continue;
+            }
+
+            let traffic_recorder = self
+                .traffic
+                .recorder(listener.id.clone(), Arc::clone(&self.logger));
+            let spawn_result = match listener.protocol {
+                ProxyProtocol::Http => spawn_http_reverse_proxy(
+                    listen_addr,
+                    runtime_routes,
+                    runtime_upstreams,
+                    self.proxy_upstream_trust_root_paths(),
+                    traffic_recorder,
+                    self.proxy_metrics.recorder(),
+                ),
+                ProxyProtocol::Https => match listener.tls_mode {
+                    ProxyTlsMode::ManualCert | ProxyTlsMode::LocalCa => {
+                        match listener.cert_id.as_deref() {
+                            Some(cert_id) => match certificates_map.get(cert_id) {
+                                Some(certificate) => spawn_https_reverse_proxy(
+                                    listen_addr,
+                                    &certificate.cert_path,
+                                    &certificate.key_path,
+                                    runtime_routes,
+                                    runtime_upstreams,
+                                    self.proxy_upstream_trust_root_paths(),
+                                    traffic_recorder,
+                                    self.proxy_metrics.recorder(),
+                                ),
+                                None => Err(std::io::Error::new(
+                                    std::io::ErrorKind::NotFound,
+                                    format!("proxy certificate not found: {cert_id}"),
+                                )),
+                            },
+                            None => Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidInput,
+                                "https listener requires cert_id when tls is enabled",
+                            )),
+                        }
+                    }
+                    ProxyTlsMode::Disabled => Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "https listener requires tls configuration",
+                    )),
+                },
+            };
+            match spawn_result {
+                Ok(handle) => {
+                    self.append_engine_log(
+                        "info",
+                        "proxy",
+                        "proxy_listener_started",
+                        &format!("listener_id={},listen={listen_addr}", listener.id),
+                    );
+                    new_active.insert(listener.id.clone(), handle);
+                    runtime_updates.push(ProxyRuntimeStatusItem {
+                        listener_id: listener.id.clone(),
+                        state: RuntimeState::Running,
+                        last_error: None,
+                        last_apply_at: Some(now),
+                    });
+                }
+                Err(err) => {
+                    let msg = format!("start proxy listener failed: {err}");
+                    self.append_engine_log(
+                        "error",
+                        "proxy",
+                        "proxy_listener_start_failed",
+                        &format!("listener_id={},reason={msg}", listener.id),
+                    );
+                    self.logger.log_error(
+                        ErrorLogEntry::new("proxy_listener_start_failed", msg)
+                            .with_rule_id(listener.id.clone())
+                            .with_target(listen_addr.to_string()),
+                    );
+                    runtime_updates.push(ProxyRuntimeStatusItem {
+                        listener_id: listener.id.clone(),
+                        state: RuntimeState::Error,
+                        last_error: Some(format!("start proxy listener failed: {err}")),
+                        last_apply_at: Some(now),
+                    });
+                }
+            }
+        }
+
+        {
+            let mut active_proxy = self.active_proxy.lock();
+            *active_proxy = new_active;
+        }
+        {
+            let mut store = self.store.write();
+            store.proxy_runtime.clear();
+            for item in runtime_updates {
+                store.proxy_runtime.insert(item.listener_id.clone(), item);
+            }
+        }
+    }
+
+    pub fn create_proxy_listener(
+        &self,
+        req: CreateProxyListenerRequest,
+    ) -> Result<String, EngineError> {
+        self.validate_proxy_listener(
+            None,
+            &req.name,
+            &req.listen_host,
+            req.listen_port,
+            req.protocol,
+            req.tls_mode,
+            req.cert_id.as_deref(),
+            req.bind_mode,
+            req.nic_id.as_deref(),
+        )?;
+
+        let listener_id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+        let listener = ProxyListener {
+            id: listener_id.clone(),
+            name: req.name.trim().to_owned(),
+            listen_host: req.listen_host.trim().to_owned(),
+            listen_port: req.listen_port,
+            protocol: req.protocol,
+            tls_mode: req.tls_mode,
+            cert_id: clean_optional_text(req.cert_id),
+            bind_mode: req.bind_mode,
+            nic_id: clean_optional_text(req.nic_id),
+            enabled: req.enabled,
+            created_at: now,
+            updated_at: now,
+        };
+
+        let mut store = self.store.write();
+        store.proxy_listeners.insert(listener_id.clone(), listener);
+        store.proxy_routes.insert(listener_id.clone(), Vec::new());
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "proxy_listener_created",
+            &format!("listener_id={listener_id}"),
+        );
+        self.persist_store(&store);
+        drop(store);
+        self.apply_proxy_listeners();
+        Ok(listener_id)
+    }
+
+    pub fn create_proxy_certificate(
+        &self,
+        req: CreateProxyCertificateRequest,
+    ) -> Result<String, EngineError> {
+        let name = req.name.trim().to_owned();
+        let domains = normalize_server_names(req.domains);
+        let certificate_id = Uuid::new_v4().to_string();
+        let (cert_path, key_path) = self.prepare_proxy_certificate_material(
+            &certificate_id,
+            &name,
+            req.source_type,
+            req.cert_path.trim(),
+            req.key_path.trim(),
+            &domains,
+        )?;
+        self.validate_proxy_certificate(
+            None,
+            &name,
+            req.source_type,
+            &cert_path,
+            &key_path,
+            &domains,
+        )?;
+
+        let now = Utc::now();
+        let certificate = ProxyCertificate {
+            id: certificate_id.clone(),
+            name,
+            source_type: req.source_type,
+            cert_path,
+            key_path,
+            domains,
+            created_at: now,
+            updated_at: now,
+        };
+
+        let mut store = self.store.write();
+        store
+            .proxy_certificates
+            .insert(certificate_id.clone(), certificate);
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "proxy_certificate_created",
+            &format!("certificate_id={certificate_id}"),
+        );
+        self.persist_store(&store);
+        Ok(certificate_id)
+    }
+
+    pub fn update_proxy_certificate(
+        &self,
+        id: &str,
+        req: UpdateProxyCertificateRequest,
+    ) -> Result<(), EngineError> {
+        let previous = {
+            let store = self.store.read();
+            store
+                .proxy_certificates
+                .get(id)
+                .cloned()
+                .ok_or_else(|| EngineError::ProxyCertificateNotFound(id.to_owned()))?
+        };
+        let name = req.name.trim().to_owned();
+        let domains = normalize_server_names(req.domains);
+        let (cert_path, key_path) = self.prepare_proxy_certificate_material(
+            id,
+            &name,
+            req.source_type,
+            req.cert_path.trim(),
+            req.key_path.trim(),
+            &domains,
+        )?;
+        self.validate_proxy_certificate(
+            Some(id),
+            &name,
+            req.source_type,
+            &cert_path,
+            &key_path,
+            &domains,
+        )?;
+
+        let mut store = self.store.write();
+        let certificate = store
+            .proxy_certificates
+            .get_mut(id)
+            .ok_or_else(|| EngineError::ProxyCertificateNotFound(id.to_owned()))?;
+        certificate.name = name;
+        certificate.source_type = req.source_type;
+        certificate.cert_path = cert_path;
+        certificate.key_path = key_path;
+        certificate.domains = domains;
+        certificate.updated_at = Utc::now();
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "proxy_certificate_updated",
+            &format!("certificate_id={id}"),
+        );
+        self.persist_store(&store);
+        if previous.source_type == ProxyCertificateSourceType::LocalCa
+            && req.source_type != ProxyCertificateSourceType::LocalCa
+        {
+            self.cleanup_generated_certificate_files(&previous.cert_path, &previous.key_path);
+        }
+        Ok(())
+    }
+
+    pub fn delete_proxy_certificate(&self, id: &str) -> Result<(), EngineError> {
+        let mut store = self.store.write();
+        if store
+            .proxy_listeners
+            .values()
+            .any(|listener| listener.cert_id.as_deref() == Some(id))
+        {
+            return Err(EngineError::InvalidProxy(
+                "proxy certificate is currently used by a listener".to_owned(),
+            ));
+        }
+        let certificate = if let Some(certificate) = store.proxy_certificates.remove(id) {
+            certificate
+        } else {
+            return Err(EngineError::ProxyCertificateNotFound(id.to_owned()));
+        };
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "proxy_certificate_deleted",
+            &format!("certificate_id={id}"),
+        );
+        self.persist_store(&store);
+        drop(store);
+        if certificate.source_type == ProxyCertificateSourceType::LocalCa {
+            self.cleanup_generated_certificate_files(&certificate.cert_path, &certificate.key_path);
+        }
+        Ok(())
+    }
+
+    pub fn update_proxy_listener(
+        &self,
+        id: &str,
+        req: UpdateProxyListenerRequest,
+    ) -> Result<(), EngineError> {
+        self.validate_proxy_listener(
+            Some(id),
+            &req.name,
+            &req.listen_host,
+            req.listen_port,
+            req.protocol,
+            req.tls_mode,
+            req.cert_id.as_deref(),
+            req.bind_mode,
+            req.nic_id.as_deref(),
+        )?;
+
+        let mut store = self.store.write();
+        let listener = store
+            .proxy_listeners
+            .get_mut(id)
+            .ok_or_else(|| EngineError::ProxyListenerNotFound(id.to_owned()))?;
+        listener.name = req.name.trim().to_owned();
+        listener.listen_host = req.listen_host.trim().to_owned();
+        listener.listen_port = req.listen_port;
+        listener.protocol = req.protocol;
+        listener.tls_mode = req.tls_mode;
+        listener.cert_id = clean_optional_text(req.cert_id);
+        listener.bind_mode = req.bind_mode;
+        listener.nic_id = clean_optional_text(req.nic_id);
+        listener.enabled = req.enabled;
+        listener.updated_at = Utc::now();
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "proxy_listener_updated",
+            &format!("listener_id={id}"),
+        );
+        self.persist_store(&store);
+        drop(store);
+        self.apply_proxy_listeners();
+        Ok(())
+    }
+
+    pub fn delete_proxy_listener(&self, id: &str) -> Result<(), EngineError> {
+        let mut store = self.store.write();
+        if store.proxy_listeners.remove(id).is_none() {
+            return Err(EngineError::ProxyListenerNotFound(id.to_owned()));
+        }
+        store.proxy_runtime.remove(id);
+        let route_ids = store
+            .proxy_routes
+            .remove(id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|route| route.id)
+            .collect::<Vec<_>>();
+        for route_id in route_ids {
+            store.proxy_upstreams.remove(&route_id);
+        }
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "proxy_listener_deleted",
+            &format!("listener_id={id}"),
+        );
+        self.persist_store(&store);
+        drop(store);
+        self.apply_proxy_listeners();
+        Ok(())
+    }
+
+    pub fn create_proxy_route(&self, req: CreateProxyRouteRequest) -> Result<String, EngineError> {
+        let server_names = normalize_server_names(req.server_names);
+        self.validate_proxy_route(
+            None,
+            &req.listener_id,
+            &server_names,
+            req.path_prefix.as_deref(),
+            req.is_default,
+        )?;
+
+        let route_id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+        let route = ProxyRoute {
+            id: route_id.clone(),
+            listener_id: req.listener_id.clone(),
+            server_names,
+            path_prefix: normalize_optional_path(req.path_prefix)?,
+            is_default: req.is_default,
+            enabled: req.enabled,
+            created_at: now,
+            updated_at: now,
+        };
+
+        let mut store = self.store.write();
+        store
+            .proxy_routes
+            .entry(req.listener_id.clone())
+            .or_default()
+            .push(route);
+        store.proxy_upstreams.insert(route_id.clone(), Vec::new());
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "proxy_route_created",
+            &format!("listener_id={},route_id={route_id}", req.listener_id),
+        );
+        self.persist_store(&store);
+        drop(store);
+        self.apply_proxy_listeners();
+        Ok(route_id)
+    }
+
+    pub fn update_proxy_route(
+        &self,
+        id: &str,
+        req: UpdateProxyRouteRequest,
+    ) -> Result<(), EngineError> {
+        let route = self
+            .find_proxy_route(id)
+            .ok_or_else(|| EngineError::ProxyRouteNotFound(id.to_owned()))?;
+        let server_names = normalize_server_names(req.server_names);
+        self.validate_proxy_route(
+            Some(id),
+            &route.listener_id,
+            &server_names,
+            req.path_prefix.as_deref(),
+            req.is_default,
+        )?;
+
+        let mut store = self.store.write();
+        let routes = store
+            .proxy_routes
+            .get_mut(&route.listener_id)
+            .ok_or_else(|| EngineError::ProxyListenerNotFound(route.listener_id.clone()))?;
+        let route = routes
+            .iter_mut()
+            .find(|item| item.id == id)
+            .ok_or_else(|| EngineError::ProxyRouteNotFound(id.to_owned()))?;
+        route.server_names = server_names;
+        route.path_prefix = normalize_optional_path(req.path_prefix)?;
+        route.is_default = req.is_default;
+        route.enabled = req.enabled;
+        route.updated_at = Utc::now();
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "proxy_route_updated",
+            &format!("route_id={id}"),
+        );
+        self.persist_store(&store);
+        drop(store);
+        self.apply_proxy_listeners();
+        Ok(())
+    }
+
+    pub fn delete_proxy_route(&self, id: &str) -> Result<(), EngineError> {
+        let route = self
+            .find_proxy_route(id)
+            .ok_or_else(|| EngineError::ProxyRouteNotFound(id.to_owned()))?;
+
+        let mut store = self.store.write();
+        let routes = store
+            .proxy_routes
+            .get_mut(&route.listener_id)
+            .ok_or_else(|| EngineError::ProxyListenerNotFound(route.listener_id.clone()))?;
+        let original_len = routes.len();
+        routes.retain(|item| item.id != id);
+        if routes.len() == original_len {
+            return Err(EngineError::ProxyRouteNotFound(id.to_owned()));
+        }
+        store.proxy_upstreams.remove(id);
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "proxy_route_deleted",
+            &format!("route_id={id}"),
+        );
+        self.persist_store(&store);
+        drop(store);
+        self.apply_proxy_listeners();
+        Ok(())
+    }
+
+    pub fn create_proxy_upstream(
+        &self,
+        req: CreateProxyUpstreamRequest,
+    ) -> Result<String, EngineError> {
+        self.validate_proxy_upstream(
+            None,
+            &req.route_id,
+            req.upstream_scheme,
+            req.target_kind,
+            req.target_ref.as_deref(),
+            req.target_host.as_deref(),
+            req.target_port,
+            req.path_rewrite_from.as_deref(),
+            req.path_rewrite_to.as_deref(),
+        )?;
+
+        let upstream_id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+        let upstream = ProxyUpstream {
+            id: upstream_id.clone(),
+            route_id: req.route_id.clone(),
+            target_kind: req.target_kind,
+            target_ref: clean_optional_text(req.target_ref),
+            target_host: clean_optional_text(req.target_host),
+            target_port: req.target_port,
+            upstream_scheme: req.upstream_scheme,
+            path_rewrite_from: normalize_optional_path(req.path_rewrite_from)?,
+            path_rewrite_to: normalize_optional_path(req.path_rewrite_to)?,
+            enabled: req.enabled,
+            created_at: now,
+            updated_at: now,
+        };
+
+        let mut store = self.store.write();
+        store
+            .proxy_upstreams
+            .entry(req.route_id.clone())
+            .or_default()
+            .push(upstream);
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "proxy_upstream_created",
+            &format!("route_id={},upstream_id={upstream_id}", req.route_id),
+        );
+        self.persist_store(&store);
+        drop(store);
+        self.apply_proxy_listeners();
+        Ok(upstream_id)
+    }
+
+    pub fn update_proxy_upstream(
+        &self,
+        id: &str,
+        req: UpdateProxyUpstreamRequest,
+    ) -> Result<(), EngineError> {
+        let upstream = self
+            .find_proxy_upstream(id)
+            .ok_or_else(|| EngineError::ProxyUpstreamNotFound(id.to_owned()))?;
+        self.validate_proxy_upstream(
+            Some(id),
+            &upstream.route_id,
+            req.upstream_scheme,
+            req.target_kind,
+            req.target_ref.as_deref(),
+            req.target_host.as_deref(),
+            req.target_port,
+            req.path_rewrite_from.as_deref(),
+            req.path_rewrite_to.as_deref(),
+        )?;
+
+        let mut store = self.store.write();
+        let upstreams = store
+            .proxy_upstreams
+            .get_mut(&upstream.route_id)
+            .ok_or_else(|| EngineError::ProxyRouteNotFound(upstream.route_id.clone()))?;
+        let upstream = upstreams
+            .iter_mut()
+            .find(|item| item.id == id)
+            .ok_or_else(|| EngineError::ProxyUpstreamNotFound(id.to_owned()))?;
+        upstream.target_kind = req.target_kind;
+        upstream.target_ref = clean_optional_text(req.target_ref);
+        upstream.target_host = clean_optional_text(req.target_host);
+        upstream.target_port = req.target_port;
+        upstream.upstream_scheme = req.upstream_scheme;
+        upstream.path_rewrite_from = normalize_optional_path(req.path_rewrite_from)?;
+        upstream.path_rewrite_to = normalize_optional_path(req.path_rewrite_to)?;
+        upstream.enabled = req.enabled;
+        upstream.updated_at = Utc::now();
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "proxy_upstream_updated",
+            &format!("upstream_id={id}"),
+        );
+        self.persist_store(&store);
+        drop(store);
+        self.apply_proxy_listeners();
+        Ok(())
+    }
+
+    pub fn delete_proxy_upstream(&self, id: &str) -> Result<(), EngineError> {
+        let upstream = self
+            .find_proxy_upstream(id)
+            .ok_or_else(|| EngineError::ProxyUpstreamNotFound(id.to_owned()))?;
+
+        let mut store = self.store.write();
+        let upstreams = store
+            .proxy_upstreams
+            .get_mut(&upstream.route_id)
+            .ok_or_else(|| EngineError::ProxyRouteNotFound(upstream.route_id.clone()))?;
+        let original_len = upstreams.len();
+        upstreams.retain(|item| item.id != id);
+        if upstreams.len() == original_len {
+            return Err(EngineError::ProxyUpstreamNotFound(id.to_owned()));
+        }
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "proxy_upstream_deleted",
+            &format!("upstream_id={id}"),
+        );
+        self.persist_store(&store);
+        drop(store);
+        self.apply_proxy_listeners();
+        Ok(())
+    }
+
     pub fn create_rule(&self, req: CreateRuleRequest) -> Result<String, EngineError> {
         self.validate_new_rule(&req.rule)?;
 
@@ -339,6 +1530,243 @@ impl RuleEngine {
         Ok(rule_id)
     }
 
+    pub fn migrate_rule_to_proxy(&self, rule_id: &str) -> Result<RuleMigrationRecord, EngineError> {
+        if let Some(active) = self.active.lock().remove(rule_id) {
+            self.stop_active_runtime(rule_id, active);
+        }
+
+        let now = Utc::now();
+        let rule = {
+            let store = self.store.read();
+            if let Some(existing) = store.rule_migrations.get(rule_id) {
+                if existing.status == RuleMigrationStatus::Migrated {
+                    return Err(EngineError::InvalidRule(
+                        "rule has already been migrated to proxy".to_owned(),
+                    ));
+                }
+            }
+            store
+                .rules
+                .get(rule_id)
+                .cloned()
+                .ok_or_else(|| EngineError::RuleNotFound(rule_id.to_owned()))?
+        };
+
+        match rule.rule_type {
+            RuleType::TcpFwd | RuleType::HttpProxy => {}
+            _ => {
+                return Err(EngineError::InvalidRule(
+                    "only tcp_fwd and http_proxy support proxy migration".to_owned(),
+                ));
+            }
+        }
+
+        self.validate_proxy_listener(
+            None,
+            &format!("migrated-{}", rule.name),
+            &rule.listen_host,
+            rule.listen_port,
+            ProxyProtocol::Http,
+            ProxyTlsMode::Disabled,
+            None,
+            rule.bind_mode,
+            rule.nic_id.as_deref(),
+        )?;
+
+        let listener_id = Uuid::new_v4().to_string();
+        let route_id = Uuid::new_v4().to_string();
+        let upstream_id = Uuid::new_v4().to_string();
+        let mut migration_detail = None;
+
+        let listener = ProxyListener {
+            id: listener_id.clone(),
+            name: format!("migrated-{}", rule.name),
+            listen_host: rule.listen_host.clone(),
+            listen_port: rule.listen_port,
+            protocol: ProxyProtocol::Http,
+            tls_mode: ProxyTlsMode::Disabled,
+            cert_id: None,
+            bind_mode: rule.bind_mode,
+            nic_id: rule.nic_id.clone(),
+            enabled: rule.enabled,
+            created_at: now,
+            updated_at: now,
+        };
+
+        let route = ProxyRoute {
+            id: route_id.clone(),
+            listener_id: listener_id.clone(),
+            server_names: match rule.rule_type {
+                RuleType::HttpProxy => vec!["127.0.0.1".to_owned()],
+                _ => Vec::new(),
+            },
+            path_prefix: None,
+            is_default: rule.rule_type == RuleType::TcpFwd,
+            enabled: rule.enabled,
+            created_at: now,
+            updated_at: now,
+        };
+
+        let upstream = match rule.rule_type {
+            RuleType::TcpFwd => {
+                let target_port = rule.target_port.ok_or_else(|| {
+                    EngineError::InvalidRule("tcp_fwd migration requires target_port".to_owned())
+                })?;
+                ProxyUpstream {
+                    id: upstream_id.clone(),
+                    route_id: route_id.clone(),
+                    target_kind: rule.target_kind,
+                    target_ref: rule.target_ref.clone(),
+                    target_host: rule.target_host.clone(),
+                    target_port,
+                    upstream_scheme: UpstreamScheme::Http,
+                    path_rewrite_from: None,
+                    path_rewrite_to: None,
+                    enabled: true,
+                    created_at: now,
+                    updated_at: now,
+                }
+            }
+            RuleType::HttpProxy => {
+                migration_detail = Some(
+                    "http_proxy migrated as proxy draft; complete upstream target before enabling traffic"
+                        .to_owned(),
+                );
+                ProxyUpstream {
+                    id: upstream_id.clone(),
+                    route_id: route_id.clone(),
+                    target_kind: TargetKind::Static,
+                    target_ref: None,
+                    target_host: Some("127.0.0.1".to_owned()),
+                    target_port: 80,
+                    upstream_scheme: UpstreamScheme::Http,
+                    path_rewrite_from: None,
+                    path_rewrite_to: None,
+                    enabled: false,
+                    created_at: now,
+                    updated_at: now,
+                }
+            }
+            _ => unreachable!(),
+        };
+
+        let migration = RuleMigrationRecord {
+            rule_id: rule_id.to_owned(),
+            status: RuleMigrationStatus::Migrated,
+            original_rule_enabled: rule.enabled,
+            proxy_listener_id: listener_id.clone(),
+            proxy_route_id: route_id.clone(),
+            proxy_upstream_id: Some(upstream_id.clone()),
+            detail: migration_detail.clone(),
+            migrated_at: now,
+            rollbacked_at: None,
+        };
+
+        let mut store = self.store.write();
+        store.proxy_listeners.insert(listener_id.clone(), listener);
+        store.proxy_routes.insert(listener_id.clone(), vec![route]);
+        store
+            .proxy_upstreams
+            .insert(route_id.clone(), vec![upstream]);
+        store
+            .rule_migrations
+            .insert(rule_id.to_owned(), migration.clone());
+        if let Some(old_rule) = store.rules.get_mut(rule_id) {
+            old_rule.enabled = false;
+            old_rule.updated_at = now;
+        }
+        if let Some(runtime) = store.runtime.get_mut(rule_id) {
+            runtime.state = RuntimeState::Stopped;
+            runtime.last_error = Some("migrated to proxy".to_owned());
+            runtime.last_apply_at = Some(now);
+        }
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "rule_migrated_to_proxy",
+            &format!(
+                "rule_id={rule_id},listener_id={listener_id},route_id={route_id},upstream_id={upstream_id}"
+            ),
+        );
+        self.persist_store(&store);
+        drop(store);
+        self.apply_proxy_listeners();
+        Ok(migration)
+    }
+
+    pub fn rollback_rule_migration(
+        &self,
+        rule_id: &str,
+    ) -> Result<RuleMigrationRecord, EngineError> {
+        let now = Utc::now();
+        let migration = {
+            let store = self.store.read();
+            let migration = store
+                .rule_migrations
+                .get(rule_id)
+                .cloned()
+                .ok_or_else(|| EngineError::RuleNotFound(rule_id.to_owned()))?;
+            if migration.status != RuleMigrationStatus::Migrated {
+                return Err(EngineError::InvalidRule(
+                    "only migrated rules can be rollbacked".to_owned(),
+                ));
+            }
+            migration
+        };
+
+        if let Some(active_proxy) = self
+            .active_proxy
+            .lock()
+            .remove(&migration.proxy_listener_id)
+        {
+            active_proxy.stop_and_join();
+        }
+
+        let mut store = self.store.write();
+        if !store.rules.contains_key(rule_id) {
+            return Err(EngineError::RuleNotFound(rule_id.to_owned()));
+        }
+
+        store.proxy_listeners.remove(&migration.proxy_listener_id);
+        store.proxy_routes.remove(&migration.proxy_listener_id);
+        store.proxy_upstreams.remove(&migration.proxy_route_id);
+
+        if let Some(rule) = store.rules.get_mut(rule_id) {
+            rule.enabled = migration.original_rule_enabled;
+            rule.updated_at = now;
+        }
+        if let Some(runtime) = store.runtime.get_mut(rule_id) {
+            runtime.state = RuntimeState::Stopped;
+            runtime.last_error = None;
+            runtime.last_apply_at = Some(now);
+        }
+
+        let updated_migration = RuleMigrationRecord {
+            status: RuleMigrationStatus::Rollbacked,
+            rollbacked_at: Some(now),
+            ..migration
+        };
+        store
+            .rule_migrations
+            .insert(rule_id.to_owned(), updated_migration.clone());
+
+        append_log(
+            &mut store,
+            "info",
+            "proxy",
+            "rule_migration_rollbacked",
+            &format!(
+                "rule_id={rule_id},listener_id={},route_id={}",
+                updated_migration.proxy_listener_id, updated_migration.proxy_route_id
+            ),
+        );
+        self.persist_store(&store);
+        drop(store);
+        self.apply_proxy_listeners();
+        Ok(updated_migration)
+    }
+
     pub fn update_rule(&self, id: &str, patch: RulePatch) -> Result<(), EngineError> {
         if let Some(active) = self.active.lock().remove(id) {
             self.stop_active_runtime(id, active);
@@ -357,6 +1785,9 @@ impl RuleEngine {
                 .unwrap_or_else(|| current_rule.map(|r| r.listen_host.as_str()).unwrap_or(""));
             let check_port =
                 new_listen_port.unwrap_or_else(|| current_rule.map(|r| r.listen_port).unwrap_or(0));
+            let current_rule_type = current_rule
+                .map(|rule| rule.rule_type)
+                .unwrap_or(RuleType::TcpFwd);
 
             for (rid, existing_rule) in store.rules.iter() {
                 if rid != id
@@ -372,15 +1803,11 @@ impl RuleEngine {
             drop(store);
 
             if let (Some(host), Some(port)) = (new_listen_host.as_ref(), new_listen_port) {
-                let addr_str = format!("{}:{}", host, port);
-                if let Ok(addr) = addr_str.parse::<SocketAddr>() {
-                    let bind_result = TcpListener::bind(addr);
-                    if bind_result.is_err() {
-                        return Err(EngineError::InvalidRule(format!(
-                            "port {} on {} is already in use by another process",
-                            port, host
-                        )));
-                    }
+                if is_listen_addr_occupied(current_rule_type, host, port) {
+                    return Err(EngineError::InvalidRule(format!(
+                        "port {} on {} is already in use by another process",
+                        port, host
+                    )));
                 }
             }
         }
@@ -1030,6 +2457,7 @@ impl RuleEngine {
             );
         }
 
+        self.apply_proxy_listeners();
         Some(self.apply_rules())
     }
 
@@ -1102,6 +2530,25 @@ impl RuleEngine {
             .ok_or_else(|| "resolve target address produced no result".to_owned())
     }
 
+    fn resolve_proxy_listen_addr(&self, listener: &ProxyListener) -> Result<SocketAddr, String> {
+        let host = match listener.bind_mode {
+            BindMode::AllNics => listener.listen_host.clone(),
+            BindMode::SingleNic => {
+                let nic_id = listener.nic_id.as_deref().unwrap_or("").trim();
+                if nic_id.is_empty() {
+                    return Err("single_nic mode requires nic_id".to_owned());
+                }
+                resolve_nic_ip(nic_id)
+                    .map(|ip| ip.to_string())
+                    .ok_or_else(|| format!("resolve nic ip failed for {nic_id}"))?
+            }
+        };
+
+        let addr = format!("{}:{}", host.trim(), listener.listen_port);
+        addr.parse::<SocketAddr>()
+            .map_err(|err| format!("parse listen address failed: {err}"))
+    }
+
     fn stop_all_active_rules(&self) {
         let old_active = {
             let mut active = self.active.lock();
@@ -1109,6 +2556,28 @@ impl RuleEngine {
         };
         for (rule_id, runtime) in old_active {
             self.stop_active_runtime(&rule_id, runtime);
+        }
+    }
+
+    fn stop_all_active_proxy_listeners(&self) {
+        let old_active = {
+            let mut active = self.active_proxy.lock();
+            std::mem::take(&mut *active)
+        };
+        let now = Utc::now();
+        let mut store = self.store.write();
+        for (listener_id, runtime) in old_active {
+            runtime.stop_and_join();
+            self.traffic.flush_rule(&listener_id);
+            store.proxy_runtime.insert(
+                listener_id.clone(),
+                ProxyRuntimeStatusItem {
+                    listener_id,
+                    state: RuntimeState::Stopped,
+                    last_error: None,
+                    last_apply_at: Some(now),
+                },
+            );
         }
     }
 
@@ -1143,6 +2612,13 @@ impl RuleEngine {
             rules: store.rules.clone(),
             firewalls: store.firewalls.clone(),
             runtime: store.runtime.clone(),
+            hosts_groups: store.hosts_groups.clone(),
+            hosts_entries: store.hosts_entries.clone(),
+            proxy_listeners: store.proxy_listeners.clone(),
+            proxy_routes: store.proxy_routes.clone(),
+            proxy_upstreams: store.proxy_upstreams.clone(),
+            proxy_certificates: store.proxy_certificates.clone(),
+            rule_migrations: store.rule_migrations.clone(),
             logs: store.logs.clone(),
             log_seq: store.log_seq,
             mcp_config: store.mcp_config.clone(),
@@ -1151,6 +2627,12 @@ impl RuleEngine {
         if let Err(err) = sqlite.save_snapshot(&snapshot) {
             warn!("persist snapshot failed: {err}");
         }
+    }
+
+    fn append_engine_log(&self, level: &str, module: &str, event: &str, detail: &str) {
+        let mut store = self.store.write();
+        append_log(&mut store, level, module, event, detail);
+        self.persist_store(&store);
     }
 
     fn validate_new_rule(&self, rule: &NewProxyRule) -> Result<(), EngineError> {
@@ -1187,15 +2669,11 @@ impl RuleEngine {
         }
         drop(store);
 
-        let addr_str = format!("{}:{}", rule.listen_host, rule.listen_port);
-        if let Ok(addr) = addr_str.parse::<SocketAddr>() {
-            let bind_result = TcpListener::bind(addr);
-            if bind_result.is_err() {
-                return Err(EngineError::InvalidRule(format!(
-                    "port {} on {} is already in use by another process",
-                    rule.listen_port, rule.listen_host
-                )));
-            }
+        if is_listen_addr_occupied(rule.rule_type, &rule.listen_host, rule.listen_port) {
+            return Err(EngineError::InvalidRule(format!(
+                "port {} on {} is already in use by another process",
+                rule.listen_port, rule.listen_host
+            )));
         }
 
         if rule.rule_type == RuleType::TcpFwd || rule.rule_type == RuleType::UdpFwd {
@@ -1233,6 +2711,529 @@ impl RuleEngine {
         }
         Ok(())
     }
+
+    fn validate_proxy_listener(
+        &self,
+        current_id: Option<&str>,
+        name: &str,
+        listen_host: &str,
+        listen_port: u16,
+        protocol: ProxyProtocol,
+        tls_mode: ProxyTlsMode,
+        cert_id: Option<&str>,
+        bind_mode: BindMode,
+        nic_id: Option<&str>,
+    ) -> Result<(), EngineError> {
+        if name.trim().is_empty() {
+            return Err(EngineError::InvalidProxy(
+                "proxy listener name is required".to_owned(),
+            ));
+        }
+        if listen_host.trim().is_empty() {
+            return Err(EngineError::InvalidProxy(
+                "proxy listen_host is required".to_owned(),
+            ));
+        }
+        if listen_port == 0 {
+            return Err(EngineError::InvalidProxy(
+                "proxy listen_port must be > 0".to_owned(),
+            ));
+        }
+        if bind_mode == BindMode::SingleNic && nic_id.unwrap_or("").trim().is_empty() {
+            return Err(EngineError::InvalidProxy(
+                "single_nic mode requires nic_id".to_owned(),
+            ));
+        }
+        match protocol {
+            ProxyProtocol::Http if tls_mode != ProxyTlsMode::Disabled => {
+                return Err(EngineError::InvalidProxy(
+                    "http listener must use tls_mode=disabled".to_owned(),
+                ));
+            }
+            ProxyProtocol::Https if tls_mode == ProxyTlsMode::Disabled => {
+                return Err(EngineError::InvalidProxy(
+                    "https listener requires tls configuration".to_owned(),
+                ));
+            }
+            _ => {}
+        }
+        if matches!(tls_mode, ProxyTlsMode::ManualCert | ProxyTlsMode::LocalCa)
+            && cert_id.unwrap_or("").trim().is_empty()
+        {
+            return Err(EngineError::InvalidProxy(
+                "tls-enabled https listener requires cert_id".to_owned(),
+            ));
+        }
+
+        let store = self.store.read();
+        if matches!(tls_mode, ProxyTlsMode::ManualCert | ProxyTlsMode::LocalCa) {
+            let cert_id = cert_id.unwrap_or("").trim();
+            let certificate = store
+                .proxy_certificates
+                .get(cert_id)
+                .ok_or_else(|| EngineError::ProxyCertificateNotFound(cert_id.to_owned()))?;
+            match (tls_mode, certificate.source_type) {
+                (ProxyTlsMode::ManualCert, ProxyCertificateSourceType::ManualUpload)
+                | (ProxyTlsMode::LocalCa, ProxyCertificateSourceType::LocalCa) => {}
+                (ProxyTlsMode::ManualCert, _) => {
+                    return Err(EngineError::InvalidProxy(
+                        "manual_cert tls mode requires a manual_upload certificate".to_owned(),
+                    ));
+                }
+                (ProxyTlsMode::LocalCa, _) => {
+                    return Err(EngineError::InvalidProxy(
+                        "local_ca tls mode requires a local_ca certificate".to_owned(),
+                    ));
+                }
+                (ProxyTlsMode::Disabled, _) => {}
+            }
+        }
+        for listener in store.proxy_listeners.values() {
+            if Some(listener.id.as_str()) != current_id
+                && listener.listen_host == listen_host.trim()
+                && listener.listen_port == listen_port
+            {
+                return Err(EngineError::InvalidProxy(format!(
+                    "proxy listener {}:{} is already used by '{}'",
+                    listen_host.trim(),
+                    listen_port,
+                    listener.name
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_proxy_certificate(
+        &self,
+        current_id: Option<&str>,
+        name: &str,
+        _source_type: ProxyCertificateSourceType,
+        cert_path: &str,
+        key_path: &str,
+        domains: &[String],
+    ) -> Result<(), EngineError> {
+        if name.is_empty() {
+            return Err(EngineError::InvalidProxy(
+                "proxy certificate name is required".to_owned(),
+            ));
+        }
+        if cert_path.is_empty() {
+            return Err(EngineError::InvalidProxy(
+                "proxy certificate cert_path is required".to_owned(),
+            ));
+        }
+        if key_path.is_empty() {
+            return Err(EngineError::InvalidProxy(
+                "proxy certificate key_path is required".to_owned(),
+            ));
+        }
+        if domains.is_empty() {
+            return Err(EngineError::InvalidProxy(
+                "proxy certificate requires at least one domain".to_owned(),
+            ));
+        }
+        if !Path::new(cert_path).exists() {
+            return Err(EngineError::InvalidProxy(format!(
+                "proxy certificate file not found: {cert_path}"
+            )));
+        }
+        if !Path::new(key_path).exists() {
+            return Err(EngineError::InvalidProxy(format!(
+                "proxy key file not found: {key_path}"
+            )));
+        }
+
+        let store = self.store.read();
+        for certificate in store.proxy_certificates.values() {
+            if Some(certificate.id.as_str()) == current_id {
+                continue;
+            }
+            if certificate.name.eq_ignore_ascii_case(name) {
+                return Err(EngineError::InvalidProxy(format!(
+                    "proxy certificate '{}' already exists",
+                    name
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn prepare_proxy_certificate_material(
+        &self,
+        certificate_id: &str,
+        name: &str,
+        source_type: ProxyCertificateSourceType,
+        cert_path: &str,
+        key_path: &str,
+        domains: &[String],
+    ) -> Result<(String, String), EngineError> {
+        match source_type {
+            ProxyCertificateSourceType::ManualUpload => {
+                Ok((cert_path.to_owned(), key_path.to_owned()))
+            }
+            ProxyCertificateSourceType::LocalCa => {
+                self.generate_local_ca_certificate_files(certificate_id, name, domains)
+            }
+        }
+    }
+
+    fn generate_local_ca_certificate_files(
+        &self,
+        certificate_id: &str,
+        name: &str,
+        domains: &[String],
+    ) -> Result<(String, String), EngineError> {
+        let root_dir = self.proxy_certificate_assets_dir().join("local-ca");
+        let certs_dir = root_dir.join("certs");
+        fs::create_dir_all(&certs_dir).map_err(|err| EngineError::Storage(err.to_string()))?;
+
+        let root_cert_path = root_dir.join("root-ca.pem");
+        let root_key_path = root_dir.join("root-ca.key");
+        let (ca_cert, ca_key_pair) = ensure_local_ca_root(&root_cert_path, &root_key_path)?;
+
+        let leaf_key = KeyPair::generate()
+            .map_err(|err| EngineError::Storage(format!("failed to generate leaf key: {err}")))?;
+        let mut leaf_params = CertificateParams::new(domains.to_vec()).map_err(|err| {
+            EngineError::InvalidProxy(format!("invalid certificate domains: {err}"))
+        })?;
+        let mut distinguished_name = DistinguishedName::new();
+        distinguished_name.push(DnType::CommonName, name);
+        leaf_params.distinguished_name = distinguished_name;
+        let leaf_cert = leaf_params
+            .signed_by(&leaf_key, &ca_cert, &ca_key_pair)
+            .map_err(|err| {
+                EngineError::Storage(format!("failed to sign local ca certificate: {err}"))
+            })?;
+
+        let cert_path = certs_dir.join(format!("{certificate_id}.pem"));
+        let key_path = certs_dir.join(format!("{certificate_id}.key"));
+        fs::write(&cert_path, leaf_cert.pem()).map_err(|err| {
+            EngineError::Storage(format!("failed to write certificate file: {err}"))
+        })?;
+        fs::write(&key_path, leaf_key.serialize_pem())
+            .map_err(|err| EngineError::Storage(format!("failed to write key file: {err}")))?;
+
+        Ok((
+            cert_path.display().to_string(),
+            key_path.display().to_string(),
+        ))
+    }
+
+    fn proxy_certificate_assets_dir(&self) -> PathBuf {
+        if let Some(sqlite) = &self.sqlite {
+            return sqlite
+                .path()
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join("certificates");
+        }
+        std::env::temp_dir().join("wsl-bridge-dev-certificates")
+    }
+
+    fn proxy_upstream_trust_root_paths(&self) -> Vec<PathBuf> {
+        vec![self
+            .proxy_certificate_assets_dir()
+            .join("local-ca")
+            .join("root-ca.pem")]
+    }
+
+    fn cleanup_generated_certificate_files(&self, cert_path: &str, key_path: &str) {
+        let _ = fs::remove_file(cert_path);
+        let _ = fs::remove_file(key_path);
+    }
+
+    fn validate_proxy_route(
+        &self,
+        current_id: Option<&str>,
+        listener_id: &str,
+        server_names: &[String],
+        path_prefix: Option<&str>,
+        is_default: bool,
+    ) -> Result<(), EngineError> {
+        if !self.store.read().proxy_listeners.contains_key(listener_id) {
+            return Err(EngineError::ProxyListenerNotFound(listener_id.to_owned()));
+        }
+        if !is_default && server_names.is_empty() {
+            return Err(EngineError::InvalidProxy(
+                "proxy route requires at least one server_name unless default route is enabled"
+                    .to_owned(),
+            ));
+        }
+        if let Some(prefix) = path_prefix {
+            validate_path_like(prefix, "proxy route path_prefix")?;
+        }
+
+        let store = self.store.read();
+        if is_default {
+            let has_other_default = store
+                .proxy_routes
+                .get(listener_id)
+                .into_iter()
+                .flatten()
+                .any(|route| route.is_default && Some(route.id.as_str()) != current_id);
+            if has_other_default {
+                return Err(EngineError::InvalidProxy(
+                    "only one default route is allowed per listener".to_owned(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_proxy_upstream(
+        &self,
+        _current_id: Option<&str>,
+        route_id: &str,
+        upstream_scheme: UpstreamScheme,
+        target_kind: TargetKind,
+        target_ref: Option<&str>,
+        target_host: Option<&str>,
+        target_port: u16,
+        path_rewrite_from: Option<&str>,
+        path_rewrite_to: Option<&str>,
+    ) -> Result<(), EngineError> {
+        let route = self
+            .find_proxy_route(route_id)
+            .ok_or_else(|| EngineError::ProxyRouteNotFound(route_id.to_owned()))?;
+        let listener = {
+            let store = self.store.read();
+            store
+                .proxy_listeners
+                .get(&route.listener_id)
+                .cloned()
+                .ok_or_else(|| EngineError::ProxyListenerNotFound(route.listener_id.clone()))?
+        };
+        if target_port == 0 {
+            return Err(EngineError::InvalidProxy(
+                "proxy upstream target_port must be > 0".to_owned(),
+            ));
+        }
+        match upstream_scheme {
+            UpstreamScheme::Grpc if listener.protocol != ProxyProtocol::Http => {
+                return Err(EngineError::InvalidProxy(
+                    "grpc upstream requires an http listener".to_owned(),
+                ));
+            }
+            UpstreamScheme::Grpcs if listener.protocol != ProxyProtocol::Https => {
+                return Err(EngineError::InvalidProxy(
+                    "grpcs upstream requires an https listener".to_owned(),
+                ));
+            }
+            _ => {}
+        }
+        if matches!(
+            upstream_scheme,
+            UpstreamScheme::Grpc | UpstreamScheme::Grpcs
+        ) {
+            if !route.is_default {
+                return Err(EngineError::InvalidProxy(format!(
+                    "{} upstream currently requires a default route",
+                    match upstream_scheme {
+                        UpstreamScheme::Grpc => "grpc",
+                        UpstreamScheme::Grpcs => "grpcs",
+                        _ => unreachable!(),
+                    }
+                )));
+            }
+            if path_rewrite_from.is_some() || path_rewrite_to.is_some() {
+                return Err(EngineError::InvalidProxy(format!(
+                    "{} upstream does not support path rewrite yet",
+                    match upstream_scheme {
+                        UpstreamScheme::Grpc => "grpc",
+                        UpstreamScheme::Grpcs => "grpcs",
+                        _ => unreachable!(),
+                    }
+                )));
+            }
+        }
+        match target_kind {
+            TargetKind::Static => {
+                if target_host.unwrap_or("").trim().is_empty() {
+                    return Err(EngineError::InvalidProxy(
+                        "static upstream requires target_host".to_owned(),
+                    ));
+                }
+            }
+            TargetKind::Wsl | TargetKind::Hyperv => {
+                if target_ref.unwrap_or("").trim().is_empty()
+                    && target_host.unwrap_or("").trim().is_empty()
+                {
+                    return Err(EngineError::InvalidProxy(
+                        "dynamic upstream requires target_ref or fallback target_host".to_owned(),
+                    ));
+                }
+            }
+        }
+        if let Some(path) = path_rewrite_from {
+            validate_path_like(path, "proxy upstream path_rewrite_from")?;
+        }
+        if let Some(path) = path_rewrite_to {
+            validate_path_like(path, "proxy upstream path_rewrite_to")?;
+        }
+        Ok(())
+    }
+
+    fn find_proxy_route(&self, route_id: &str) -> Option<ProxyRoute> {
+        let store = self.store.read();
+        store
+            .proxy_routes
+            .values()
+            .flat_map(|routes| routes.iter())
+            .find(|route| route.id == route_id)
+            .cloned()
+    }
+
+    fn find_proxy_upstream(&self, upstream_id: &str) -> Option<ProxyUpstream> {
+        let store = self.store.read();
+        store
+            .proxy_upstreams
+            .values()
+            .flat_map(|upstreams| upstreams.iter())
+            .find(|upstream| upstream.id == upstream_id)
+            .cloned()
+    }
+}
+
+impl RuleEngine {
+    fn bootstrap_default_hosts_group_from_path(
+        &self,
+        path: &Path,
+    ) -> Result<HostsGroup, EngineError> {
+        {
+            let store = self.store.read();
+            if let Some(group) = store
+                .hosts_groups
+                .values()
+                .find(|item| item.name == "default")
+            {
+                return Ok(group.clone());
+            }
+        }
+
+        let parsed = read_hosts_file(path)
+            .map_err(|err| EngineError::Storage(format!("read system hosts failed: {err}")))?;
+        let now = Utc::now();
+        let group_id = Uuid::new_v4().to_string();
+        let group = HostsGroup {
+            id: group_id.clone(),
+            name: "default".to_owned(),
+            description: Some("Imported from system hosts".to_owned()),
+            source_type: HostsGroupSourceType::SystemImported,
+            is_active: false,
+            created_at: now,
+            updated_at: now,
+        };
+        let entries = parsed
+            .into_iter()
+            .enumerate()
+            .map(|(index, item)| HostsEntry {
+                id: Uuid::new_v4().to_string(),
+                group_id: group_id.clone(),
+                ip: item.ip,
+                domain: item.domain,
+                comment: clean_optional_text(item.comment),
+                enabled: true,
+                order_index: index as u32,
+                created_at: now,
+                updated_at: now,
+            })
+            .collect::<Vec<_>>();
+
+        let mut store = self.store.write();
+        store.hosts_groups.insert(group_id.clone(), group.clone());
+        store.hosts_entries.insert(group_id.clone(), entries);
+        append_log(
+            &mut store,
+            "info",
+            "hosts",
+            "hosts_default_bootstrapped",
+            &format!("group_id={group_id},path={}", path.display()),
+        );
+        self.persist_store(&store);
+        Ok(group)
+    }
+
+    fn activate_hosts_group_to_path(&self, group_id: &str, path: &Path) -> Result<(), EngineError> {
+        let entries = self.list_hosts_entries(group_id)?;
+        let content = render_hosts_text(
+            &entries
+                .iter()
+                .map(|entry| HostsEntryInput {
+                    id: Some(entry.id.clone()),
+                    ip: entry.ip.clone(),
+                    domain: entry.domain.clone(),
+                    comment: entry.comment.clone(),
+                    enabled: entry.enabled,
+                    order_index: entry.order_index,
+                })
+                .collect::<Vec<_>>(),
+        );
+        write_hosts_file(path, &content)
+            .map_err(|err| EngineError::Storage(format!("write system hosts failed: {err}")))?;
+
+        let mut store = self.store.write();
+        if !store.hosts_groups.contains_key(group_id) {
+            return Err(EngineError::HostsGroupNotFound(group_id.to_owned()));
+        }
+        for group in store.hosts_groups.values_mut() {
+            group.is_active = group.id == group_id;
+            if group.is_active {
+                group.updated_at = Utc::now();
+            }
+        }
+        append_log(
+            &mut store,
+            "info",
+            "hosts",
+            "hosts_group_activated",
+            &format!("group_id={group_id},path={}", path.display()),
+        );
+        self.persist_store(&store);
+        Ok(())
+    }
+}
+
+fn ensure_local_ca_root(
+    cert_path: &Path,
+    key_path: &Path,
+) -> Result<(rcgen::Certificate, KeyPair), EngineError> {
+    if cert_path.exists() && key_path.exists() {
+        let key_pem = fs::read_to_string(key_path)
+            .map_err(|err| EngineError::Storage(format!("read local ca key failed: {err}")))?;
+        let key_pair = KeyPair::from_pem(&key_pem)
+            .map_err(|err| EngineError::Storage(format!("parse local ca key failed: {err}")))?;
+        let params = build_local_ca_params()?;
+        let cert = params
+            .self_signed(&key_pair)
+            .map_err(|err| EngineError::Storage(format!("rebuild local ca cert failed: {err}")))?;
+        fs::write(cert_path, cert.pem())
+            .map_err(|err| EngineError::Storage(format!("rewrite local ca cert failed: {err}")))?;
+        return Ok((cert, key_pair));
+    }
+
+    let params = build_local_ca_params()?;
+    let key_pair = KeyPair::generate()
+        .map_err(|err| EngineError::Storage(format!("generate local ca key failed: {err}")))?;
+    let cert = params
+        .self_signed(&key_pair)
+        .map_err(|err| EngineError::Storage(format!("generate local ca cert failed: {err}")))?;
+    fs::write(cert_path, cert.pem())
+        .map_err(|err| EngineError::Storage(format!("write local ca cert failed: {err}")))?;
+    fs::write(key_path, key_pair.serialize_pem())
+        .map_err(|err| EngineError::Storage(format!("write local ca key failed: {err}")))?;
+    Ok((cert, key_pair))
+}
+
+fn build_local_ca_params() -> Result<CertificateParams, EngineError> {
+    let mut params = CertificateParams::new(vec!["wsl-bridge.local-ca".to_owned()])
+        .map_err(|err| EngineError::Storage(format!("build local ca params failed: {err}")))?;
+    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    let mut distinguished_name = DistinguishedName::new();
+    distinguished_name.push(DnType::CommonName, "wsl-bridge Local CA");
+    params.distinguished_name = distinguished_name;
+    Ok(params)
 }
 
 fn append_log(store: &mut EngineStore, level: &str, module: &str, event: &str, detail: &str) {
@@ -1292,22 +3293,100 @@ fn extract_rule_id_from_text(text: &str) -> Option<String> {
     }
 }
 
+fn clean_optional_text(value: Option<String>) -> Option<String> {
+    value
+        .map(|item| item.trim().to_owned())
+        .filter(|item| !item.is_empty())
+}
+
+fn normalize_server_names(values: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    values
+        .into_iter()
+        .map(|item| item.trim().to_ascii_lowercase())
+        .filter(|item| !item.is_empty())
+        .filter(|item| seen.insert(item.clone()))
+        .collect()
+}
+
+fn normalize_optional_path(value: Option<String>) -> Result<Option<String>, EngineError> {
+    let value = clean_optional_text(value);
+    if let Some(path) = value.as_deref() {
+        validate_path_like(path, "path")?;
+    }
+    Ok(value)
+}
+
+fn validate_path_like(value: &str, label: &str) -> Result<(), EngineError> {
+    if !value.starts_with('/') {
+        return Err(EngineError::InvalidProxy(format!(
+            "{label} must start with '/'"
+        )));
+    }
+    Ok(())
+}
+
+fn is_listen_addr_occupied(rule_type: RuleType, host: &str, port: u16) -> bool {
+    let addr_str = format!("{host}:{port}");
+    let Ok(addr) = addr_str.parse::<SocketAddr>() else {
+        return false;
+    };
+
+    match rule_type {
+        RuleType::UdpFwd => UdpSocket::bind(addr).is_err(),
+        RuleType::TcpFwd | RuleType::HttpProxy | RuleType::Socks5Proxy => {
+            TcpListener::bind(addr).is_err()
+        }
+    }
+}
+
+fn validate_hosts_entry_input(entry: &HostsEntryInput) -> Result<(), EngineError> {
+    if entry.ip.trim().parse::<IpAddr>().is_err() {
+        return Err(EngineError::InvalidHosts(format!(
+            "invalid hosts ip: {}",
+            entry.ip
+        )));
+    }
+    if entry.domain.trim().is_empty() {
+        return Err(EngineError::InvalidHosts(
+            "hosts domain is required".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::env;
     use std::fs;
-    use std::io::{Read, Write};
+    use std::io::{BufReader, Read, Write};
     use std::net::{TcpListener, TcpStream, UdpSocket};
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     use std::thread;
     use std::time::Duration;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use rcgen::{
+        generate_simple_self_signed, CertificateParams, CertifiedKey, DistinguishedName, DnType,
+        KeyPair,
+    };
+    use rustls::pki_types::PrivateKeyDer;
+    use rustls::{ServerConfig, ServerConnection, StreamOwned};
     use wsl_bridge_shared::{
-        AppSettings, BindMode, CloseBehavior, CreateRuleRequest, LogQueryRequest, NewProxyRule,
-        QueryTrafficStatsRequest, RuleLogStatsRequest, RulePatch, RuleType, TargetKind,
+        AppSettings, BindMode, CloseBehavior, CopyHostsGroupRequest, CreateHostsGroupRequest,
+        CreateProxyCertificateRequest, CreateProxyListenerRequest, CreateProxyRouteRequest,
+        CreateProxyUpstreamRequest, CreateRuleRequest, ExportHostsGroupRequest,
+        HostsEntryInput, ImportHostsGroupRequest, LogQueryRequest, NewProxyRule,
+        ProxyCertificateSourceType, ProxyProtocol, ProxyTlsMode, QueryTrafficStatsRequest,
+        RuleLogStatsRequest, RuleMigrationStatus, RulePatch, RuleType, RuntimeState,
+        SaveHostsEntriesRequest, TargetKind, UpstreamScheme,
     };
 
-    use super::RuleEngine;
+    use crate::forwarder::HTTP2_PRIOR_KNOWLEDGE_PREFACE;
+
+    use super::{EngineError, RuleEngine};
 
     fn test_rule(name: &str, port: u16) -> CreateRuleRequest {
         CreateRuleRequest {
@@ -1336,6 +3415,99 @@ mod tests {
     fn free_udp_port() -> u16 {
         let socket = UdpSocket::bind(("127.0.0.1", 0)).expect("bind ephemeral");
         socket.local_addr().expect("local addr").port()
+    }
+
+    fn bind_test_tcp_listener() -> (TcpListener, u16) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind test listener");
+        let port = listener.local_addr().expect("listener local addr").port();
+        (listener, port)
+    }
+
+    fn write_temp_fixture(prefix: &str, extension: &str, content: &str) -> PathBuf {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("duration")
+            .as_nanos();
+        let path = env::temp_dir().join(format!("{prefix}-{now}.{extension}"));
+        fs::write(&path, content).expect("write temp fixture");
+        path
+    }
+
+    fn proxy_test_local_ca_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn proxy_test_local_ca_root_dir() -> PathBuf {
+        env::temp_dir()
+            .join("wsl-bridge-dev-certificates")
+            .join("local-ca")
+    }
+
+    fn generate_trusted_local_ca_leaf(hosts: &[&str], common_name: &str) -> (String, String) {
+        let root_dir = proxy_test_local_ca_root_dir();
+        fs::create_dir_all(&root_dir).expect("create local ca root dir");
+        let root_cert_path = root_dir.join("root-ca.pem");
+        let root_key_path = root_dir.join("root-ca.key");
+        let (ca_cert, ca_key_pair) = super::ensure_local_ca_root(&root_cert_path, &root_key_path)
+            .expect("ensure local ca root");
+
+        let leaf_key = KeyPair::generate().expect("generate leaf key");
+        let mut leaf_params = CertificateParams::new(
+            hosts
+                .iter()
+                .map(|item| (*item).to_owned())
+                .collect::<Vec<_>>(),
+        )
+        .expect("build leaf params");
+        let mut distinguished_name = DistinguishedName::new();
+        distinguished_name.push(DnType::CommonName, common_name);
+        leaf_params.distinguished_name = distinguished_name;
+        let leaf_cert = leaf_params
+            .signed_by(&leaf_key, &ca_cert, &ca_key_pair)
+            .expect("sign local ca leaf");
+        (leaf_cert.pem(), leaf_key.serialize_pem())
+    }
+
+    fn create_test_tls_server_config(cert_pem: &str, key_pem: &str) -> ServerConfig {
+        let mut cert_reader = BufReader::new(cert_pem.as_bytes());
+        let cert_chain = rustls_pemfile::certs(&mut cert_reader)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("read cert chain");
+        let mut key_reader = BufReader::new(key_pem.as_bytes());
+        let private_key: PrivateKeyDer<'static> = rustls_pemfile::private_key(&mut key_reader)
+            .expect("read key")
+            .expect("private key");
+        ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(cert_chain, private_key)
+            .expect("build tls server config")
+    }
+
+    fn wait_for_proxy_listener_state(
+        engine: &RuleEngine,
+        listener_id: &str,
+        expected: RuntimeState,
+    ) -> wsl_bridge_shared::ProxyRuntimeStatusItem {
+        for _ in 0..20 {
+            if let Some(status) = engine
+                .get_proxy_runtime_status()
+                .into_iter()
+                .find(|item| item.listener_id == listener_id)
+            {
+                if status.state == expected {
+                    return status;
+                }
+            }
+            thread::sleep(Duration::from_millis(40));
+        }
+        engine
+            .get_proxy_runtime_status()
+            .into_iter()
+            .find(|item| item.listener_id == listener_id)
+            .expect("runtime status")
     }
 
     fn distinct_free_udp_port(existing: u16) -> u16 {
@@ -1648,6 +3820,1984 @@ mod tests {
     }
 
     #[test]
+    fn proxy_http_listener_routes_and_rewrites_path() {
+        let target_port = free_tcp_port();
+        let listen_port = free_tcp_port();
+
+        let server = thread::spawn(move || {
+            let listener = TcpListener::bind(("127.0.0.1", target_port)).expect("target bind");
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("set timeout");
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(len) => {
+                        request.extend_from_slice(&chunk[..len]);
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(err)
+                        if err.kind() == std::io::ErrorKind::WouldBlock
+                            || err.kind() == std::io::ErrorKind::TimedOut =>
+                    {
+                        break;
+                    }
+                    Err(err) => panic!("read request failed: {err}"),
+                }
+            }
+            let request_text = String::from_utf8_lossy(&request).to_string();
+            let body = request_text
+                .lines()
+                .next()
+                .unwrap_or("missing request line")
+                .to_owned();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("write response");
+        });
+
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "http-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec!["a.example.com".to_owned()],
+                path_prefix: Some("/api".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let _upstream_id = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Http,
+                path_rewrite_from: Some("/api".to_owned()),
+                path_rewrite_to: Some("/".to_owned()),
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        let status = wait_for_proxy_listener_state(&engine, &listener_id, RuntimeState::Running);
+        assert_eq!(status.state, RuntimeState::Running);
+
+        let mut client = TcpStream::connect(("127.0.0.1", listen_port)).expect("connect proxy");
+        client
+            .write_all(
+                b"GET /api/ping HTTP/1.1\r\nHost: a.example.com\r\nConnection: close\r\n\r\n",
+            )
+            .expect("send request");
+        let mut response = String::new();
+        client.read_to_string(&mut response).expect("read response");
+
+        assert!(response.contains("HTTP/1.1 200 OK"));
+        assert!(response.contains("GET /ping HTTP/1.1"));
+
+        drop(engine);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn proxy_route_and_upstream_runtime_metrics_are_recorded() {
+        let target_port = free_tcp_port();
+        let listen_port = free_tcp_port();
+
+        let server = thread::spawn(move || {
+            let listener = TcpListener::bind(("127.0.0.1", target_port)).expect("target bind");
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("set timeout");
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(len) => {
+                        request.extend_from_slice(&chunk[..len]);
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(err)
+                        if err.kind() == std::io::ErrorKind::WouldBlock
+                            || err.kind() == std::io::ErrorKind::TimedOut =>
+                    {
+                        break;
+                    }
+                    Err(err) => panic!("read request failed: {err}"),
+                }
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .expect("write response");
+        });
+
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "metrics-http-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec!["metrics.example.com".to_owned()],
+                path_prefix: Some("/api".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let upstream_id = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id: route_id.clone(),
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Http,
+                path_rewrite_from: Some("/api".to_owned()),
+                path_rewrite_to: Some("/".to_owned()),
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        thread::sleep(Duration::from_millis(180));
+
+        let mut client = TcpStream::connect(("127.0.0.1", listen_port)).expect("connect proxy");
+        client
+            .write_all(
+                b"GET /api/ping HTTP/1.1\r\nHost: metrics.example.com\r\nConnection: close\r\n\r\n",
+            )
+            .expect("send request");
+        let mut response = String::new();
+        client.read_to_string(&mut response).expect("read response");
+        assert!(response.contains("HTTP/1.1 200 OK"));
+
+        thread::sleep(Duration::from_millis(120));
+
+        let route_runtime = engine
+            .list_proxy_route_runtime(&listener_id)
+            .into_iter()
+            .find(|item| item.route_id == route_id)
+            .expect("route runtime");
+        assert_eq!(route_runtime.hit_count, 1);
+        assert_eq!(route_runtime.error_count, 0);
+        assert_eq!(
+            route_runtime.last_server_name.as_deref(),
+            Some("metrics.example.com")
+        );
+        assert_eq!(
+            route_runtime.last_request_path.as_deref(),
+            Some("/api/ping")
+        );
+
+        let upstream_runtime = engine
+            .list_proxy_upstream_runtime(&route_id)
+            .into_iter()
+            .find(|item| item.upstream_id == upstream_id)
+            .expect("upstream runtime");
+        assert_eq!(upstream_runtime.hit_count, 1);
+        assert_eq!(upstream_runtime.error_count, 0);
+        assert!(upstream_runtime
+            .last_target
+            .as_deref()
+            .unwrap_or_default()
+            .contains("/ping"));
+        assert_eq!(upstream_runtime.last_request_path.as_deref(), Some("/ping"));
+
+        drop(engine);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn proxy_http_listener_proxies_websocket_upgrade_and_stream() {
+        let target_port = free_tcp_port();
+        let listen_port = free_tcp_port();
+
+        let server = thread::spawn(move || {
+            let listener = TcpListener::bind(("127.0.0.1", target_port)).expect("target bind");
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("set timeout");
+
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(len) => {
+                        request.extend_from_slice(&chunk[..len]);
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(err)
+                        if err.kind() == std::io::ErrorKind::WouldBlock
+                            || err.kind() == std::io::ErrorKind::TimedOut =>
+                    {
+                        break;
+                    }
+                    Err(err) => panic!("read request failed: {err}"),
+                }
+            }
+
+            let request_text = String::from_utf8_lossy(&request).to_string();
+            assert!(request_text.starts_with("GET /socket/chat HTTP/1.1"));
+            assert!(request_text
+                .to_ascii_lowercase()
+                .contains("upgrade: websocket"));
+
+            stream
+                .write_all(
+                    b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+                )
+                .expect("write upgrade response");
+
+            let mut payload = [0u8; 4];
+            stream
+                .read_exact(&mut payload)
+                .expect("read websocket payload");
+            assert_eq!(&payload, b"ping");
+            stream.write_all(b"pong").expect("write websocket echo");
+        });
+
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "ws-http-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec!["ws.example.com".to_owned()],
+                path_prefix: Some("/ws".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id: route_id.clone(),
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Ws,
+                path_rewrite_from: Some("/ws".to_owned()),
+                path_rewrite_to: Some("/socket".to_owned()),
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        thread::sleep(Duration::from_millis(180));
+
+        let mut client = TcpStream::connect(("127.0.0.1", listen_port)).expect("connect proxy");
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set timeout");
+        client
+            .write_all(
+                b"GET /ws/chat HTTP/1.1\r\nHost: ws.example.com\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: test-key\r\nSec-WebSocket-Version: 13\r\n\r\n",
+            )
+            .expect("send websocket upgrade request");
+
+        let mut response = Vec::new();
+        let mut header_chunk = [0u8; 1024];
+        loop {
+            let len = client
+                .read(&mut header_chunk)
+                .expect("read upgrade response");
+            if len == 0 {
+                break;
+            }
+            response.extend_from_slice(&header_chunk[..len]);
+            if response.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let response_text = String::from_utf8_lossy(&response).to_string();
+        assert!(response_text.contains("101 Switching Protocols"));
+
+        client.write_all(b"ping").expect("send websocket payload");
+        let mut echoed = [0u8; 4];
+        client.read_exact(&mut echoed).expect("read websocket echo");
+        assert_eq!(&echoed, b"pong");
+
+        thread::sleep(Duration::from_millis(120));
+
+        let route_runtime = engine
+            .list_proxy_route_runtime(&listener_id)
+            .into_iter()
+            .find(|item| item.route_id == route_id)
+            .expect("route runtime");
+        assert_eq!(route_runtime.hit_count, 1);
+        assert_eq!(route_runtime.error_count, 0);
+
+        drop(engine);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn proxy_http_listener_proxies_https_upstream_response() {
+        let _local_ca_lock = proxy_test_local_ca_lock();
+        let (target_listener, target_port) = bind_test_tcp_listener();
+        let listen_port = free_tcp_port();
+
+        let (cert_pem, key_pem) =
+            generate_trusted_local_ca_leaf(&["127.0.0.1"], "trusted-https-upstream");
+        let tls_config = std::sync::Arc::new(create_test_tls_server_config(&cert_pem, &key_pem));
+
+        let server = thread::spawn(move || {
+            let (stream, _) = target_listener.accept().expect("accept");
+            let connection =
+                ServerConnection::new(tls_config).expect("create tls server connection");
+            let mut stream = StreamOwned::new(connection, stream);
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(len) => {
+                        request.extend_from_slice(&chunk[..len]);
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(err) => panic!("read request failed: {err}"),
+                }
+            }
+            let request_text = String::from_utf8_lossy(&request).to_string();
+            let body = request_text
+                .lines()
+                .next()
+                .unwrap_or("missing request line")
+                .to_owned();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("write response");
+        });
+
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "https-upstream-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id,
+                server_names: vec!["secure.example.com".to_owned()],
+                path_prefix: Some("/api".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id: route_id.clone(),
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Https,
+                path_rewrite_from: Some("/api".to_owned()),
+                path_rewrite_to: Some("/secure".to_owned()),
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        thread::sleep(Duration::from_millis(180));
+
+        let mut client = TcpStream::connect(("127.0.0.1", listen_port)).expect("connect proxy");
+        client
+            .write_all(
+                b"GET /api/ping HTTP/1.1\r\nHost: secure.example.com\r\nConnection: close\r\n\r\n",
+            )
+            .expect("send request");
+        let mut response = String::new();
+        client.read_to_string(&mut response).expect("read response");
+
+        assert!(response.contains("HTTP/1.1 200 OK"));
+        assert!(response.contains("GET /secure/ping HTTP/1.1"));
+
+        drop(engine);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn proxy_http_listener_records_error_for_untrusted_https_upstream() {
+        let (target_listener, target_port) = bind_test_tcp_listener();
+        let listen_port = free_tcp_port();
+
+        let CertifiedKey { cert, key_pair } =
+            generate_simple_self_signed(vec!["127.0.0.1".to_owned()])
+                .expect("generate untrusted certificate");
+        let tls_config = std::sync::Arc::new(create_test_tls_server_config(
+            &cert.pem(),
+            &key_pair.serialize_pem(),
+        ));
+
+        let server = thread::spawn(move || {
+            let (stream, _) = target_listener.accept().expect("accept");
+            let connection =
+                ServerConnection::new(tls_config).expect("create tls server connection");
+            let mut stream = StreamOwned::new(connection, stream);
+            let mut sink = [0u8; 256];
+            let _ = stream.read(&mut sink);
+        });
+
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "https-untrusted-upstream-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec!["untrusted.example.com".to_owned()],
+                path_prefix: Some("/api".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let upstream_id = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id: route_id.clone(),
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Https,
+                path_rewrite_from: Some("/api".to_owned()),
+                path_rewrite_to: Some("/secure".to_owned()),
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        thread::sleep(Duration::from_millis(180));
+
+        let mut client = TcpStream::connect(("127.0.0.1", listen_port)).expect("connect proxy");
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set timeout");
+        client
+            .write_all(
+                b"GET /api/ping HTTP/1.1\r\nHost: untrusted.example.com\r\nConnection: close\r\n\r\n",
+            )
+            .expect("send request");
+        let mut response = String::new();
+        client.read_to_string(&mut response).expect("read response");
+
+        assert!(response.contains("HTTP/1.1 502 Bad Gateway"));
+
+        thread::sleep(Duration::from_millis(120));
+
+        let route_runtime = engine
+            .list_proxy_route_runtime(&listener_id)
+            .into_iter()
+            .find(|item| item.route_id == route_id)
+            .expect("route runtime");
+        assert_eq!(route_runtime.hit_count, 1);
+        assert_eq!(route_runtime.error_count, 1);
+
+        let upstream_runtime = engine
+            .list_proxy_upstream_runtime(&route_id)
+            .into_iter()
+            .find(|item| item.upstream_id == upstream_id)
+            .expect("upstream runtime");
+        assert_eq!(upstream_runtime.hit_count, 0);
+        assert_eq!(upstream_runtime.error_count, 1);
+
+        drop(engine);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn proxy_http_listener_proxies_wss_upgrade_and_stream() {
+        let _local_ca_lock = proxy_test_local_ca_lock();
+        let (target_listener, target_port) = bind_test_tcp_listener();
+        let listen_port = free_tcp_port();
+
+        let (cert_pem, key_pem) =
+            generate_trusted_local_ca_leaf(&["127.0.0.1"], "trusted-wss-upstream");
+        let tls_config = std::sync::Arc::new(create_test_tls_server_config(&cert_pem, &key_pem));
+
+        let server = thread::spawn(move || {
+            let (stream, _) = target_listener.accept().expect("accept");
+            let connection =
+                ServerConnection::new(tls_config).expect("create tls server connection");
+            let mut stream = StreamOwned::new(connection, stream);
+
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(len) => {
+                        request.extend_from_slice(&chunk[..len]);
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(err) => panic!("read request failed: {err}"),
+                }
+            }
+
+            let request_text = String::from_utf8_lossy(&request).to_string();
+            assert!(request_text.starts_with("GET /socket/chat HTTP/1.1"));
+            assert!(request_text
+                .to_ascii_lowercase()
+                .contains("upgrade: websocket"));
+
+            stream
+                .write_all(
+                    b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+                )
+                .expect("write upgrade response");
+
+            let mut payload = [0u8; 4];
+            stream
+                .read_exact(&mut payload)
+                .expect("read websocket payload");
+            assert_eq!(&payload, b"ping");
+            stream.write_all(b"pong").expect("write websocket echo");
+        });
+
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "wss-upstream-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec!["wss.example.com".to_owned()],
+                path_prefix: Some("/wss".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id: route_id.clone(),
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Wss,
+                path_rewrite_from: Some("/wss".to_owned()),
+                path_rewrite_to: Some("/socket".to_owned()),
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        thread::sleep(Duration::from_millis(180));
+
+        let mut client = TcpStream::connect(("127.0.0.1", listen_port)).expect("connect proxy");
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set timeout");
+        client
+            .write_all(
+                b"GET /wss/chat HTTP/1.1\r\nHost: wss.example.com\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: test-key\r\nSec-WebSocket-Version: 13\r\n\r\n",
+            )
+            .expect("send websocket upgrade request");
+
+        let mut response = Vec::new();
+        let mut header_chunk = [0u8; 1024];
+        loop {
+            let len = client
+                .read(&mut header_chunk)
+                .expect("read upgrade response");
+            if len == 0 {
+                break;
+            }
+            response.extend_from_slice(&header_chunk[..len]);
+            if response.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let response_text = String::from_utf8_lossy(&response).to_string();
+        assert!(response_text.contains("101 Switching Protocols"));
+
+        client.write_all(b"ping").expect("send websocket payload");
+        let mut echoed = [0u8; 4];
+        client.read_exact(&mut echoed).expect("read websocket echo");
+        assert_eq!(&echoed, b"pong");
+
+        thread::sleep(Duration::from_millis(120));
+
+        let route_runtime = engine
+            .list_proxy_route_runtime(&listener_id)
+            .into_iter()
+            .find(|item| item.route_id == route_id)
+            .expect("route runtime");
+        assert_eq!(route_runtime.hit_count, 1);
+        assert_eq!(route_runtime.error_count, 0);
+
+        drop(engine);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn proxy_http_listener_records_error_for_untrusted_wss_upstream() {
+        let (target_listener, target_port) = bind_test_tcp_listener();
+        let listen_port = free_tcp_port();
+
+        let CertifiedKey { cert, key_pair } =
+            generate_simple_self_signed(vec!["127.0.0.1".to_owned()])
+                .expect("generate untrusted certificate");
+        let tls_config = std::sync::Arc::new(create_test_tls_server_config(
+            &cert.pem(),
+            &key_pair.serialize_pem(),
+        ));
+
+        let server = thread::spawn(move || {
+            let (stream, _) = target_listener.accept().expect("accept");
+            let connection =
+                ServerConnection::new(tls_config).expect("create tls server connection");
+            let mut stream = StreamOwned::new(connection, stream);
+            let mut sink = [0u8; 256];
+            let _ = stream.read(&mut sink);
+        });
+
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "wss-untrusted-upstream-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec!["untrusted-wss.example.com".to_owned()],
+                path_prefix: Some("/wss".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let upstream_id = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id: route_id.clone(),
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Wss,
+                path_rewrite_from: Some("/wss".to_owned()),
+                path_rewrite_to: Some("/socket".to_owned()),
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        thread::sleep(Duration::from_millis(180));
+
+        let mut client = TcpStream::connect(("127.0.0.1", listen_port)).expect("connect proxy");
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set timeout");
+        client
+            .write_all(
+                b"GET /wss/chat HTTP/1.1\r\nHost: untrusted-wss.example.com\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: test-key\r\nSec-WebSocket-Version: 13\r\n\r\n",
+            )
+            .expect("send websocket upgrade request");
+
+        let mut response = String::new();
+        client.read_to_string(&mut response).expect("read response");
+
+        assert!(response.contains("HTTP/1.1 502 Bad Gateway"));
+
+        thread::sleep(Duration::from_millis(120));
+
+        let route_runtime = engine
+            .list_proxy_route_runtime(&listener_id)
+            .into_iter()
+            .find(|item| item.route_id == route_id)
+            .expect("route runtime");
+        assert_eq!(route_runtime.hit_count, 1);
+        assert_eq!(route_runtime.error_count, 1);
+
+        let upstream_runtime = engine
+            .list_proxy_upstream_runtime(&route_id)
+            .into_iter()
+            .find(|item| item.upstream_id == upstream_id)
+            .expect("upstream runtime");
+        assert_eq!(upstream_runtime.hit_count, 0);
+        assert_eq!(upstream_runtime.error_count, 1);
+
+        drop(engine);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn tcp_rule_can_migrate_to_proxy() {
+        let target_port = free_tcp_port();
+        let listen_port = free_tcp_port();
+
+        let engine = RuleEngine::new();
+        let rule_id = engine
+            .create_rule(CreateRuleRequest {
+                rule: NewProxyRule {
+                    name: "legacy-tcp".to_owned(),
+                    rule_type: RuleType::TcpFwd,
+                    listen_host: "127.0.0.1".to_owned(),
+                    listen_port,
+                    target_kind: TargetKind::Static,
+                    target_ref: None,
+                    target_host: Some("127.0.0.1".to_owned()),
+                    target_port: Some(target_port),
+                    bind_mode: BindMode::AllNics,
+                    nic_id: None,
+                    enabled: true,
+                },
+                firewall: None,
+            })
+            .expect("create rule");
+
+        let migration = engine
+            .migrate_rule_to_proxy(&rule_id)
+            .expect("migrate rule");
+        assert_eq!(migration.status, RuleMigrationStatus::Migrated);
+        assert_eq!(migration.rule_id, rule_id);
+        assert!(migration.detail.is_none());
+
+        let migrated_rule = engine
+            .list_rules()
+            .into_iter()
+            .find(|item| item.id == rule_id)
+            .expect("legacy rule");
+        assert!(!migrated_rule.enabled);
+
+        let listener = engine
+            .list_proxy_listeners()
+            .into_iter()
+            .find(|item| item.id == migration.proxy_listener_id)
+            .expect("proxy listener");
+        assert_eq!(listener.listen_port, listen_port);
+        assert!(listener.enabled);
+
+        let route = engine
+            .list_proxy_routes(&listener.id)
+            .expect("list routes")
+            .into_iter()
+            .find(|item| item.id == migration.proxy_route_id)
+            .expect("proxy route");
+        assert!(route.is_default);
+        assert!(route.server_names.is_empty());
+
+        let upstream = engine
+            .list_proxy_upstreams(&route.id)
+            .expect("list upstreams")
+            .into_iter()
+            .find(|item| Some(item.id.clone()) == migration.proxy_upstream_id)
+            .expect("proxy upstream");
+        assert_eq!(upstream.target_host.as_deref(), Some("127.0.0.1"));
+        assert_eq!(upstream.target_port, target_port);
+        assert!(upstream.enabled);
+    }
+
+    #[test]
+    fn http_proxy_rule_migrates_as_proxy_draft() {
+        let listen_port = free_tcp_port();
+
+        let engine = RuleEngine::new();
+        let rule_id = engine
+            .create_rule(CreateRuleRequest {
+                rule: NewProxyRule {
+                    name: "legacy-http-proxy".to_owned(),
+                    rule_type: RuleType::HttpProxy,
+                    listen_host: "127.0.0.1".to_owned(),
+                    listen_port,
+                    target_kind: TargetKind::Static,
+                    target_ref: None,
+                    target_host: None,
+                    target_port: None,
+                    bind_mode: BindMode::AllNics,
+                    nic_id: None,
+                    enabled: true,
+                },
+                firewall: None,
+            })
+            .expect("create rule");
+
+        let migration = engine
+            .migrate_rule_to_proxy(&rule_id)
+            .expect("migrate http proxy");
+        assert_eq!(migration.status, RuleMigrationStatus::Migrated);
+        assert!(migration.detail.is_some());
+
+        let listener = engine
+            .list_proxy_listeners()
+            .into_iter()
+            .find(|item| item.id == migration.proxy_listener_id)
+            .expect("proxy listener");
+        let route = engine
+            .list_proxy_routes(&listener.id)
+            .expect("list routes")
+            .into_iter()
+            .find(|item| item.id == migration.proxy_route_id)
+            .expect("proxy route");
+        assert_eq!(route.server_names, vec!["127.0.0.1".to_owned()]);
+        assert!(!route.is_default);
+
+        let upstream = engine
+            .list_proxy_upstreams(&route.id)
+            .expect("list upstreams")
+            .into_iter()
+            .find(|item| Some(item.id.clone()) == migration.proxy_upstream_id)
+            .expect("proxy upstream");
+        assert!(!upstream.enabled);
+        assert_eq!(upstream.target_host.as_deref(), Some("127.0.0.1"));
+        assert_eq!(upstream.target_port, 80);
+    }
+
+    #[test]
+    fn proxy_certificate_can_be_created_and_bound_to_https_listener() {
+        let cert_path = write_temp_fixture(
+            "wsl-bridge-cert",
+            "pem",
+            "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n",
+        );
+        let key_path = write_temp_fixture(
+            "wsl-bridge-key",
+            "key",
+            "-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----\n",
+        );
+
+        let engine = RuleEngine::new();
+        let certificate_id = engine
+            .create_proxy_certificate(CreateProxyCertificateRequest {
+                name: "dev-cert".to_owned(),
+                source_type: ProxyCertificateSourceType::ManualUpload,
+                cert_path: cert_path.display().to_string(),
+                key_path: key_path.display().to_string(),
+                domains: vec!["example.test".to_owned(), "*.example.test".to_owned()],
+            })
+            .expect("create proxy certificate");
+
+        let certificates = engine.list_proxy_certificates();
+        assert_eq!(certificates.len(), 1);
+        assert_eq!(certificates[0].id, certificate_id);
+        assert_eq!(certificates[0].domains.len(), 2);
+
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "https-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port: free_tcp_port(),
+                protocol: ProxyProtocol::Https,
+                tls_mode: ProxyTlsMode::ManualCert,
+                cert_id: Some(certificate_id.clone()),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: false,
+            })
+            .expect("create https listener");
+
+        let listener = engine
+            .list_proxy_listeners()
+            .into_iter()
+            .find(|item| item.id == listener_id)
+            .expect("listener");
+        assert_eq!(listener.cert_id.as_deref(), Some(certificate_id.as_str()));
+
+        let _ = fs::remove_file(cert_path);
+        let _ = fs::remove_file(key_path);
+    }
+
+    #[test]
+    fn proxy_https_listener_starts_with_manual_certificate() {
+        let target_port = free_tcp_port();
+        let listen_port = free_tcp_port();
+        let CertifiedKey { cert, key_pair } =
+            generate_simple_self_signed(vec!["example.test".to_owned()])
+                .expect("generate certificate");
+        let cert_pem = cert.pem();
+        let key_pem = key_pair.serialize_pem();
+        let cert_path = write_temp_fixture("wsl-bridge-https-cert", "pem", &cert_pem);
+        let key_path = write_temp_fixture("wsl-bridge-https-key", "key", &key_pem);
+
+        let engine = RuleEngine::new();
+        let certificate_id = engine
+            .create_proxy_certificate(CreateProxyCertificateRequest {
+                name: "runtime-https-cert".to_owned(),
+                source_type: ProxyCertificateSourceType::ManualUpload,
+                cert_path: cert_path.display().to_string(),
+                key_path: key_path.display().to_string(),
+                domains: vec!["example.test".to_owned()],
+            })
+            .expect("create proxy certificate");
+
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "https-runtime-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Https,
+                tls_mode: ProxyTlsMode::ManualCert,
+                cert_id: Some(certificate_id),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec!["example.test".to_owned()],
+                path_prefix: Some("/api".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id: route_id.clone(),
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Http,
+                path_rewrite_from: Some("/api".to_owned()),
+                path_rewrite_to: Some("/".to_owned()),
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        let status = wait_for_proxy_listener_state(&engine, &listener_id, RuntimeState::Running);
+        assert_eq!(status.state, RuntimeState::Running);
+        assert!(status.last_error.is_none());
+
+        drop(engine);
+        let _ = fs::remove_file(cert_path);
+        let _ = fs::remove_file(key_path);
+    }
+
+    #[test]
+    fn proxy_https_listener_accepts_https_upstream_configuration() {
+        let listen_port = free_tcp_port();
+
+        let CertifiedKey {
+            cert: inbound_cert,
+            key_pair: inbound_key,
+        } = generate_simple_self_signed(vec!["secure.example.test".to_owned()])
+            .expect("generate inbound certificate");
+        let inbound_cert_path =
+            write_temp_fixture("wsl-bridge-https-inbound-cert", "pem", &inbound_cert.pem());
+        let inbound_key_path = write_temp_fixture(
+            "wsl-bridge-https-inbound-key",
+            "key",
+            &inbound_key.serialize_pem(),
+        );
+
+        let engine = RuleEngine::new();
+        let certificate_id = engine
+            .create_proxy_certificate(CreateProxyCertificateRequest {
+                name: "inbound-https-cert".to_owned(),
+                source_type: ProxyCertificateSourceType::ManualUpload,
+                cert_path: inbound_cert_path.display().to_string(),
+                key_path: inbound_key_path.display().to_string(),
+                domains: vec!["secure.example.test".to_owned()],
+            })
+            .expect("create inbound certificate");
+
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "inbound-https-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Https,
+                tls_mode: ProxyTlsMode::ManualCert,
+                cert_id: Some(certificate_id),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec!["secure.example.test".to_owned()],
+                path_prefix: Some("/api".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port: 443,
+                upstream_scheme: UpstreamScheme::Https,
+                path_rewrite_from: Some("/api".to_owned()),
+                path_rewrite_to: Some("/secure".to_owned()),
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        let status = wait_for_proxy_listener_state(&engine, &listener_id, RuntimeState::Running);
+        assert_eq!(status.state, RuntimeState::Running);
+        assert!(status.last_error.is_none());
+
+        let _ = fs::remove_file(inbound_cert_path);
+        let _ = fs::remove_file(inbound_key_path);
+        drop(engine);
+    }
+
+    #[test]
+    fn proxy_https_listener_accepts_wss_upstream_configuration() {
+        let listen_port = free_tcp_port();
+
+        let CertifiedKey {
+            cert: inbound_cert,
+            key_pair: inbound_key,
+        } = generate_simple_self_signed(vec!["secure.example.test".to_owned()])
+            .expect("generate inbound certificate");
+        let inbound_cert_path =
+            write_temp_fixture("wsl-bridge-https-inbound-cert", "pem", &inbound_cert.pem());
+        let inbound_key_path = write_temp_fixture(
+            "wsl-bridge-https-inbound-key",
+            "key",
+            &inbound_key.serialize_pem(),
+        );
+
+        let engine = RuleEngine::new();
+        let certificate_id = engine
+            .create_proxy_certificate(CreateProxyCertificateRequest {
+                name: "inbound-https-cert".to_owned(),
+                source_type: ProxyCertificateSourceType::ManualUpload,
+                cert_path: inbound_cert_path.display().to_string(),
+                key_path: inbound_key_path.display().to_string(),
+                domains: vec!["secure.example.test".to_owned()],
+            })
+            .expect("create inbound certificate");
+
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "inbound-https-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Https,
+                tls_mode: ProxyTlsMode::ManualCert,
+                cert_id: Some(certificate_id),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec!["secure.example.test".to_owned()],
+                path_prefix: Some("/wss".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port: 443,
+                upstream_scheme: UpstreamScheme::Wss,
+                path_rewrite_from: Some("/wss".to_owned()),
+                path_rewrite_to: Some("/socket".to_owned()),
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        let status = wait_for_proxy_listener_state(&engine, &listener_id, RuntimeState::Running);
+        assert_eq!(status.state, RuntimeState::Running);
+        assert!(status.last_error.is_none());
+
+        let _ = fs::remove_file(inbound_cert_path);
+        let _ = fs::remove_file(inbound_key_path);
+        drop(engine);
+    }
+
+    #[test]
+    fn grpc_upstream_requires_http_listener() {
+        let CertifiedKey {
+            cert: inbound_cert,
+            key_pair: inbound_key,
+        } = generate_simple_self_signed(vec!["grpc.example.test".to_owned()])
+            .expect("generate inbound certificate");
+        let inbound_cert_path =
+            write_temp_fixture("wsl-bridge-grpc-inbound-cert", "pem", &inbound_cert.pem());
+        let inbound_key_path = write_temp_fixture(
+            "wsl-bridge-grpc-inbound-key",
+            "key",
+            &inbound_key.serialize_pem(),
+        );
+
+        let engine = RuleEngine::new();
+        let certificate_id = engine
+            .create_proxy_certificate(CreateProxyCertificateRequest {
+                name: "grpc-inbound-cert".to_owned(),
+                source_type: ProxyCertificateSourceType::ManualUpload,
+                cert_path: inbound_cert_path.display().to_string(),
+                key_path: inbound_key_path.display().to_string(),
+                domains: vec!["grpc.example.test".to_owned()],
+            })
+            .expect("create inbound certificate");
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "grpc-http-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port: free_tcp_port(),
+                protocol: ProxyProtocol::Https,
+                tls_mode: ProxyTlsMode::ManualCert,
+                cert_id: Some(certificate_id),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: false,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id,
+                server_names: vec!["grpc.example.test".to_owned()],
+                path_prefix: Some("/".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let err = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port: 50051,
+                upstream_scheme: UpstreamScheme::Grpc,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect_err("grpc upstream should be rejected on https listener");
+
+        assert!(
+            matches!(err, EngineError::InvalidProxy(message) if message.contains("grpc upstream requires an http listener"))
+        );
+
+        let _ = fs::remove_file(inbound_cert_path);
+        let _ = fs::remove_file(inbound_key_path);
+    }
+
+    #[test]
+    fn grpcs_upstream_requires_https_listener() {
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "grpcs-http-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port: free_tcp_port(),
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: false,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id,
+                server_names: vec!["grpcs.example.test".to_owned()],
+                path_prefix: Some("/".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let err = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port: 50051,
+                upstream_scheme: UpstreamScheme::Grpcs,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect_err("grpcs upstream should be rejected on http listener");
+
+        assert!(
+            matches!(err, EngineError::InvalidProxy(message) if message.contains("grpcs upstream requires an https listener"))
+        );
+    }
+
+    #[test]
+    fn grpc_upstream_requires_default_route() {
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "grpc-route-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port: free_tcp_port(),
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: false,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id,
+                server_names: vec!["grpc.example.test".to_owned()],
+                path_prefix: Some("/grpc".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let err = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port: 50051,
+                upstream_scheme: UpstreamScheme::Grpc,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect_err("grpc upstream should require default route");
+
+        assert!(
+            matches!(err, EngineError::InvalidProxy(message) if message.contains("grpc upstream currently requires a default route"))
+        );
+    }
+
+    #[test]
+    fn grpc_upstream_rejects_path_rewrite() {
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "grpc-rewrite-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port: free_tcp_port(),
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: false,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id,
+                server_names: vec![],
+                path_prefix: None,
+                is_default: true,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let err = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port: 50051,
+                upstream_scheme: UpstreamScheme::Grpc,
+                path_rewrite_from: Some("/grpc".to_owned()),
+                path_rewrite_to: Some("/".to_owned()),
+                enabled: true,
+            })
+            .expect_err("grpc upstream should reject path rewrite");
+
+        assert!(
+            matches!(err, EngineError::InvalidProxy(message) if message.contains("grpc upstream does not support path rewrite yet"))
+        );
+    }
+
+    #[test]
+    fn grpcs_upstream_requires_default_route() {
+        let CertifiedKey {
+            cert: inbound_cert,
+            key_pair: inbound_key,
+        } = generate_simple_self_signed(vec!["grpcs.example.test".to_owned()])
+            .expect("generate inbound certificate");
+        let inbound_cert_path =
+            write_temp_fixture("wsl-bridge-grpcs-inbound-cert", "pem", &inbound_cert.pem());
+        let inbound_key_path = write_temp_fixture(
+            "wsl-bridge-grpcs-inbound-key",
+            "key",
+            &inbound_key.serialize_pem(),
+        );
+
+        let engine = RuleEngine::new();
+        let certificate_id = engine
+            .create_proxy_certificate(CreateProxyCertificateRequest {
+                name: "grpcs-inbound-cert".to_owned(),
+                source_type: ProxyCertificateSourceType::ManualUpload,
+                cert_path: inbound_cert_path.display().to_string(),
+                key_path: inbound_key_path.display().to_string(),
+                domains: vec!["grpcs.example.test".to_owned()],
+            })
+            .expect("create inbound certificate");
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "grpcs-route-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port: free_tcp_port(),
+                protocol: ProxyProtocol::Https,
+                tls_mode: ProxyTlsMode::ManualCert,
+                cert_id: Some(certificate_id),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: false,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id,
+                server_names: vec!["grpcs.example.test".to_owned()],
+                path_prefix: Some("/grpc".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let err = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port: 50051,
+                upstream_scheme: UpstreamScheme::Grpcs,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect_err("grpcs upstream should require default route");
+
+        assert!(
+            matches!(err, EngineError::InvalidProxy(message) if message.contains("grpcs upstream currently requires a default route"))
+        );
+
+        let _ = fs::remove_file(inbound_cert_path);
+        let _ = fs::remove_file(inbound_key_path);
+    }
+
+    #[test]
+    fn grpcs_upstream_rejects_path_rewrite() {
+        let CertifiedKey {
+            cert: inbound_cert,
+            key_pair: inbound_key,
+        } = generate_simple_self_signed(vec!["grpcs.example.test".to_owned()])
+            .expect("generate inbound certificate");
+        let inbound_cert_path =
+            write_temp_fixture("wsl-bridge-grpcs-rewrite-cert", "pem", &inbound_cert.pem());
+        let inbound_key_path = write_temp_fixture(
+            "wsl-bridge-grpcs-rewrite-key",
+            "key",
+            &inbound_key.serialize_pem(),
+        );
+
+        let engine = RuleEngine::new();
+        let certificate_id = engine
+            .create_proxy_certificate(CreateProxyCertificateRequest {
+                name: "grpcs-rewrite-cert".to_owned(),
+                source_type: ProxyCertificateSourceType::ManualUpload,
+                cert_path: inbound_cert_path.display().to_string(),
+                key_path: inbound_key_path.display().to_string(),
+                domains: vec!["grpcs.example.test".to_owned()],
+            })
+            .expect("create inbound certificate");
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "grpcs-rewrite-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port: free_tcp_port(),
+                protocol: ProxyProtocol::Https,
+                tls_mode: ProxyTlsMode::ManualCert,
+                cert_id: Some(certificate_id),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: false,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id,
+                server_names: vec![],
+                path_prefix: None,
+                is_default: true,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let err = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port: 50051,
+                upstream_scheme: UpstreamScheme::Grpcs,
+                path_rewrite_from: Some("/grpc".to_owned()),
+                path_rewrite_to: Some("/".to_owned()),
+                enabled: true,
+            })
+            .expect_err("grpcs upstream should reject path rewrite");
+
+        assert!(
+            matches!(err, EngineError::InvalidProxy(message) if message.contains("grpcs upstream does not support path rewrite yet"))
+        );
+
+        let _ = fs::remove_file(inbound_cert_path);
+        let _ = fs::remove_file(inbound_key_path);
+    }
+
+    #[test]
+    fn proxy_http_listener_tunnels_grpc_h2c_prior_knowledge() {
+        let target_port = free_tcp_port();
+        let listen_port = free_tcp_port();
+
+        let server = thread::spawn(move || {
+            let listener = TcpListener::bind(("127.0.0.1", target_port)).expect("target bind");
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("set timeout");
+            let mut request = vec![0u8; HTTP2_PRIOR_KNOWLEDGE_PREFACE.len() + 4];
+            stream.read_exact(&mut request).expect("read h2c preface");
+            assert_eq!(
+                &request[..HTTP2_PRIOR_KNOWLEDGE_PREFACE.len()],
+                HTTP2_PRIOR_KNOWLEDGE_PREFACE
+            );
+            assert_eq!(&request[HTTP2_PRIOR_KNOWLEDGE_PREFACE.len()..], b"ping");
+            stream.write_all(b"pong").expect("write response");
+        });
+
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "grpc-h2c-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec![],
+                path_prefix: None,
+                is_default: true,
+                enabled: true,
+            })
+            .expect("create route");
+
+        engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id: route_id.clone(),
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Grpc,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        thread::sleep(Duration::from_millis(180));
+
+        let mut client = TcpStream::connect(("127.0.0.1", listen_port)).expect("connect proxy");
+        client
+            .write_all(HTTP2_PRIOR_KNOWLEDGE_PREFACE)
+            .expect("write h2c preface");
+        client.write_all(b"ping").expect("write payload");
+        client
+            .shutdown(std::net::Shutdown::Write)
+            .expect("shutdown write");
+
+        let mut response = [0u8; 4];
+        client.read_exact(&mut response).expect("read response");
+        assert_eq!(&response, b"pong");
+
+        thread::sleep(Duration::from_millis(120));
+
+        let route_runtime = engine
+            .list_proxy_route_runtime(&listener_id)
+            .into_iter()
+            .find(|item| item.route_id == route_id)
+            .expect("route runtime");
+        assert_eq!(route_runtime.hit_count, 1);
+        assert_eq!(route_runtime.error_count, 0);
+
+        drop(engine);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn proxy_https_listener_accepts_grpcs_upstream_configuration() {
+        let listen_port = free_tcp_port();
+
+        let CertifiedKey {
+            cert: inbound_cert,
+            key_pair: inbound_key,
+        } = generate_simple_self_signed(vec!["secure-grpcs.example.test".to_owned()])
+            .expect("generate inbound certificate");
+        let inbound_cert_path =
+            write_temp_fixture("wsl-bridge-grpcs-listener-cert", "pem", &inbound_cert.pem());
+        let inbound_key_path = write_temp_fixture(
+            "wsl-bridge-grpcs-listener-key",
+            "key",
+            &inbound_key.serialize_pem(),
+        );
+
+        let engine = RuleEngine::new();
+        let certificate_id = engine
+            .create_proxy_certificate(CreateProxyCertificateRequest {
+                name: "grpcs-listener-cert".to_owned(),
+                source_type: ProxyCertificateSourceType::ManualUpload,
+                cert_path: inbound_cert_path.display().to_string(),
+                key_path: inbound_key_path.display().to_string(),
+                domains: vec!["secure-grpcs.example.test".to_owned()],
+            })
+            .expect("create inbound certificate");
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "grpcs-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Https,
+                tls_mode: ProxyTlsMode::ManualCert,
+                cert_id: Some(certificate_id),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec![],
+                path_prefix: None,
+                is_default: true,
+                enabled: true,
+            })
+            .expect("create route");
+
+        engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id: route_id.clone(),
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port: 443,
+                upstream_scheme: UpstreamScheme::Grpcs,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        let status = wait_for_proxy_listener_state(&engine, &listener_id, RuntimeState::Running);
+        assert_eq!(status.state, RuntimeState::Running);
+
+        let _ = fs::remove_file(inbound_cert_path);
+        let _ = fs::remove_file(inbound_key_path);
+        drop(engine);
+    }
+
+    #[test]
+    fn local_ca_certificate_can_be_generated_and_bound_to_https_listener() {
+        let _local_ca_lock = proxy_test_local_ca_lock();
+        let target_port = free_tcp_port();
+        let listen_port = free_tcp_port();
+
+        let engine = RuleEngine::new();
+        let certificate_id = engine
+            .create_proxy_certificate(CreateProxyCertificateRequest {
+                name: "runtime-local-ca-cert".to_owned(),
+                source_type: ProxyCertificateSourceType::LocalCa,
+                cert_path: String::new(),
+                key_path: String::new(),
+                domains: vec!["local-ca.example.test".to_owned()],
+            })
+            .expect("create local ca certificate");
+
+        let certificate = engine
+            .list_proxy_certificates()
+            .into_iter()
+            .find(|item| item.id == certificate_id)
+            .expect("local ca certificate");
+        assert_eq!(certificate.source_type, ProxyCertificateSourceType::LocalCa);
+        assert!(Path::new(&certificate.cert_path).exists());
+        assert!(Path::new(&certificate.key_path).exists());
+
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "https-local-ca-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Https,
+                tls_mode: ProxyTlsMode::LocalCa,
+                cert_id: Some(certificate_id.clone()),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create https listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec!["local-ca.example.test".to_owned()],
+                path_prefix: Some("/".to_owned()),
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Http,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        let status = wait_for_proxy_listener_state(&engine, &listener_id, RuntimeState::Running);
+        assert_eq!(status.state, RuntimeState::Running);
+        assert!(status.last_error.is_none());
+
+        let cert_path = certificate.cert_path.clone();
+        let key_path = certificate.key_path.clone();
+        engine
+            .delete_proxy_certificate(&certificate_id)
+            .expect_err("bound local ca certificate should not be deletable");
+        drop(engine);
+        assert!(Path::new(&cert_path).exists());
+        assert!(Path::new(&key_path).exists());
+    }
+
+    #[test]
+    fn deleting_bound_proxy_certificate_is_rejected() {
+        let cert_path = write_temp_fixture(
+            "wsl-bridge-cert-delete",
+            "pem",
+            "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n",
+        );
+        let key_path = write_temp_fixture(
+            "wsl-bridge-key-delete",
+            "key",
+            "-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----\n",
+        );
+
+        let engine = RuleEngine::new();
+        let certificate_id = engine
+            .create_proxy_certificate(CreateProxyCertificateRequest {
+                name: "in-use-cert".to_owned(),
+                source_type: ProxyCertificateSourceType::ManualUpload,
+                cert_path: cert_path.display().to_string(),
+                key_path: key_path.display().to_string(),
+                domains: vec!["in-use.test".to_owned()],
+            })
+            .expect("create proxy certificate");
+
+        engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "https-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port: free_tcp_port(),
+                protocol: ProxyProtocol::Https,
+                tls_mode: ProxyTlsMode::ManualCert,
+                cert_id: Some(certificate_id.clone()),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: false,
+            })
+            .expect("create https listener");
+
+        let err = engine
+            .delete_proxy_certificate(&certificate_id)
+            .expect_err("delete bound certificate should fail");
+        assert!(
+            matches!(err, EngineError::InvalidProxy(message) if message.contains("currently used by a listener"))
+        );
+
+        let _ = fs::remove_file(cert_path);
+        let _ = fs::remove_file(key_path);
+    }
+
+    #[test]
+    fn migrated_tcp_rule_can_rollback_from_proxy() {
+        let target_port = free_tcp_port();
+        let listen_port = free_tcp_port();
+
+        let engine = RuleEngine::new();
+        let rule_id = engine
+            .create_rule(CreateRuleRequest {
+                rule: NewProxyRule {
+                    name: "legacy-tcp-rollback".to_owned(),
+                    rule_type: RuleType::TcpFwd,
+                    listen_host: "127.0.0.1".to_owned(),
+                    listen_port,
+                    target_kind: TargetKind::Static,
+                    target_ref: None,
+                    target_host: Some("127.0.0.1".to_owned()),
+                    target_port: Some(target_port),
+                    bind_mode: BindMode::AllNics,
+                    nic_id: None,
+                    enabled: true,
+                },
+                firewall: None,
+            })
+            .expect("create rule");
+
+        let migration = engine
+            .migrate_rule_to_proxy(&rule_id)
+            .expect("migrate rule");
+
+        let rollback = engine
+            .rollback_rule_migration(&rule_id)
+            .expect("rollback migration");
+        assert_eq!(rollback.status, RuleMigrationStatus::Rollbacked);
+        assert_eq!(rollback.rule_id, rule_id);
+        assert_eq!(rollback.proxy_listener_id, migration.proxy_listener_id);
+        assert_eq!(rollback.proxy_route_id, migration.proxy_route_id);
+        assert_eq!(rollback.proxy_upstream_id, migration.proxy_upstream_id);
+        assert_eq!(
+            rollback.original_rule_enabled,
+            migration.original_rule_enabled
+        );
+        assert!(rollback.rollbacked_at.is_some());
+
+        let restored_rule = engine
+            .list_rules()
+            .into_iter()
+            .find(|item| item.id == rule_id)
+            .expect("restored legacy rule");
+        assert!(restored_rule.enabled);
+
+        assert!(engine
+            .list_proxy_listeners()
+            .into_iter()
+            .all(|item| item.id != migration.proxy_listener_id));
+        assert!(engine
+            .list_rule_migrations()
+            .into_iter()
+            .find(|item| item.rule_id == rule_id)
+            .is_some_and(|item| item.status == RuleMigrationStatus::Rollbacked));
+
+        assert!(matches!(
+            engine.list_proxy_routes(&migration.proxy_listener_id),
+            Err(EngineError::ProxyListenerNotFound(id)) if id == migration.proxy_listener_id
+        ));
+
+        assert!(matches!(
+            engine.list_proxy_upstreams(&migration.proxy_route_id),
+            Err(EngineError::ProxyRouteNotFound(id)) if id == migration.proxy_route_id
+        ));
+
+        let runtime = engine
+            .get_runtime_status()
+            .into_iter()
+            .find(|item| item.rule_id == rule_id)
+            .expect("runtime record");
+        assert_eq!(runtime.state, RuntimeState::Stopped);
+        assert!(runtime.last_error.is_none());
+        assert!(runtime.last_apply_at.is_some());
+    }
+
+    #[test]
+    fn proxy_runtime_status_reports_running_listener() {
+        let target_port = free_tcp_port();
+        let listen_port = free_tcp_port();
+
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "runtime-http-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec!["runtime.example.com".to_owned()],
+                path_prefix: None,
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+        engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Http,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        thread::sleep(Duration::from_millis(120));
+
+        let status = engine
+            .get_proxy_runtime_status()
+            .into_iter()
+            .find(|item| item.listener_id == listener_id)
+            .expect("runtime status");
+        assert_eq!(status.state, RuntimeState::Running);
+        assert!(status.last_error.is_none());
+
+        drop(engine);
+    }
+
+    #[test]
     fn http_proxy_connect_works() {
         let target_port = free_tcp_port();
         let proxy_port = free_tcp_port();
@@ -1765,4 +5915,190 @@ mod tests {
         let _ = engine.stop_rules();
         let _ = server.join();
     }
+
+    #[test]
+    fn hosts_bootstrap_save_copy_and_activate_work() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("duration")
+            .as_nanos();
+        let db_path = env::temp_dir().join(format!("wsl-bridge-hosts-{now}.db"));
+        let hosts_path = env::temp_dir().join(format!("wsl-bridge-hosts-{now}.txt"));
+        fs::write(
+            &hosts_path,
+            "127.0.0.1 localhost api.local # local dev\n::1 ipv6.local\n",
+        )
+        .expect("write seed hosts");
+
+        let engine = RuleEngine::with_sqlite(&db_path).expect("sqlite engine");
+        let group = engine
+            .bootstrap_default_hosts_group_from_path(&hosts_path)
+            .expect("bootstrap");
+        assert_eq!(group.name, "default");
+
+        let entries = engine
+            .list_hosts_entries(&group.id)
+            .expect("list default entries");
+        assert_eq!(entries.len(), 3);
+
+        engine
+            .save_hosts_entries(SaveHostsEntriesRequest {
+                group_id: group.id.clone(),
+                entries: vec![HostsEntryInput {
+                    id: entries.first().map(|item| item.id.clone()),
+                    ip: "127.0.0.1".to_owned(),
+                    domain: "edited.local".to_owned(),
+                    comment: Some("edited".to_owned()),
+                    enabled: true,
+                    order_index: 0,
+                }],
+            })
+            .expect("save entries");
+
+        let copied_id = engine
+            .copy_hosts_group(CopyHostsGroupRequest {
+                source_group_id: group.id.clone(),
+                name: "copy".to_owned(),
+                description: None,
+            })
+            .expect("copy group");
+        let copied_entries = engine
+            .list_hosts_entries(&copied_id)
+            .expect("list copied entries");
+        assert_eq!(copied_entries.len(), 1);
+        assert_eq!(copied_entries[0].domain, "edited.local");
+
+        engine
+            .activate_hosts_group_to_path(&copied_id, &hosts_path)
+            .expect("activate");
+        let rendered = fs::read_to_string(&hosts_path).expect("read activated hosts");
+        assert!(rendered.contains("127.0.0.1 edited.local # edited"));
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_file(hosts_path);
+    }
+
+    #[test]
+    fn hosts_import_export_delete_and_validation_work() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("duration")
+            .as_nanos();
+        let db_path = env::temp_dir().join(format!("wsl-bridge-hosts-import-{now}.db"));
+        let hosts_path = env::temp_dir().join(format!("wsl-bridge-hosts-active-{now}.txt"));
+        let import_path = env::temp_dir().join(format!("wsl-bridge-hosts-source-{now}.txt"));
+        let export_path = env::temp_dir().join(format!("wsl-bridge-hosts-export-{now}.txt"));
+
+        fs::write(&hosts_path, "127.0.0.1 localhost\n").expect("write seed hosts");
+        fs::write(
+            &import_path,
+            "127.0.0.1 a.local b.local # local aliases\n::1 ipv6.local\n",
+        )
+        .expect("write import hosts");
+
+        let engine = RuleEngine::with_sqlite(&db_path).expect("sqlite engine");
+        let default_group = engine
+            .bootstrap_default_hosts_group_from_path(&hosts_path)
+            .expect("bootstrap");
+
+        let imported_id = engine
+            .import_hosts_group(ImportHostsGroupRequest {
+                name: Some("imported".to_owned()),
+                description: Some("from file".to_owned()),
+                path: import_path.display().to_string(),
+            })
+            .expect("import hosts group");
+
+        let imported_entries = engine
+            .list_hosts_entries(&imported_id)
+            .expect("list imported entries");
+        assert_eq!(imported_entries.len(), 3);
+        assert_eq!(imported_entries[0].domain, "a.local");
+        assert_eq!(imported_entries[1].domain, "b.local");
+        assert_eq!(imported_entries[2].ip, "::1");
+
+        engine
+            .export_hosts_group(ExportHostsGroupRequest {
+                group_id: imported_id.clone(),
+                path: export_path.display().to_string(),
+            })
+            .expect("export hosts group");
+        let exported = fs::read_to_string(&export_path).expect("read exported hosts");
+        assert_eq!(
+            exported,
+            "127.0.0.1 a.local # local aliases\n127.0.0.1 b.local # local aliases\n::1 ipv6.local\n"
+        );
+
+        let manual_group_id = engine
+            .create_hosts_group(CreateHostsGroupRequest {
+                name: "manual".to_owned(),
+                description: Some("temp".to_owned()),
+            })
+            .expect("create manual group");
+        engine
+            .delete_hosts_group(&manual_group_id)
+            .expect("delete manual group");
+        assert!(engine
+            .list_hosts_groups()
+            .into_iter()
+            .all(|group| group.id != manual_group_id));
+
+        let invalid_save = engine.save_hosts_entries(SaveHostsEntriesRequest {
+            group_id: imported_id.clone(),
+            entries: vec![HostsEntryInput {
+                id: None,
+                ip: "not-an-ip".to_owned(),
+                domain: "broken.local".to_owned(),
+                comment: None,
+                enabled: true,
+                order_index: 0,
+            }],
+        });
+        assert!(matches!(invalid_save, Err(EngineError::InvalidHosts(_))));
+
+        engine
+            .activate_hosts_group_to_path(&imported_id, &hosts_path)
+            .expect("activate imported group");
+        let groups_after_import_activate = engine.list_hosts_groups();
+        assert_eq!(
+            groups_after_import_activate
+                .iter()
+                .filter(|group| group.is_active)
+                .count(),
+            1
+        );
+        assert!(groups_after_import_activate
+            .iter()
+            .any(|group| group.id == imported_id && group.is_active));
+        assert!(engine.delete_hosts_group(&imported_id).is_err());
+
+        engine
+            .activate_hosts_group_to_path(&default_group.id, &hosts_path)
+            .expect("reactivate default group");
+        let groups_after_default_activate = engine.list_hosts_groups();
+        assert_eq!(
+            groups_after_default_activate
+                .iter()
+                .filter(|group| group.is_active)
+                .count(),
+            1
+        );
+        assert!(groups_after_default_activate
+            .iter()
+            .any(|group| group.id == default_group.id && group.is_active));
+        assert!(groups_after_default_activate
+            .iter()
+            .any(|group| group.id == imported_id && !group.is_active));
+
+        engine
+            .delete_hosts_group(&imported_id)
+            .expect("delete imported group");
+        assert!(engine.list_hosts_entries(&imported_id).is_err());
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_file(hosts_path);
+        let _ = fs::remove_file(import_path);
+        let _ = fs::remove_file(export_path);
+    }
+
 }

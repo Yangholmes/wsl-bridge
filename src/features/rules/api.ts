@@ -3,6 +3,7 @@ import type {
   ApplyRulesResult,
   CreateRuleRequest,
   ProxyRule,
+  RuleMigrationRecord,
   RulePatch,
   RuntimeStatusItem,
   StopRulesResult,
@@ -17,8 +18,20 @@ export function listRules() {
   return invokeBridge<ProxyRule[]>("list_rules");
 }
 
+export function listRuleMigrations() {
+  return invokeBridge<RuleMigrationRecord[]>("list_rule_migrations");
+}
+
 export function createRule(req: CreateRuleRequest) {
   return invokeBridge<string>("create_rule", { req });
+}
+
+export function migrateRuleToProxy(ruleId: string) {
+  return invokeBridge<RuleMigrationRecord>("migrate_rule_to_proxy", { ruleId });
+}
+
+export function rollbackRuleMigration(ruleId: string) {
+  return invokeBridge<RuleMigrationRecord>("rollback_rule_migration", { ruleId });
 }
 
 export function updateRule(id: string, patch: RulePatch) {

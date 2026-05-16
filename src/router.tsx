@@ -9,6 +9,8 @@ import { useAppRuntimeStatusQuery } from "./lib/appRuntime";
 import { useTheme } from "./lib/theme";
 import {
   DashboardIcon,
+  HostsIcon,
+  ProxyIcon,
   RulesIcon,
   RuntimeIcon,
   SettingsIcon,
@@ -35,6 +37,12 @@ const RuntimePage = lazy(() =>
 );
 const TopologyPage = lazy(() =>
   import("./features/topology/TopologyPage").then((module) => ({ default: module.TopologyPage }))
+);
+const HostsPage = lazy(() =>
+  import("./features/hosts/HostsPage").then((module) => ({ default: module.HostsPage }))
+);
+const ProxyPage = lazy(() =>
+  import("./features/proxy/ProxyPage").then((module) => ({ default: module.ProxyPage }))
 );
 const SettingsPage = lazy(() =>
   import("./features/settings/SettingsPage").then((module) => ({ default: module.SettingsPage }))
@@ -73,6 +81,8 @@ function RootLayout() {
   const navItems = createMemo(() => [
     { path: "/dashboard", label: t("nav.dashboard"), icon: DashboardIcon },
     { path: "/rules", label: t("nav.rules"), icon: RulesIcon },
+    { path: "/proxy", label: t("nav.proxy"), icon: ProxyIcon },
+    { path: "/hosts", label: t("nav.hosts"), icon: HostsIcon },
     { path: "/runtime", label: t("nav.runtime"), icon: RuntimeIcon },
     { path: "/topology", label: t("nav.topology"), icon: TopologyIcon },
     { path: "/settings", label: t("nav.settings"), icon: SettingsIcon }
@@ -160,10 +170,22 @@ const rulesRoute = createRoute({
   component: withSuspense(() => <RulesPage />)
 });
 
+const proxyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/proxy",
+  component: withSuspense(() => <ProxyPage />)
+});
+
 const runtimeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/runtime",
   component: withSuspense(() => <RuntimePage />)
+});
+
+const hostsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/hosts",
+  component: withSuspense(() => <HostsPage />)
 });
 
 const topologyRoute = createRoute({
@@ -182,6 +204,8 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   dashboardRoute,
   rulesRoute,
+  proxyRoute,
+  hostsRoute,
   runtimeRoute,
   topologyRoute,
   settingsRoute
