@@ -629,6 +629,26 @@ impl RuleEngine {
         Ok(group_id)
     }
 
+    pub fn preview_hosts_entries_from_file(
+        &self,
+        path: &str,
+    ) -> Result<Vec<HostsEntryInput>, EngineError> {
+        let parsed = read_hosts_file(&PathBuf::from(path.trim()))
+            .map_err(|err| EngineError::Storage(format!("read hosts import file failed: {err}")))?;
+        Ok(parsed
+            .into_iter()
+            .enumerate()
+            .map(|(index, item)| HostsEntryInput {
+                id: None,
+                ip: item.ip,
+                domain: item.domain,
+                comment: clean_optional_text(item.comment),
+                enabled: true,
+                order_index: index as u32,
+            })
+            .collect())
+    }
+
     pub fn export_hosts_group(&self, req: ExportHostsGroupRequest) -> Result<(), EngineError> {
         let entries = self.list_hosts_entries(&req.group_id)?;
         let content = render_hosts_text(

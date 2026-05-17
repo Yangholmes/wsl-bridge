@@ -6,7 +6,7 @@ use wsl_bridge_shared::{
     AppRuntimeStatus, AppSettings, ApplyRulesResult, CopyHostsGroupRequest,
     CreateHostsGroupRequest, CreateProxyCertificateRequest, CreateProxyListenerRequest,
     CreateProxyRouteRequest, CreateProxyUpstreamRequest, CreateRuleRequest,
-    ExportHostsGroupRequest, HostsEntry, HostsGroup, ImportHostsGroupRequest,
+    ExportHostsGroupRequest, HostsEntry, HostsEntryInput, HostsGroup, ImportHostsGroupRequest,
     LogQueryRequest, LogQueryResult, McpServerConfig, McpServerStatus, ProxyCertificate,
     ProxyListener, ProxyRoute, ProxyRouteRuntimeItem, ProxyRule, ProxyRuntimeStatusItem,
     ProxyUpstream, ProxyUpstreamRuntimeItem, QueryTrafficStatsRequest,
@@ -194,6 +194,13 @@ pub fn save_hosts_entries(state: &AppState, req: SaveHostsEntriesRequest) -> Res
 
 pub fn import_hosts_group(state: &AppState, req: ImportHostsGroupRequest) -> Result<String> {
     state.engine.import_hosts_group(req).map_err(Into::into)
+}
+
+pub fn preview_hosts_entries_from_file(
+    state: &AppState,
+    path: &str,
+) -> Result<Vec<HostsEntryInput>> {
+    state.engine.preview_hosts_entries_from_file(path).map_err(Into::into)
 }
 
 pub fn export_hosts_group(state: &AppState, req: ExportHostsGroupRequest) -> Result<()> {

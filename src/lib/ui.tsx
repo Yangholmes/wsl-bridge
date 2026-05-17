@@ -142,10 +142,7 @@ export const RefreshIcon: Component<IconProps> = (props) => (
     {...props}
     path={
       <>
-        <path d="M20 6v5h-5" />
-        <path d="M4 18v-5h5" />
-        <path d="M6.8 9A7 7 0 0 1 18 6" />
-        <path d="M17.2 15A7 7 0 0 1 6 18" />
+        <g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"> <path d="M21 12C21 16.9706 16.9706 21 12 21C9.69494 21 7.59227 20.1334 6 18.7083L3 16M3 12C3 7.02944 7.02944 3 12 3C14.3051 3 16.4077 3.86656 18 5.29168L21 8M3 21V16M3 16H8M21 3V8M21 8H16" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path> </g>
       </>
     }
   />
@@ -208,6 +205,70 @@ export const CopyIcon: Component<IconProps> = (props) => (
       <>
         <rect x="9" y="9" width="11" height="11" rx="2" />
         <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+      </>
+    }
+  />
+);
+
+export const DownloadIcon: Component<IconProps> = (props) => (
+  <AppIconBase
+    {...props}
+    path={
+      <>
+        <path d="M12 4v10" />
+        <path d="M8 10l4 4 4-4" />
+        <path d="M5 19h14" />
+      </>
+    }
+  />
+);
+
+export const UploadIcon: Component<IconProps> = (props) => (
+  <AppIconBase
+    {...props}
+    path={
+      <>
+        <path d="M12 20V10" />
+        <path d="M8 14l4-4 4 4" />
+        <path d="M5 5h14" />
+      </>
+    }
+  />
+);
+
+export const ArrowUpIcon: Component<IconProps> = (props) => (
+  <AppIconBase
+    {...props}
+    path={
+      <>
+        <path d="M12 19V5" />
+        <path d="M6 11l6-6 6 6" />
+      </>
+    }
+  />
+);
+
+export const ArrowDownIcon: Component<IconProps> = (props) => (
+  <AppIconBase
+    {...props}
+    path={
+      <>
+        <path d="M12 5v14" />
+        <path d="M6 13l6 6 6-6" />
+      </>
+    }
+  />
+);
+
+export const ListEditIcon: Component<IconProps> = (props) => (
+  <AppIconBase
+    {...props}
+    path={
+      <>
+        <path d="M5 7h8" />
+        <path d="M5 12h6" />
+        <path d="M5 17h5" />
+        <path d="M14 19h3l3.5-3.5a1.6 1.6 0 0 0-2.3-2.3L14 17.4V19Z" />
       </>
     }
   />

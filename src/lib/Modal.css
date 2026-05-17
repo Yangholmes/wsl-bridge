@@ -35,6 +35,19 @@
   width: min(520px, calc(100vw - 32px));
 }
 
+.hosts-records-dialog {
+  width: min(1180px, calc(100vw - 32px));
+}
+
+.hosts-dialog-body {
+  display: grid;
+  gap: var(--space-16);
+}
+
+.hosts-dialog-actions {
+  justify-content: flex-end;
+}
+
 @media (max-width: var(--breakpoint-md)) {
   .kb-dialog-content {
     width: calc(100vw - 16px);

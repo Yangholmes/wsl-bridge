@@ -128,6 +128,7 @@ fn main() {
             tauri_commands::list_hosts_entries,
             tauri_commands::save_hosts_entries,
             tauri_commands::import_hosts_group,
+            tauri_commands::preview_hosts_entries_from_file,
             tauri_commands::export_hosts_group,
             tauri_commands::activate_hosts_group,
             tauri_commands::create_rule,

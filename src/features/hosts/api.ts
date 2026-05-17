@@ -4,6 +4,7 @@ import type {
   CreateHostsGroupRequest,
   ExportHostsGroupRequest,
   HostsEntry,
+  HostsEntryInput,
   HostsGroup,
   ImportHostsGroupRequest,
   SaveHostsEntriesRequest,
@@ -44,6 +45,10 @@ export function saveHostsEntries(req: SaveHostsEntriesRequest) {
 
 export function importHostsGroup(req: ImportHostsGroupRequest) {
   return invokeBridge<string>("import_hosts_group", { req });
+}
+
+export function previewHostsEntriesFromFile(path: string) {
+  return invokeBridge<HostsEntryInput[]>("preview_hosts_entries_from_file", { path });
 }
 
 export function exportHostsGroup(req: ExportHostsGroupRequest) {

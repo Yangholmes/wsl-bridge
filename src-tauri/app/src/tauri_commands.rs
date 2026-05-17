@@ -7,7 +7,7 @@ use wsl_bridge_shared::{
     AppRuntimeStatus, AppSettings, ApplyRulesResult, CopyHostsGroupRequest,
     CreateHostsGroupRequest, CreateProxyCertificateRequest, CreateProxyListenerRequest,
     CreateProxyRouteRequest, CreateProxyUpstreamRequest, CreateRuleRequest,
-    ExportHostsGroupRequest, HostsEntry, HostsGroup, ImportHostsGroupRequest,
+    ExportHostsGroupRequest, HostsEntry, HostsEntryInput, HostsGroup, ImportHostsGroupRequest,
     LogQueryRequest, LogQueryResult, McpServerConfig, McpServerStatus, ProxyCertificate,
     ProxyListener, ProxyRoute, ProxyRouteRuntimeItem, ProxyRule, ProxyRuntimeStatusItem,
     ProxyUpstream, ProxyUpstreamRuntimeItem, QueryTrafficStatsRequest,
@@ -352,6 +352,15 @@ pub fn import_hosts_group(
     req: ImportHostsGroupRequest,
 ) -> Result<String, String> {
     commands::import_hosts_group(&state, req).map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn preview_hosts_entries_from_file(
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<Vec<HostsEntryInput>, String> {
+    commands::preview_hosts_entries_from_file(&state, &path).map_err(|err| err.to_string())
 }
 
 #[cfg(feature = "tauri")]
