@@ -87,7 +87,8 @@ tbody tr:last-child td {
 }
 
 .hosts-groups-table {
-  min-width: 960px;
+  width: 100%;
+  min-width: 0;
 }
 
 .hosts-groups-table th:first-child,
