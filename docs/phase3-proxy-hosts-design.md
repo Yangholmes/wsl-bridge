@@ -377,13 +377,14 @@ Proxy 模块应有独立的运行态与日志可观测性：
   - 应用本地 CA 根证书
 - 旧 `Rules -> Proxy` 迁移、回滚与 legacy 限制
 
-三期收敛时明确保留一项技术债务：
+三期收敛阶段曾保留一项技术债务：
 
 - `grpcs` 的 **Windows 本地稳定端到端自动化回放**
   - 已有配置级、运行态、信任链与错误记账的稳定自动化覆盖
   - `grpcs(h2 over TLS)` 运行时链路已接入
-  - 但 `TLS client -> HTTPS Listener -> grpcs TLS upstream` 的 Windows 本地自动回放仍可能出现 `10053` 连接中止
-  - 该项列为三期债务，不阻塞 Proxy 模块按当前口径收敛
+  - 该项已于 `2026-05-16` 清偿
+  - 当前已补齐 `TLS client -> HTTPS Listener -> grpcs TLS upstream` 的稳定自动化回放
+  - 对应测试：`proxy_https_listener_tunnels_grpcs_prior_knowledge`
 
 ## 6. TLS 与证书方案
 
@@ -699,20 +700,15 @@ Rust 原生实现的主要挑战集中在：
 
 ### 12.5 Proxy 自动化债务
 
-风险：
+截至 `2026-05-16`，该债务已清偿。
 
-- `grpcs` 完整端到端自动化在 Windows 本地环境下仍存在回放不稳定性
-- 若强行以不稳定用例作为发布门禁，可能造成持续误报并拖慢三期收敛
+本轮修复点：
 
-应对：
-
-- 将该项明确登记为三期技术债务
-- 保留以下稳定覆盖作为当前发布依据：
-  - `grpcs` 配置约束测试
-  - `grpcs` 运行态配置/状态测试
-  - 上游 TLS 信任链测试
-  - `https / wss` 未受信上游握手失败与错误记账测试
-- 后续单独评估更稳定的 HTTPS 本地回放方案，再补强 `grpcs` E2E 自动化
+1. 为 `grpcs` 拆出专用 raw TLS tunnel relay
+2. 修复 HTTPS listener accepted socket 的阻塞模式
+3. 修复 `BufReader` 缓冲 payload 在 `grpcs` tunnel 切换时的续传
+4. 新增稳定自动化回放：
+   - `proxy_https_listener_tunnels_grpcs_prior_knowledge`
 
 ## 13. 验收标准
 
@@ -735,7 +731,7 @@ Rust 原生实现的主要挑战集中在：
 6. 支持 HTTPS TLS 终止
 7. 支持 WebSocket 与 gRPC 主路径
    - `grpcs(h2 over TLS)` 运行时已接入
-   - Windows 本地稳定端到端自动化回放列为三期债务，不作为当前收敛阻塞项
+   - Windows 本地稳定端到端自动化回放已补齐
 8. 默认路由异常时，应用拒绝请求并写错误日志
 
 ### 13.3 Legacy 迁移

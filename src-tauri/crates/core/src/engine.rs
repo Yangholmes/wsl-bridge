@@ -3372,8 +3372,8 @@ mod tests {
         generate_simple_self_signed, CertificateParams, CertifiedKey, DistinguishedName, DnType,
         KeyPair,
     };
-    use rustls::pki_types::PrivateKeyDer;
-    use rustls::{ServerConfig, ServerConnection, StreamOwned};
+    use rustls::pki_types::{PrivateKeyDer, ServerName};
+    use rustls::{ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned};
     use wsl_bridge_shared::{
         AppSettings, BindMode, CloseBehavior, CopyHostsGroupRequest, CreateHostsGroupRequest,
         CreateProxyCertificateRequest, CreateProxyListenerRequest, CreateProxyRouteRequest,
@@ -3386,7 +3386,7 @@ mod tests {
 
     use crate::forwarder::HTTP2_PRIOR_KNOWLEDGE_PREFACE;
 
-    use super::{EngineError, RuleEngine};
+    use super::{EngineError, EngineOptions, RuleEngine};
 
     fn test_rule(name: &str, port: u16) -> CreateRuleRequest {
         CreateRuleRequest {
@@ -3484,6 +3484,22 @@ mod tests {
             .with_no_client_auth()
             .with_single_cert(cert_chain, private_key)
             .expect("build tls server config")
+    }
+
+    fn create_test_tls_client_config(root_cert_pem: &str) -> std::sync::Arc<ClientConfig> {
+        let mut root_reader = BufReader::new(root_cert_pem.as_bytes());
+        let root_certs = rustls_pemfile::certs(&mut root_reader)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("read root certs");
+        let mut root_store = RootCertStore::empty();
+        for cert in root_certs {
+            root_store.add(cert).expect("add root cert");
+        }
+        std::sync::Arc::new(
+            ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth(),
+        )
     }
 
     fn wait_for_proxy_listener_state(
@@ -5533,6 +5549,169 @@ mod tests {
         let _ = fs::remove_file(inbound_cert_path);
         let _ = fs::remove_file(inbound_key_path);
         drop(engine);
+    }
+
+    #[test]
+    fn proxy_https_listener_tunnels_grpcs_prior_knowledge() {
+        let _local_ca_lock = proxy_test_local_ca_lock();
+        let (target_listener, target_port) = bind_test_tcp_listener();
+        let listen_port = free_tcp_port();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("duration")
+            .as_nanos();
+        let log_dir = env::temp_dir().join(format!("wsl-bridge-grpcs-e2e-logs-{now}"));
+
+        let (inbound_cert_pem, inbound_key_pem) =
+            generate_trusted_local_ca_leaf(&["127.0.0.1"], "grpcs-inbound");
+        let inbound_cert_path =
+            write_temp_fixture("wsl-bridge-grpcs-e2e-inbound-cert", "pem", &inbound_cert_pem);
+        let inbound_key_path =
+            write_temp_fixture("wsl-bridge-grpcs-e2e-inbound-key", "key", &inbound_key_pem);
+
+        let (upstream_cert_pem, upstream_key_pem) =
+            generate_trusted_local_ca_leaf(&["127.0.0.1"], "grpcs-upstream");
+        let upstream_tls_config = std::sync::Arc::new(create_test_tls_server_config(
+            &upstream_cert_pem,
+            &upstream_key_pem,
+        ));
+
+        let server = thread::spawn(move || {
+            let (stream, _) = target_listener.accept().expect("accept");
+            let connection =
+                ServerConnection::new(upstream_tls_config).expect("create tls server connection");
+            let mut stream = StreamOwned::new(connection, stream);
+            stream
+                .sock
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("set timeout");
+            let mut request = vec![0u8; HTTP2_PRIOR_KNOWLEDGE_PREFACE.len() + 4];
+            stream.read_exact(&mut request).expect("read grpcs preface");
+            assert_eq!(
+                &request[..HTTP2_PRIOR_KNOWLEDGE_PREFACE.len()],
+                HTTP2_PRIOR_KNOWLEDGE_PREFACE
+            );
+            assert_eq!(&request[HTTP2_PRIOR_KNOWLEDGE_PREFACE.len()..], b"ping");
+            stream.write_all(b"pong").expect("write response");
+            stream.flush().expect("flush response");
+            stream.conn.send_close_notify();
+            let _ = stream.flush();
+        });
+
+        let engine = RuleEngine::new_with_options_and_log_dir(EngineOptions::default(), &log_dir)
+            .expect("create engine with logs");
+        let certificate_id = engine
+            .create_proxy_certificate(CreateProxyCertificateRequest {
+                name: "grpcs-e2e-listener-cert".to_owned(),
+                source_type: ProxyCertificateSourceType::ManualUpload,
+                cert_path: inbound_cert_path.display().to_string(),
+                key_path: inbound_key_path.display().to_string(),
+                domains: vec!["127.0.0.1".to_owned()],
+            })
+            .expect("create inbound certificate");
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "grpcs-e2e-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Https,
+                tls_mode: ProxyTlsMode::ManualCert,
+                cert_id: Some(certificate_id),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec![],
+                path_prefix: None,
+                is_default: true,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let upstream_id = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id: route_id.clone(),
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Grpcs,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        let status = wait_for_proxy_listener_state(&engine, &listener_id, RuntimeState::Running);
+        assert_eq!(status.state, RuntimeState::Running);
+
+        let root_cert_path = proxy_test_local_ca_root_dir().join("root-ca.pem");
+        let root_cert_pem = fs::read_to_string(&root_cert_path).expect("read root cert");
+        let client_config = create_test_tls_client_config(&root_cert_pem);
+        let outbound = TcpStream::connect(("127.0.0.1", listen_port)).expect("connect listener");
+        outbound
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set read timeout");
+        outbound
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .expect("set write timeout");
+        let server_name = ServerName::IpAddress(
+            std::net::IpAddr::from([127, 0, 0, 1]).into(),
+        );
+        let connection =
+            ClientConnection::new(client_config, server_name).expect("create tls client");
+        let mut client = StreamOwned::new(connection, outbound);
+        let mut request = HTTP2_PRIOR_KNOWLEDGE_PREFACE.to_vec();
+        request.extend_from_slice(b"ping");
+        client.write_all(&request).expect("write request");
+        if let Err(err) = client.flush() {
+            thread::sleep(Duration::from_millis(120));
+            let runtime = engine
+                .get_proxy_runtime_status()
+                .into_iter()
+                .find(|item| item.listener_id == listener_id)
+                .expect("runtime status");
+            let error_log = fs::read_to_string(log_dir.join("error.log")).unwrap_or_default();
+            panic!(
+                "flush request failed: {err}; runtime_state={:?}; runtime_error={:?}; error_log={error_log}",
+                runtime.state, runtime.last_error
+            );
+        }
+
+        let mut response = [0u8; 4];
+        client.read_exact(&mut response).expect("read response");
+        assert_eq!(&response, b"pong");
+        client.conn.send_close_notify();
+        let _ = client.flush();
+
+        thread::sleep(Duration::from_millis(120));
+
+        let route_runtime = engine
+            .list_proxy_route_runtime(&listener_id)
+            .into_iter()
+            .find(|item| item.route_id == route_id)
+            .expect("route runtime");
+        assert_eq!(route_runtime.hit_count, 1);
+        assert_eq!(route_runtime.error_count, 0);
+
+        let upstream_runtime = engine
+            .list_proxy_upstream_runtime(&route_id)
+            .into_iter()
+            .find(|item| item.upstream_id == upstream_id)
+            .expect("upstream runtime");
+        assert_eq!(upstream_runtime.hit_count, 1);
+        assert_eq!(upstream_runtime.error_count, 0);
+
+        let _ = fs::remove_file(inbound_cert_path);
+        let _ = fs::remove_file(inbound_key_path);
+        let _ = fs::remove_dir_all(log_dir);
+        drop(engine);
+        let _ = server.join();
     }
 
     #[test]

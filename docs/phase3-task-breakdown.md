@@ -545,7 +545,7 @@
 3. 手工联调通过
 4. 文档与开发日志更新
 
-## 12. 收敛补记（截至 2026-05-15）
+## 12. 收敛补记（截至 2026-05-16）
 
 ### 12.1 Proxy 收敛结论
 
@@ -563,9 +563,11 @@ Proxy 模块按三期当前口径已收敛：
 
 ### 12.2 三期债务项
 
-以下项不再阻塞 Proxy 模块收敛，但需在后续版本继续跟踪：
+`grpcs` 的 Windows 本地稳定端到端自动化回放已在本轮清偿，当前三期不再保留 Proxy 自动化债务。
 
-1. `grpcs` 的 Windows 本地稳定端到端自动化回放
-   - 当前问题：`TLS client -> HTTPS Listener -> grpcs TLS upstream` 回放链路仍可能出现 `10053`
-   - 当前状态：功能链路已接入，稳定非 E2E 自动化已具备
-   - 后续建议：单独评估更稳定的 HTTPS 本地回放方案，再补强 E2E
+本轮补齐内容：
+
+1. 新增 `proxy_https_listener_tunnels_grpcs_prior_knowledge`
+2. `grpcs` relay 从偏 `wss` 语义的路径中拆出
+3. 修复 HTTPS listener accepted socket 的阻塞模式问题
+4. 修复 `BufReader` 缓冲 payload 在 `grpcs` tunnel 切换时的续传问题

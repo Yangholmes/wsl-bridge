@@ -52,7 +52,7 @@
 | P-04 | 支持 `*.example.com` 和 `.example.com` 匹配 | 通配符语义符合设计 | 通过 | `exact_match_beats_wildcard_and_default` + `dot_prefix_matches_root_and_subdomain` |
 | P-05 | 支持 `path prefix` 改写 | 上游收到改写后的路径 | 通过 | `rewrite_path_rewrites_prefix_only` + `proxy_http_listener_routes_and_rewrites_path` |
 | P-06 | 支持 HTTPS TLS 终止 | HTTPS listener / 证书装载 / 本地 CA 基础链路可用 | 通过 | 证书绑定、`manual_cert`、`local_ca`、HTTPS listener 运行态测试已通过 |
-| P-07 | 支持 WebSocket 与 gRPC 主路径 | `ws / wss / grpc` 自动化通过；`grpcs` 运行时已接入 | 债务 | `ws / wss / grpc(h2c)` 已自动化通过；`grpcs` 稳定 Windows 本地 E2E 仍为债务 |
+| P-07 | 支持 WebSocket 与 gRPC 主路径 | `ws / wss / grpc` 自动化通过；`grpcs` 运行时已接入 | 通过 | `ws / wss / grpc(h2c) / grpcs` 已自动化通过，`grpcs` 由 `proxy_https_listener_tunnels_grpcs_prior_knowledge` 覆盖 |
 | P-08 | 默认路由异常时，应用拒绝请求并写错误日志 | 未命中或上游不可用时正确返回错误并记日志/指标 | 通过 | 以 `https / wss` 未受信上游回归证明 `502 + route/upstream error metrics`，错误日志写入逻辑同分支接入 |
 
 ### 3.3 Legacy Rules
@@ -69,7 +69,7 @@
 
 | 编号 | 项目 | 当前结论 | 后续处理 |
 |------|------|------|------|
-| D-01 | `grpcs` Windows 本地稳定端到端自动化回放 | 记为三期技术债务，不阻塞当前收敛 | 单独评估更稳定的 HTTPS 本地回放方案 |
+| D-01 | `grpcs` Windows 本地稳定端到端自动化回放 | 已清偿 | `proxy_https_listener_tunnels_grpcs_prior_knowledge` 已落地并通过 |
 
 ## 4. 人工验收
 
@@ -275,7 +275,7 @@
 
 说明：
 
-- `grpcs` 的 Windows 本地稳定端到端自动化已登记为三期债务
+- `grpcs` 的 Windows 本地稳定端到端自动化已补齐，可与人工连通性验证互相印证
 - 人工联通性验证仍应执行
 
 #### H. 默认路由异常与错误日志
@@ -352,7 +352,7 @@
    - `H-06` 记为人工验收项，当前未补稳定自动化
 2. `Proxy`
    - `P-01 ~ P-06` 通过
-   - `P-07` 中 `ws / wss / grpc(h2c)` 通过，`grpcs` 稳定 Windows 本地 E2E 维持债务
+   - `P-07` 中 `ws / wss / grpc(h2c) / grpcs` 全部通过
    - `P-08` 通过，依据未受信 TLS 上游回归验证 `502 + metrics`，错误日志走同分支
 3. `Legacy Rules`
    - `L-01 / L-03 / L-04 / L-05` 通过
@@ -364,12 +364,9 @@
 
 ### 5.3 阻塞项 / 债务项
 
-1. `grpcs` 的 Windows 本地稳定端到端自动化回放
-   - 当前作为三期技术债务保留
-   - 不阻塞 Proxy 按当前口径收敛
-2. `Hosts` 非管理员禁用态
+1. `Hosts` 非管理员禁用态
    - 当前主要依赖人工验收
    - 需后续评估是否补 UI/E2E 自动化
-3. `Legacy Rules` 新增类型后端限制
+2. `Legacy Rules` 新增类型后端限制
    - 当前仅前端入口收口
    - 若要求严格收口，需补后端校验并回归迁移路径

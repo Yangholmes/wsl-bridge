@@ -94,6 +94,7 @@ pub fn spawn_http_reverse_proxy(
                     let traffic = traffic.clone();
                     let metrics = metrics.clone();
                     thread::spawn(move || {
+                        let _ = inbound.set_nonblocking(false);
                         let _ = handle_http_reverse_proxy_tcp_connection(
                             inbound,
                             routes,
@@ -147,6 +148,7 @@ pub fn spawn_https_reverse_proxy(
                     let tls_config = Arc::clone(&tls_config);
                     let tls_client_config = Arc::clone(&tls_client_config);
                     thread::spawn(move || {
+                        let _ = inbound.set_nonblocking(false);
                         let client = peer_label(&inbound);
                         let client_ip = inbound.peer_addr().ok().map(|addr| addr.ip());
                         let connection = match ServerConnection::new(tls_config) {
@@ -2118,9 +2120,21 @@ fn handle_grpcs_prior_knowledge_tunnel(
     tls_stream.write_all(HTTP2_PRIOR_KNOWLEDGE_PREFACE)?;
     tls_stream.flush()?;
 
+    let buffered_payload = reader.buffer().to_vec();
+    if !buffered_payload.is_empty() {
+        tls_stream.write_all(&buffered_payload)?;
+        tls_stream.flush()?;
+    }
+
     let inbound = reader.into_inner();
-    traffic.record(HTTP2_PRIOR_KNOWLEDGE_PREFACE.len() as u64, 0, 1, 1, 0);
-    let relay = relay_https_listener_wss_streams(inbound, tls_stream, &traffic, 0)?;
+    traffic.record(
+        (HTTP2_PRIOR_KNOWLEDGE_PREFACE.len() + buffered_payload.len()) as u64,
+        0,
+        1,
+        1,
+        0,
+    );
+    let relay = relay_grpcs_tunnel_streams(inbound, tls_stream, &traffic, 0)?;
     if let Some(err) = relay.error {
         metrics.record_route_error(
             &matched.route.id,
@@ -2156,7 +2170,7 @@ fn handle_grpcs_prior_knowledge_tunnel(
         protocol_label,
         "H2_TUNNEL",
         target_label,
-        HTTP2_PRIOR_KNOWLEDGE_PREFACE.len() as u64 + relay.bytes_in,
+        (HTTP2_PRIOR_KNOWLEDGE_PREFACE.len() + buffered_payload.len()) as u64 + relay.bytes_in,
         relay.bytes_out,
         relay.duration_ms,
     ));
@@ -3024,6 +3038,117 @@ fn relay_https_listener_wss_streams(
                 }
                 Ok(len) => {
                     inbound.write_all(&outbound_buf[..len])?;
+                    total_out += len as u64;
+                    progressed = true;
+                }
+                Err(err)
+                    if err.kind() == io::ErrorKind::WouldBlock
+                        || err.kind() == io::ErrorKind::TimedOut => {}
+                Err(err) => {
+                    if !is_graceful_tunnel_close_error(&err) {
+                        last_error = Some(err);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if progressed {
+            let delta_in = total_in.saturating_sub(flushed_in);
+            let delta_out = total_out.saturating_sub(flushed_out);
+            traffic.record(delta_in, delta_out, 0, 0, 0);
+            flushed_in = total_in;
+            flushed_out = total_out;
+        } else {
+            thread::sleep(Duration::from_millis(15));
+        }
+    }
+
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let delta_in = total_in.saturating_sub(flushed_in);
+    let delta_out = total_out.saturating_sub(flushed_out);
+    traffic.record(delta_in, delta_out, 0, 0, duration_ms);
+    Ok(RelaySummary {
+        bytes_in: total_in,
+        bytes_out: total_out,
+        duration_ms,
+        error: last_error,
+    })
+}
+
+fn relay_grpcs_tunnel_streams(
+    inbound: &mut StreamOwned<ServerConnection, TcpStream>,
+    mut outbound: StreamOwned<ClientConnection, TcpStream>,
+    traffic: &TrafficRecorder,
+    requests: u64,
+) -> io::Result<RelaySummary> {
+    inbound.sock.set_nonblocking(false)?;
+    inbound
+        .sock
+        .set_read_timeout(Some(Duration::from_millis(60)))?;
+    inbound
+        .sock
+        .set_write_timeout(Some(Duration::from_secs(2)))?;
+    outbound.sock.set_nonblocking(false)?;
+    outbound
+        .sock
+        .set_read_timeout(Some(Duration::from_millis(60)))?;
+    outbound
+        .sock
+        .set_write_timeout(Some(Duration::from_secs(2)))?;
+    traffic.record(0, 0, 1, requests, 0);
+
+    let started = Instant::now();
+    let mut total_in = 0u64;
+    let mut total_out = 0u64;
+    let mut flushed_in = 0u64;
+    let mut flushed_out = 0u64;
+    let mut inbound_closed = false;
+    let mut outbound_closed = false;
+    let mut last_error: Option<io::Error> = None;
+    let mut inbound_buf = [0u8; 16 * 1024];
+    let mut outbound_buf = [0u8; 16 * 1024];
+
+    while !(inbound_closed && outbound_closed) {
+        let mut progressed = false;
+
+        if !inbound_closed {
+            match inbound.read(&mut inbound_buf) {
+                Ok(0) => {
+                    inbound_closed = true;
+                    outbound.conn.send_close_notify();
+                    let _ = outbound.flush();
+                }
+                Ok(len) => {
+                    outbound.write_all(&inbound_buf[..len])?;
+                    outbound.flush()?;
+                    total_in += len as u64;
+                    progressed = true;
+                }
+                Err(err)
+                    if err.kind() == io::ErrorKind::WouldBlock
+                        || err.kind() == io::ErrorKind::TimedOut => {}
+                Err(err) => {
+                    if !is_graceful_tunnel_close_error(&err) {
+                        last_error = Some(err);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if !outbound_closed {
+            match outbound.read(&mut outbound_buf) {
+                Ok(0) => {
+                    outbound_closed = true;
+                    if inbound_closed {
+                        inbound.conn.send_close_notify();
+                        let _ = inbound.flush();
+                    }
+                }
+                Ok(len) => {
+                    inbound.write_all(&outbound_buf[..len])?;
+                    inbound.flush()?;
                     total_out += len as u64;
                     progressed = true;
                 }
