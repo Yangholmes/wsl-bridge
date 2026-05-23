@@ -3126,6 +3126,18 @@ impl RuleEngine {
             if let Some(group) = store
                 .hosts_groups
                 .values()
+                .filter(|item| matches!(item.source_type, HostsGroupSourceType::SystemImported))
+                .min_by(|left, right| {
+                    left.created_at
+                        .cmp(&right.created_at)
+                        .then(left.id.cmp(&right.id))
+                })
+            {
+                return Ok(group.clone());
+            }
+            if let Some(group) = store
+                .hosts_groups
+                .values()
                 .find(|item| item.name == "default")
             {
                 return Ok(group.clone());
@@ -3393,15 +3405,17 @@ mod tests {
         KeyPair,
     };
     use rustls::pki_types::{PrivateKeyDer, ServerName};
-    use rustls::{ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned};
+    use rustls::{
+        ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned,
+    };
     use wsl_bridge_shared::{
         AppSettings, BindMode, CloseBehavior, CopyHostsGroupRequest, CreateHostsGroupRequest,
         CreateProxyCertificateRequest, CreateProxyListenerRequest, CreateProxyRouteRequest,
-        CreateProxyUpstreamRequest, CreateRuleRequest, ExportHostsGroupRequest,
-        HostsEntryInput, ImportHostsGroupRequest, LogQueryRequest, NewProxyRule,
-        ProxyCertificateSourceType, ProxyProtocol, ProxyTlsMode, QueryTrafficStatsRequest,
-        RuleLogStatsRequest, RuleMigrationStatus, RulePatch, RuleType, RuntimeState,
-        SaveHostsEntriesRequest, TargetKind, UpstreamScheme,
+        CreateProxyUpstreamRequest, CreateRuleRequest, ExportHostsGroupRequest, HostsEntryInput,
+        ImportHostsGroupRequest, LogQueryRequest, NewProxyRule, ProxyCertificateSourceType,
+        ProxyProtocol, ProxyTlsMode, QueryTrafficStatsRequest, RuleLogStatsRequest,
+        RuleMigrationStatus, RulePatch, RuleType, RuntimeState, SaveHostsEntriesRequest,
+        TargetKind, UpdateHostsGroupRequest, UpstreamScheme,
     };
 
     use crate::forwarder::HTTP2_PRIOR_KNOWLEDGE_PREFACE;
@@ -5584,8 +5598,11 @@ mod tests {
 
         let (inbound_cert_pem, inbound_key_pem) =
             generate_trusted_local_ca_leaf(&["127.0.0.1"], "grpcs-inbound");
-        let inbound_cert_path =
-            write_temp_fixture("wsl-bridge-grpcs-e2e-inbound-cert", "pem", &inbound_cert_pem);
+        let inbound_cert_path = write_temp_fixture(
+            "wsl-bridge-grpcs-e2e-inbound-cert",
+            "pem",
+            &inbound_cert_pem,
+        );
         let inbound_key_path =
             write_temp_fixture("wsl-bridge-grpcs-e2e-inbound-key", "key", &inbound_key_pem);
 
@@ -5680,9 +5697,7 @@ mod tests {
         outbound
             .set_write_timeout(Some(Duration::from_secs(2)))
             .expect("set write timeout");
-        let server_name = ServerName::IpAddress(
-            std::net::IpAddr::from([127, 0, 0, 1]).into(),
-        );
+        let server_name = ServerName::IpAddress(std::net::IpAddr::from([127, 0, 0, 1]).into());
         let connection =
             ClientConnection::new(client_config, server_name).expect("create tls client");
         let mut client = StreamOwned::new(connection, outbound);
@@ -6141,6 +6156,22 @@ mod tests {
         assert_eq!(entries.len(), 3);
 
         engine
+            .update_hosts_group(
+                &group.id,
+                UpdateHostsGroupRequest {
+                    name: "renamed-default".to_owned(),
+                    description: Some("renamed".to_owned()),
+                },
+            )
+            .expect("rename default group");
+        let bootstrapped_again = engine
+            .bootstrap_default_hosts_group_from_path(&hosts_path)
+            .expect("bootstrap after rename");
+        assert_eq!(bootstrapped_again.id, group.id);
+        assert_eq!(bootstrapped_again.name, "renamed-default");
+        assert_eq!(engine.list_hosts_groups().len(), 1);
+
+        engine
             .save_hosts_entries(SaveHostsEntriesRequest {
                 group_id: group.id.clone(),
                 entries: vec![HostsEntryInput {
@@ -6299,5 +6330,4 @@ mod tests {
         let _ = fs::remove_file(import_path);
         let _ = fs::remove_file(export_path);
     }
-
 }

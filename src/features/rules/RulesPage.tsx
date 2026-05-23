@@ -3,8 +3,10 @@ import {
   createMemo,
   createSignal,
   For,
+  onCleanup,
   Show
 } from "solid-js";
+import { Portal } from "solid-js/web";
 import { createStore } from "solid-js/store";
 import { queryOptions, useQuery } from "@tanstack/solid-query";
 import {
@@ -21,12 +23,13 @@ import * as KTextField from "@kobalte/core/text-field";
 import { useI18n } from "../../i18n/context";
 import { appQueryClient } from "../../lib/queryClient";
 import { EllipsisCell } from "../../lib/EllipsisCell";
+import { Hint } from "../../lib/Hint";
 import { toLocalTime } from "../../lib/datetime";
 import { SkeletonLine } from "../../lib/Skeleton";
 import { SimpleSelect } from "../../lib/SimpleSelect";
 import { useToast } from "../../lib/Toast";
 import { useAppRuntimeStatusQuery } from "../../lib/appRuntime";
-import { EditIcon, MetricCard, PageHeader, PlayIcon, SectionCard, StatusBadge, StopIcon, TrashIcon } from "../../lib/ui";
+import { EditIcon, MetricCard, MoreIcon, PageHeader, PlayIcon, SectionCard, StatusBadge, StopIcon, TrashIcon } from "../../lib/ui";
 
 import {
   applyRules,
@@ -85,6 +88,12 @@ type RollbackDialogState = {
   title: string;
   summary: string;
   details: string[];
+} | null;
+
+type RowActionMenuState = {
+  id: string;
+  x: number;
+  y: number;
 } | null;
 
 const defaultForm: FormState = {
@@ -159,6 +168,7 @@ export function RulesPage() {
   const [deleteDialog, setDeleteDialog] = createSignal<DeleteDialogState>(null);
   const [migrateDialog, setMigrateDialog] = createSignal<MigrateDialogState>(null);
   const [rollbackDialog, setRollbackDialog] = createSignal<RollbackDialogState>(null);
+  const [rowActionMenu, setRowActionMenu] = createSignal<RowActionMenuState>(null);
 
   const [filter, setFilter] = createStore({
     name: "",
@@ -177,6 +187,32 @@ export function RulesPage() {
           form.target_kind !== "static" &&
           (form.target_kind !== "hyperv" || canManageHyperV())))
   );
+
+  createEffect(() => {
+    if (!rowActionMenu()) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest(".rules-action-menu-panel") || target?.closest(".rules-action-menu-trigger")) {
+        return;
+      }
+      setRowActionMenu(null);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setRowActionMenu(null);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+
+    onCleanup(() => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    });
+  });
 
   const rulesQuery = useQuery(() =>
     queryOptions<ProxyRule[]>({
@@ -520,30 +556,102 @@ export function RulesPage() {
           (row.type === "tcp_fwd" || row.type === "http_proxy") &&
           migration?.status !== "migrated";
         const canRollback = migration?.status === "migrated";
+        const hasMigrationAction = canMigrate || canRollback;
         return (
-          <div class="row-actions">
-            <Show when={canMigrate}>
-              <KButton.Root
-                class="kb-btn ghost small"
-                onClick={() => void handleMigrate(row)}
-              >
-                {t("rules.migrateAction")}
-              </KButton.Root>
-            </Show>
-            <Show when={canRollback}>
-              <KButton.Root
-                class="kb-btn ghost small"
-                onClick={() => handleRollback(row)}
-              >
-                {t("rules.rollbackAction")}
-              </KButton.Root>
-            </Show>
+          <div class="row-actions rules-row-actions">
             <KButton.Root class="kb-btn ghost small icon-btn" onClick={() => handleEdit(row)} aria-label="Edit rule">
               <EditIcon size={14} />
             </KButton.Root>
             <KButton.Root class="kb-btn danger small icon-btn" onClick={() => handleDelete(row.id)} aria-label="Delete rule">
               <TrashIcon size={14} />
             </KButton.Root>
+            <Show when={hasMigrationAction}>
+              <KButton.Root
+                class="kb-btn ghost small icon-btn rules-action-menu-trigger"
+                aria-label={t("rules.moreActions")}
+                aria-haspopup="menu"
+                aria-expanded={rowActionMenu()?.id === row.id ? "true" : "false"}
+                onClick={(event) => {
+                  const existing = rowActionMenu();
+                  if (existing?.id === row.id) {
+                    setRowActionMenu(null);
+                    return;
+                  }
+
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const menuWidth = 176;
+                  const menuHeight = 40;
+                  const margin = 12;
+                  const gap = 8;
+                  const x = Math.min(
+                    window.innerWidth - menuWidth - margin,
+                    Math.max(margin, rect.right - menuWidth)
+                  );
+                  const belowY = rect.bottom + gap;
+                  const y =
+                    window.innerHeight - belowY < menuHeight + margin && rect.top > menuHeight + gap
+                      ? rect.top - menuHeight - gap
+                      : Math.min(belowY, window.innerHeight - menuHeight - margin);
+
+                  setRowActionMenu({ id: row.id, x, y });
+                }}
+              >
+                <MoreIcon size={16} />
+              </KButton.Root>
+              <Show when={rowActionMenu()?.id === row.id}>
+                <Portal>
+                  <div
+                    class="rules-action-menu-panel"
+                    role="menu"
+                    style={{
+                      left: `${rowActionMenu()?.x ?? 0}px`,
+                      top: `${rowActionMenu()?.y ?? 0}px`
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <Show when={canMigrate}>
+                      <div
+                        role="menuitem"
+                        tabindex="0"
+                        class="rules-action-menu-item"
+                        onClick={() => {
+                          setRowActionMenu(null);
+                          void handleMigrate(row);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          setRowActionMenu(null);
+                          void handleMigrate(row);
+                        }}
+                      >
+                        {t("rules.migrateAction")}
+                      </div>
+                    </Show>
+                    <Show when={canRollback}>
+                      <div
+                        role="menuitem"
+                        tabindex="0"
+                        class="rules-action-menu-item"
+                        onClick={() => {
+                          setRowActionMenu(null);
+                          handleRollback(row);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          setRowActionMenu(null);
+                          handleRollback(row);
+                        }}
+                      >
+                        {t("rules.rollbackAction")}
+                      </div>
+                    </Show>
+                  </div>
+                </Portal>
+              </Show>
+            </Show>
           </div>
         );
       }
@@ -1037,24 +1145,7 @@ export function RulesPage() {
 
   return (
 <div class="page">
-      <PageHeader
-        title={t("rules.title")}
-        actions={
-          <>
-            <KButton.Root class="kb-btn accent" onClick={openCreateModal}>
-              {t("rules.btnNewRule")}
-            </KButton.Root>
-            <KButton.Root class="kb-btn ghost" onClick={runApply}>
-              <PlayIcon size={14} />
-              {t("rules.btnApply")}
-            </KButton.Root>
-            <KButton.Root class="kb-btn ghost" onClick={runStop}>
-              <StopIcon size={14} />
-              {t("rules.btnStop")}
-            </KButton.Root>
-          </>
-        }
-      />
+      <PageHeader title={t("rules.title")} />
 
 <div class="metric-grid">
         <MetricCard label={t("rules.totalLabel")} value={`${rows().length}`} detail={t("rules.visibleDetail", { count: filteredRows().length })} />
@@ -1065,11 +1156,28 @@ export function RulesPage() {
       <SectionCard
         title={t("rules.ruleLibraryTitle")}
         subtitle={`${filteredRows().length} / ${rows().length} · ${t("rules.selected")} ${selectedCount()}`}
-        actions={<KButton.Root class="kb-btn ghost" onClick={() => refreshAll()}>{t("rules.btnRefresh")}</KButton.Root>}
+        actions={
+          <>
+            <KButton.Root class="kb-btn accent" onClick={openCreateModal}>
+              {t("rules.btnNewRule")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn ghost" onClick={runApply}>
+              {/* <PlayIcon size={14} /> */}
+              {t("rules.btnApply")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn ghost" onClick={runStop}>
+              {/* <StopIcon size={14} /> */}
+              {t("rules.btnStop")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn ghost" onClick={() => refreshAll()}>
+              {t("rules.btnRefresh")}
+            </KButton.Root>
+          </>
+        }
       >
-        <div class="panel panel-muted" style={{ "margin-bottom": "12px" }}>
+        <Hint variant="info" class="rules-legacy-notice" closable closeLabel={t("common.close")}>
           {t("rules.legacyNotice")}
-        </div>
+        </Hint>
         <div class="toolbar">
           <KTextField.Root class="kb-text-inline" value={filter.name} onChange={(value) => setFilter("name", value)}>
             <KTextField.Input class="kb-input" placeholder={t("rules.placeholderNameKeyword")} />

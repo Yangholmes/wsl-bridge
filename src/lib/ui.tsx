@@ -198,6 +198,19 @@ export const TrashIcon: Component<IconProps> = (props) => (
   />
 );
 
+export const MoreIcon: Component<IconProps> = (props) => (
+  <AppIconBase
+    {...props}
+    path={
+      <>
+        <circle cx="5.5" cy="12" r="1" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+        <circle cx="18.5" cy="12" r="1" fill="currentColor" stroke="none" />
+      </>
+    }
+  />
+);
+
 export const CopyIcon: Component<IconProps> = (props) => (
   <AppIconBase
     {...props}
@@ -345,17 +358,25 @@ export const SectionCard: Component<{
 );
 
 export const ActionButton: Component<{
-  variant?: "primary" | "ghost" | "danger";
-  size?: "default" | "small";
+  variant?: "primary" | "ghost" | "ghost-borderless" | "danger";
+  size?: "default" | "small" | "tiny";
   disabled?: boolean;
+  loading?: boolean;
+  class?: string;
+  ariaLabel?: string;
   onClick?: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent>;
   children: JSX.Element;
 }> = (props) => (
   <KButton.Root
-    class={`kb-btn ${props.variant ?? "ghost"} ${props.size === "small" ? "small" : ""}`.trim()}
-    disabled={props.disabled}
+    class={`kb-btn ${props.variant ?? "ghost"} ${props.size === "small" ? "small" : ""} ${props.size === "tiny" ? "tiny" : ""} ${props.class ?? ""}`.trim()}
+    disabled={props.disabled || props.loading}
+    aria-label={props.ariaLabel}
+    aria-busy={props.loading ? "true" : undefined}
     onClick={props.onClick}
   >
+    <Show when={props.loading}>
+      <span class="kb-btn-loading-spinner" aria-hidden="true" />
+    </Show>
     {props.children}
   </KButton.Root>
 );
@@ -379,10 +400,16 @@ export const TextFieldControl: Component<{
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  disabled?: boolean;
 }> = (props) => (
   <KTextField.Root class="kb-field" value={props.value} onChange={props.onChange}>
     <KTextField.Label class="kb-label">{props.label}</KTextField.Label>
-    <KTextField.Input class="kb-input" value={props.value} placeholder={props.placeholder} />
+    <KTextField.Input
+      class="kb-input"
+      value={props.value}
+      placeholder={props.placeholder}
+      disabled={props.disabled}
+    />
   </KTextField.Root>
 );
 

@@ -24,6 +24,13 @@
   background: transparent;
 }
 
+.dropdown-panel-trigger.icon-btn {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
 .dropdown-panel-surface {
   position: absolute;
   top: calc(100% + 6px);

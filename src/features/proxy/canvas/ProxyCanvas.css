@@ -1,0 +1,255 @@
+.proxy-canvas-shell {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.proxy-canvas-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  min-width: 0;
+  padding: var(--space-16) var(--space-20);
+  border-bottom: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--bg-main) 82%, var(--bg-panel));
+}
+
+.proxy-canvas-toolbar-main,
+.proxy-canvas-search-float,
+.proxy-canvas-viewport-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.proxy-canvas-toolbar-main {
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.proxy-canvas-search-float {
+  position: absolute;
+  top: var(--space-16);
+  right: var(--space-16);
+  z-index: 5;
+  max-width: min(540px, calc(100% - 32px));
+  padding: var(--space-8);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-panel) 96%, transparent);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(10px);
+}
+
+.proxy-canvas-search-float .kb-input {
+  max-width: 280px;
+}
+
+.proxy-canvas-search-scope {
+  max-width: 260px;
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+
+.proxy-canvas-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  min-height: 520px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(circle at 24px 24px, color-mix(in srgb, var(--line) 38%, transparent) 1px, transparent 1px),
+    linear-gradient(135deg, var(--bg-panel) 0%, var(--bg-panel-muted) 100%);
+  background-size: 24px 24px, auto;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.proxy-page-shell .proxy-canvas-stage {
+  min-height: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
+}
+
+.proxy-canvas-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.proxy-canvas-stage[data-dragging="true"] canvas {
+  cursor: grabbing;
+}
+
+.proxy-canvas-loading {
+  position: absolute;
+  top: var(--space-16);
+  left: 50%;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: 32px;
+  padding: 0 var(--space-12);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-sm);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.proxy-canvas-loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: proxy-canvas-spin 0.75s linear infinite;
+}
+
+.proxy-canvas-context-menu {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  min-width: 188px;
+  padding: var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-md);
+}
+
+.proxy-canvas-context-menu .kb-btn {
+  justify-content: flex-start;
+  border-color: transparent;
+}
+
+.proxy-canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-24);
+  pointer-events: none;
+}
+
+.proxy-canvas-empty-card {
+  max-width: 360px;
+  padding: var(--space-20);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--bg-panel) 82%, transparent);
+  text-align: center;
+}
+
+.proxy-canvas-detail-panel {
+  position: absolute;
+  top: var(--space-16);
+  right: var(--space-16);
+  z-index: 4;
+  display: grid;
+  gap: var(--space-12);
+  width: fit-content;
+  min-width: 280px;
+  max-width: min(360px, calc(33.333% - 24px));
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  padding: var(--space-16);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-panel) 94%, transparent);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(8px);
+}
+
+.proxy-canvas-detail-header {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.proxy-canvas-detail-title {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.proxy-canvas-detail-title strong {
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+}
+
+.proxy-canvas-detail-grid {
+  display: grid;
+  gap: var(--space-10);
+  grid-template-columns: 1fr;
+}
+
+.proxy-canvas-detail-item {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.proxy-canvas-detail-item span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.proxy-canvas-detail-item strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.proxy-canvas-viewport-tools {
+  position: absolute;
+  right: var(--space-16);
+  bottom: var(--space-16);
+  z-index: 4;
+  justify-content: flex-end;
+}
+
+.proxy-canvas-zoom-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  min-width: 54px;
+  padding: 0 var(--space-10);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-panel) 94%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(8px);
+}
+
+@media (max-width: 1100px) {
+  .proxy-canvas-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .proxy-canvas-search-float {
+    justify-content: flex-start;
+  }
+}
+
+@keyframes proxy-canvas-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

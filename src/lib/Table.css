@@ -14,9 +14,18 @@ table {
 }
 
 .rules-table {
-  min-width: 780px;
   table-layout: fixed;
   min-width: 800px;
+}
+
+.rules-table th:nth-last-child(2),
+.rules-table td:nth-last-child(2) {
+  width: 128px;
+}
+
+.rules-table th:last-child,
+.rules-table td:last-child {
+  width: 96px;
 }
 
 th,
@@ -66,6 +75,46 @@ tbody tr:last-child td {
   display: flex;
   align-items: center;
   gap: var(--space-6);
+}
+
+.rules-row-actions {
+  justify-content: flex-start;
+  white-space: nowrap;
+}
+
+.rules-legacy-notice {
+  margin-bottom: var(--space-12);
+}
+
+.rules-action-menu-panel {
+  position: fixed;
+  z-index: 1000;
+  min-width: 168px;
+  max-width: 220px;
+  padding: var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.rules-action-menu-item {
+  min-height: 32px;
+  padding: var(--space-6) var(--space-10);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  outline: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.rules-action-menu-item:hover,
+.rules-action-menu-item:focus-visible {
+  background: var(--bg-hover);
+  color: var(--accent-strong);
 }
 
 .row-enable-switch {

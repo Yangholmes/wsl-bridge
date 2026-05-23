@@ -24,6 +24,15 @@
   cursor: not-allowed;
 }
 
+.kb-btn-loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: kb-btn-spin 0.75s linear infinite;
+}
+
 .kb-btn.accent,
 .kb-btn.primary {
   background: var(--brand-500);
@@ -45,6 +54,18 @@
   background: var(--bg-hover);
 }
 
+.kb-btn.ghost-borderless {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.kb-btn.ghost-borderless:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  box-shadow: none;
+}
+
 .kb-btn.danger {
   background: var(--danger-50);
   color: var(--danger-600);
@@ -61,8 +82,28 @@
   padding: 0 var(--space-10);
 }
 
+.kb-btn.tiny {
+  min-height: 20px;
+  padding: 0 var(--space-6);
+  gap: var(--space-4);
+  font-size: var(--text-xs);
+}
+
 .kb-btn.icon-btn {
   width: 32px;
   min-width: 32px;
   padding: 0;
+}
+
+.kb-btn.icon-btn.tiny {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+}
+
+@keyframes kb-btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

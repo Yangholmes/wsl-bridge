@@ -23,6 +23,7 @@ import "./lib/Form.css";
 import "./lib/Button.css";
 import "./lib/Toggle.css";
 import "./lib/Modal.css";
+import "./lib/Drawer.css";
 import "./lib/Skeleton.css";
 import "./lib/Status.css";
 

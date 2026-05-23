@@ -37,6 +37,50 @@
   color: var(--hint-info-text);
 }
 
+.hint.closable {
+  position: relative;
+  padding-right: calc(var(--space-14) + 22px);
+}
+
+.hint-close-btn {
+  position: absolute;
+  right: var(--space-6);
+  top: var(--space-6);
+  border-radius: var(--radius-sm);
+  color: inherit;
+  opacity: 0.64;
+}
+
+.hint-close-btn:hover {
+  opacity: 1;
+}
+
+.hint-close-icon {
+  position: relative;
+  width: 10px;
+  height: 10px;
+}
+
+.hint-close-icon::before,
+.hint-close-icon::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0;
+  width: 1.5px;
+  height: 10px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.hint-close-icon::before {
+  transform: rotate(45deg);
+}
+
+.hint-close-icon::after {
+  transform: rotate(-45deg);
+}
+
 .hint.warn,
 .hint-banner {
   background: var(--hint-warn-bg);

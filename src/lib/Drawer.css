@@ -1,0 +1,110 @@
+.bottom-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(12, 18, 28, 0.16);
+  animation: bottom-drawer-overlay-in var(--transition-normal) var(--ease-in-out);
+}
+
+.bottom-drawer-content {
+  position: fixed;
+  right: var(--space-24);
+  bottom: var(--space-24);
+  left: calc(210px + var(--space-24));
+  z-index: 46;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  max-height: 33vh;
+  min-height: 180px;
+  min-width: 0;
+  padding: var(--space-10) var(--space-20) var(--space-20);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-2xl);
+  background: color-mix(in srgb, var(--bg-panel) 96%, transparent);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(14px);
+  animation: bottom-drawer-in var(--transition-normal) var(--ease-in-out);
+}
+
+.bottom-drawer-handle {
+  justify-self: center;
+  width: 48px;
+  height: 4px;
+  margin-bottom: var(--space-12);
+  border-radius: var(--radius-full);
+  background: var(--line-strong);
+}
+
+.bottom-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-16);
+  min-width: 0;
+  padding-bottom: var(--space-14);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.bottom-drawer-title-group {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.bottom-drawer-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+}
+
+.bottom-drawer-subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.bottom-drawer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+}
+
+.bottom-drawer-body {
+  min-height: 0;
+  min-width: 0;
+  padding-top: var(--space-14);
+  overflow: auto;
+}
+
+@keyframes bottom-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.99);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes bottom-drawer-overlay-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: var(--breakpoint-md)) {
+  .bottom-drawer-content {
+    right: var(--space-16);
+    left: var(--space-16);
+    bottom: var(--space-16);
+  }
+}

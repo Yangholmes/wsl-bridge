@@ -29,6 +29,9 @@ dependencies:
   '@tauri-apps/plugin-dialog':
     specifier: ^2.0.0
     version: 2.7.1
+  pixi.js:
+    specifier: ^8.18.1
+    version: 8.18.1
   solid-js:
     specifier: ^1.9.9
     version: 1.9.11
@@ -567,6 +570,10 @@ packages:
 
   /@nothing-but/utils@0.17.0:
     resolution: {integrity: sha512-TuCHcHLOqDL0SnaAxACfuRHBNRgNJcNn9X0GiH5H3YSDBVquCr3qEIG3FOQAuMyZCbu9w8nk2CHhOsn7IvhIwQ==}
+    dev: false
+
+  /@pixi/colord@2.9.6:
+    resolution: {integrity: sha512-nezytU2pw587fQstUu1AsJZDVEynjskwOL+kibwcdxsMBFqPsFFNA7xl0ii/gXuDi6M0xj3mfRJj8pBSc2jCfA==}
     dev: false
 
   /@rollup/rollup-android-arm-eabi@4.59.0:
@@ -1218,6 +1225,10 @@ packages:
       '@babel/types': 7.29.0
     dev: true
 
+  /@types/earcut@3.0.0:
+    resolution: {integrity: sha512-k/9fOUGO39yd2sCjrbAJvGDEQvRwRnQIZlBz43roGwUZo5SHAmyVvSFyaVVZkicRVCaDXPKlbxrUcBuJoSWunQ==}
+    dev: false
+
   /@types/estree@1.0.8:
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
     dev: true
@@ -1227,6 +1238,15 @@ packages:
     dependencies:
       undici-types: 6.21.0
     dev: true
+
+  /@webgpu/types@0.1.70:
+    resolution: {integrity: sha512-LFiNHHKMvmAEvwVew3JLJmTdShhbdwRFSImUshGhE2mGE8ybQzIo63l5uRp+YKnNx+8Qno8Kf6gN+DKMreIJCA==}
+    dev: false
+
+  /@xmldom/xmldom@0.8.13:
+    resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
+    engines: {node: '>=10.0.0'}
+    dev: false
 
   /babel-plugin-jsx-dom-expressions@0.40.5(@babel/core@7.29.0):
     resolution: {integrity: sha512-8TFKemVLDYezqqv4mWz+PhRrkryTzivTGu0twyLrOkVZ0P63COx2Y04eVsUjFlwSOXui1z3P3Pn209dokWnirg==}
@@ -1300,6 +1320,10 @@ packages:
       ms: 2.1.3
     dev: true
 
+  /earcut@3.0.2:
+    resolution: {integrity: sha512-X7hshQbLyMJ/3RPhyObLARM2sNxxmRALLKx1+NVFFnQ9gKzmCrxm9+uLIAdBcvc8FNLpctqlQ2V6AE92Ol9UDQ==}
+    dev: false
+
   /electron-to-chromium@1.5.302:
     resolution: {integrity: sha512-sM6HAN2LyK82IyPBpznDRqlTQAtuSaO+ShzFiWTvoMJLHyZ+Y39r8VMfHzwbU8MVBzQ4Wdn85+wlZl2TLGIlwg==}
     dev: true
@@ -1348,6 +1372,10 @@ packages:
     engines: {node: '>=6'}
     dev: true
 
+  /eventemitter3@5.0.4:
+    resolution: {integrity: sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==}
+    dev: false
+
   /fdir@6.5.0(picomatch@4.0.3):
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
     engines: {node: '>=12.0.0'}
@@ -1373,6 +1401,12 @@ packages:
     engines: {node: '>=6.9.0'}
     dev: true
 
+  /gifuct-js@2.1.2:
+    resolution: {integrity: sha512-rI2asw77u0mGgwhV3qA+OEgYqaDn5UNqgs+Bx0FGwSpuqfYn+Ir6RQY5ENNQ8SbIiG/m5gVa7CD5RriO4f4Lsg==}
+    dependencies:
+      js-binary-schema-parser: 2.0.3
+    dev: false
+
   /html-entities@2.3.3:
     resolution: {integrity: sha512-DV5Ln36z34NNTDgnz0EWGBLZENelNAtkiFA4kyNOG2tDI6Mz1uSWiq1wAKdyjnJwyDiDO7Fa2SO1CTxPXL8VxA==}
     dev: true
@@ -1385,6 +1419,14 @@ packages:
   /isbot@5.1.35:
     resolution: {integrity: sha512-waFfC72ZNfwLLuJ2iLaoVaqcNo+CAaLR7xCpAn0Y5WfGzkNHv7ZN39Vbi1y+kb+Zs46XHOX3tZNExroFUPX+Kg==}
     engines: {node: '>=18'}
+    dev: false
+
+  /ismobilejs@1.1.1:
+    resolution: {integrity: sha512-VaFW53yt8QO61k2WJui0dHf4SlL8lxBofUuUmwBo0ljPk0Drz2TiuDW4jo3wDcv41qy/SxrJ+VAzJ/qYqsmzRw==}
+    dev: false
+
+  /js-binary-schema-parser@2.0.3:
+    resolution: {integrity: sha512-xezGJmOb4lk/M1ZZLTR/jaBHQ4gG/lqQnJqdIv4721DMggsa1bDVlHXNeHYogaIEHD9vCRv0fcL4hMA+Coarkg==}
     dev: false
 
   /js-tokens@4.0.0:
@@ -1434,6 +1476,10 @@ packages:
     resolution: {integrity: sha512-nmh3lCkYZ3grZvqcCH+fjmQ7X+H0OeZgP40OierEaAptX4XofMh5kwNbWh7lBduUzCcV/8kZ+NDLCwm2iorIlA==}
     dev: true
 
+  /parse-svg-path@0.1.2:
+    resolution: {integrity: sha512-JyPSBnkTJ0AI8GGJLfMXvKq42cj5c006fnLz6fXy6zfoVjJizi8BNTpu8on8ziI1cKy9d9DGNuY17Ce7wuejpQ==}
+    dev: false
+
   /parse5@7.3.0:
     resolution: {integrity: sha512-IInvU7fabl34qmi9gY8XOVxhYyMyuH2xUNpb2q8/Y+7552KlejkRvqvD19nMoUW/uQGGbqNpA6Tufu5FL5BZgw==}
     dependencies:
@@ -1448,6 +1494,21 @@ packages:
     resolution: {integrity: sha512-5gTmgEY/sqK6gFXLIsQNH19lWb4ebPDLA4SdLP7dsWkIXHWlG66oPuVvXSGFPppYZz8ZDZq0dYYrbHfBCVUb1Q==}
     engines: {node: '>=12'}
     dev: true
+
+  /pixi.js@8.18.1:
+    resolution: {integrity: sha512-6LUPWYgulZhp/w4kam2XHXB0QedISZIqrJbRdHLLQ3csn5a38uzKxAp6B5j6s89QFYaIJbg95kvgTRcbgpO1ow==}
+    dependencies:
+      '@pixi/colord': 2.9.6
+      '@types/earcut': 3.0.0
+      '@webgpu/types': 0.1.70
+      '@xmldom/xmldom': 0.8.13
+      earcut: 3.0.2
+      eventemitter3: 5.0.4
+      gifuct-js: 2.1.2
+      ismobilejs: 1.1.1
+      parse-svg-path: 0.1.2
+      tiny-lru: 11.4.7
+    dev: false
 
   /png-to-ico@3.0.1:
     resolution: {integrity: sha512-S8BOAoaGd9gT5uaemQ62arIY3Jzco7Uc7LwUTqRyqJDTsKqOAiyfyN4dSdT0D+Zf8XvgztgpRbM5wnQd7EgYwg==}
@@ -1570,6 +1631,11 @@ packages:
 
   /tiny-invariant@1.3.3:
     resolution: {integrity: sha512-+FbBPE1o9QAYvviau/qC5SE3caw21q3xkvWKBtja5vgqOWIHHJ3ioaq1VPfn/Szqctz2bU/oYeKd9/z5BL+PVg==}
+    dev: false
+
+  /tiny-lru@11.4.7:
+    resolution: {integrity: sha512-w/Te7uMUVeH0CR8vZIjr+XiN41V+30lkDdK+NRIDCUYKKuL9VcmaUEmaPISuwGhLlrTGh5yu18lENtR9axSxYw==}
+    engines: {node: '>=12'}
     dev: false
 
   /tiny-warning@1.0.3:
