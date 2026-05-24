@@ -15,11 +15,12 @@ use rustls::{
     ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned,
 };
 use serde_json::json;
-use wsl_bridge_shared::{ProxyRoute, ProxyUpstream, UpstreamScheme};
+use wsl_bridge_shared::{ProxyRoute, ProxyUpstream, TargetKind, UpstreamScheme};
 
 use crate::app_logs::{classify_io_error, AccessLogEntry, ErrorLogEntry};
 use crate::proxy_metrics::ProxyMetricsRecorder;
 use crate::proxy_runtime::{rewrite_path, select_route, select_upstream};
+use crate::topology::resolve_dynamic_target_candidates;
 use crate::traffic::TrafficRecorder;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +68,65 @@ pub fn spawn(
         ForwarderKind::HttpProxy => spawn_http_proxy_forwarder(listen_addr, traffic),
         ForwarderKind::Socks5Proxy => spawn_socks5_proxy_forwarder(listen_addr, traffic),
     }
+}
+
+fn proxy_upstream_host_candidates(upstream: &ProxyUpstream) -> Vec<String> {
+    match upstream.target_kind {
+        TargetKind::Static => upstream
+            .target_host
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| vec![value.to_owned()])
+            .unwrap_or_default(),
+        TargetKind::Wsl | TargetKind::Hyperv => resolve_dynamic_target_candidates(
+            upstream.target_kind,
+            upstream.target_ref.as_deref().unwrap_or_default(),
+            upstream.target_host.as_deref(),
+        ),
+    }
+}
+
+fn connect_first_available_target(
+    candidates: Vec<String>,
+    target_port: u16,
+) -> io::Result<(TcpStream, String)> {
+    if candidates.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "no upstream host candidate available",
+        ));
+    }
+
+    let mut last_err = None;
+    for host in &candidates {
+        match TcpStream::connect((host.as_str(), target_port)) {
+            Ok(stream) => return Ok((stream, host.clone())),
+            Err(err) => last_err = Some(err),
+        }
+    }
+
+    let last_err = last_err.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "no upstream host candidate available",
+        )
+    });
+    Err(io::Error::new(
+        last_err.kind(),
+        format!(
+            "failed to connect to upstream candidates [{}]: {}",
+            candidates.join(", "),
+            last_err
+        ),
+    ))
+}
+
+fn connect_proxy_upstream(upstream: &ProxyUpstream) -> io::Result<(TcpStream, String)> {
+    connect_first_available_target(
+        proxy_upstream_host_candidates(upstream),
+        upstream.target_port,
+    )
 }
 
 pub fn spawn_http_reverse_proxy(
@@ -781,13 +841,13 @@ fn handle_http_reverse_proxy_tcp_connection(
         return Err(err);
     }
 
-    let upstream_host = upstream.target_host.as_deref().unwrap_or("");
+    let mut upstream_host = upstream.target_host.as_deref().unwrap_or("").to_owned();
     let rewritten_path = rewrite_path(
         &request_path,
         upstream.path_rewrite_from.as_deref(),
         upstream.path_rewrite_to.as_deref(),
     );
-    let target_label = format!("{upstream_host}:{}{}", upstream.target_port, rewritten_path);
+    let mut target_label = format!("{upstream_host}:{}{}", upstream.target_port, rewritten_path);
     let is_websocket = matches!(
         upstream.upstream_scheme,
         UpstreamScheme::Ws | UpstreamScheme::Wss
@@ -797,8 +857,12 @@ fn handle_http_reverse_proxy_tcp_connection(
         UpstreamScheme::Https | UpstreamScheme::Wss
     );
 
-    let mut outbound = match TcpStream::connect((upstream_host, upstream.target_port)) {
-        Ok(stream) => stream,
+    let mut outbound = match connect_proxy_upstream(upstream) {
+        Ok((stream, actual_host)) => {
+            upstream_host = actual_host;
+            target_label = format!("{upstream_host}:{}{}", upstream.target_port, rewritten_path);
+            stream
+        }
         Err(err) => {
             let mut inbound = reader.into_inner();
             let _ = write_simple_http_response(&mut inbound, 502, "Bad Gateway");
@@ -952,7 +1016,7 @@ fn handle_http_reverse_proxy_tcp_connection(
     if is_websocket {
         let mut tls_stream = match connect_tls_upstream_stream(
             outbound,
-            upstream_host,
+            upstream_host.as_str(),
             Arc::clone(&tls_client_config),
         ) {
             Ok(stream) => stream,
@@ -1051,7 +1115,7 @@ fn handle_http_reverse_proxy_tcp_connection(
     if is_tls_upstream {
         let mut tls_stream = match connect_tls_upstream_stream(
             outbound,
-            upstream_host,
+            upstream_host.as_str(),
             Arc::clone(&tls_client_config),
         ) {
             Ok(stream) => stream,
@@ -1164,7 +1228,7 @@ fn handle_http_reverse_proxy_tcp_connection(
         false,
     )?;
     forward_request_body(&mut inbound, &mut outbound, content_length)?;
-    outbound.shutdown(Shutdown::Write)?;
+    outbound.flush()?;
 
     let started = Instant::now();
     let result = io::copy(&mut outbound, &mut inbound);
@@ -1256,10 +1320,16 @@ fn handle_grpc_h2c_proxy_connection(
 
     metrics.record_route_match(&matched.route.id, &matched.route.listener_id, "", "h2c");
 
-    let upstream_host = matched.upstream.target_host.as_deref().unwrap_or("");
-    let target_label = format!("{upstream_host}:{}", matched.upstream.target_port);
-    let outbound = match TcpStream::connect((upstream_host, matched.upstream.target_port)) {
-        Ok(stream) => stream,
+    let mut target_label = format!(
+        "{}:{}",
+        matched.upstream.target_host.as_deref().unwrap_or(""),
+        matched.upstream.target_port
+    );
+    let outbound = match connect_proxy_upstream(matched.upstream) {
+        Ok((stream, actual_host)) => {
+            target_label = format!("{actual_host}:{}", matched.upstream.target_port);
+            stream
+        }
         Err(err) => {
             let mut inbound = inbound;
             let _ = write_simple_http_response(&mut inbound, 502, "Bad Gateway");
@@ -1561,16 +1631,20 @@ fn handle_http_reverse_proxy_stream(
         return Err(err);
     }
 
-    let upstream_host = upstream.target_host.as_deref().unwrap_or("");
+    let mut upstream_host = upstream.target_host.as_deref().unwrap_or("").to_owned();
     let rewritten_path = rewrite_path(
         &request_path,
         upstream.path_rewrite_from.as_deref(),
         upstream.path_rewrite_to.as_deref(),
     );
-    let target_label = format!("{upstream_host}:{}{}", upstream.target_port, rewritten_path);
+    let mut target_label = format!("{upstream_host}:{}{}", upstream.target_port, rewritten_path);
 
-    let mut outbound = match TcpStream::connect((upstream_host, upstream.target_port)) {
-        Ok(stream) => stream,
+    let mut outbound = match connect_proxy_upstream(upstream) {
+        Ok((stream, actual_host)) => {
+            upstream_host = actual_host;
+            target_label = format!("{upstream_host}:{}{}", upstream.target_port, rewritten_path);
+            stream
+        }
         Err(err) => {
             let mut inbound = reader.into_inner();
             let _ = write_simple_http_response(&mut inbound, 502, "Bad Gateway");
@@ -1721,7 +1795,7 @@ fn handle_http_reverse_proxy_stream(
     if is_websocket {
         let mut tls_stream = match connect_tls_upstream_stream(
             outbound,
-            upstream_host,
+            upstream_host.as_str(),
             Arc::clone(&tls_client_config),
         ) {
             Ok(stream) => stream,
@@ -1820,7 +1894,7 @@ fn handle_http_reverse_proxy_stream(
     if is_tls_upstream {
         let mut tls_stream = match connect_tls_upstream_stream(
             outbound,
-            upstream_host,
+            upstream_host.as_str(),
             Arc::clone(&tls_client_config),
         ) {
             Ok(stream) => stream,
@@ -1932,7 +2006,7 @@ fn handle_http_reverse_proxy_stream(
         false,
     )?;
     forward_request_body(&mut inbound, &mut outbound, content_length)?;
-    outbound.shutdown(Shutdown::Write)?;
+    outbound.flush()?;
 
     let started = Instant::now();
     let result = io::copy(&mut outbound, &mut inbound);
@@ -2048,10 +2122,19 @@ fn handle_grpcs_prior_knowledge_tunnel(
 
     metrics.record_route_match(&matched.route.id, &matched.route.listener_id, "", "h2");
 
-    let upstream_host = matched.upstream.target_host.as_deref().unwrap_or("");
-    let target_label = format!("{upstream_host}:{}", matched.upstream.target_port);
-    let outbound = match TcpStream::connect((upstream_host, matched.upstream.target_port)) {
-        Ok(stream) => stream,
+    let mut upstream_host = matched
+        .upstream
+        .target_host
+        .as_deref()
+        .unwrap_or("")
+        .to_owned();
+    let mut target_label = format!("{upstream_host}:{}", matched.upstream.target_port);
+    let outbound = match connect_proxy_upstream(matched.upstream) {
+        Ok((stream, actual_host)) => {
+            upstream_host = actual_host;
+            target_label = format!("{upstream_host}:{}", matched.upstream.target_port);
+            stream
+        }
         Err(err) => {
             let mut inbound = reader.into_inner();
             let _ = write_simple_http_response(&mut inbound, 502, "Bad Gateway");
@@ -2085,7 +2168,7 @@ fn handle_grpcs_prior_knowledge_tunnel(
 
     let mut tls_stream = match connect_tls_upstream_stream(
         outbound,
-        upstream_host,
+        upstream_host.as_str(),
         Arc::clone(&tls_client_config),
     ) {
         Ok(stream) => stream,
@@ -3334,4 +3417,37 @@ fn peer_label(stream: &TcpStream) -> String {
         .peer_addr()
         .map(|addr| addr.to_string())
         .unwrap_or_else(|_| "-".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Read;
+    use std::net::TcpListener;
+    use std::thread;
+    use std::time::Duration;
+
+    use super::connect_first_available_target;
+
+    #[test]
+    fn connect_first_available_target_retries_later_candidates() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind listener");
+        let port = listener.local_addr().expect("listener addr").port();
+
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("set timeout");
+            let mut buffer = [0u8; 1];
+            let _ = stream.read(&mut buffer);
+        });
+
+        let candidates = vec!["127.0.0.2".to_owned(), "127.0.0.1".to_owned()];
+        let (stream, selected_host) =
+            connect_first_available_target(candidates, port).expect("connect candidate");
+        assert_eq!(selected_host, "127.0.0.1");
+        drop(stream);
+
+        let _ = server.join();
+    }
 }

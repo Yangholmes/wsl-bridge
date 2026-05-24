@@ -40,8 +40,8 @@ use crate::hosts::{
 use crate::proxy_metrics::ProxyMetricsTracker;
 use crate::sqlite_store::{Snapshot, SqliteStore};
 use crate::topology::{
-    debug_hyperv_probe, list_adapters, list_wsl_instances, resolve_dynamic_target_host,
-    resolve_nic_ip, scan_hyperv, HyperVProbeDebug,
+    debug_hyperv_probe, list_adapters, list_wsl_instances, resolve_dynamic_target_candidates,
+    resolve_dynamic_target_host, resolve_nic_ip, scan_hyperv, HyperVProbeDebug,
 };
 use crate::traffic::TrafficTracker;
 
@@ -812,36 +812,33 @@ impl RuleEngine {
                     .into_iter()
                     .filter(|upstream| upstream.enabled)
                 {
-                    let resolved_host = match upstream.target_kind {
+                    let resolved_candidates = match upstream.target_kind {
                         TargetKind::Static => upstream
                             .target_host
                             .as_deref()
                             .map(str::trim)
                             .filter(|value| !value.is_empty())
-                            .map(str::to_owned),
-                        TargetKind::Wsl | TargetKind::Hyperv => upstream
-                            .target_ref
-                            .as_deref()
-                            .and_then(|value| {
-                                resolve_dynamic_target_host(upstream.target_kind, value)
-                            })
-                            .or_else(|| {
-                                upstream
-                                    .target_host
-                                    .as_deref()
-                                    .map(str::trim)
-                                    .filter(|value| !value.is_empty())
-                                    .map(str::to_owned)
-                            }),
+                            .map(|value| vec![value.to_owned()])
+                            .unwrap_or_default(),
+                        TargetKind::Wsl | TargetKind::Hyperv => resolve_dynamic_target_candidates(
+                            upstream.target_kind,
+                            upstream.target_ref.as_deref().unwrap_or_default(),
+                            upstream.target_host.as_deref(),
+                        ),
                     };
 
-                    match resolved_host {
-                        Some(host) => {
+                    if let Some(host) = resolved_candidates.first().cloned() {
+                        if upstream
+                            .target_host
+                            .as_deref()
+                            .map(str::trim)
+                            .is_none_or(str::is_empty)
+                        {
                             upstream.target_host = Some(host);
-                            resolved_upstreams.push(upstream);
                         }
-                        None => {
-                            self.append_engine_log(
+                        resolved_upstreams.push(upstream);
+                    } else {
+                        self.append_engine_log(
                                 "warn",
                                 "proxy",
                                 "proxy_upstream_skipped",
@@ -850,7 +847,6 @@ impl RuleEngine {
                                     listener.id, route.id, upstream.id
                                 ),
                             );
-                        }
                     }
                 }
 
@@ -3536,6 +3532,23 @@ mod tests {
         )
     }
 
+    fn connect_tls_test_client(listen_port: u16) -> StreamOwned<ClientConnection, TcpStream> {
+        let root_cert_path = proxy_test_local_ca_root_dir().join("root-ca.pem");
+        let root_cert_pem = fs::read_to_string(&root_cert_path).expect("read root cert");
+        let client_config = create_test_tls_client_config(&root_cert_pem);
+        let outbound = TcpStream::connect(("127.0.0.1", listen_port)).expect("connect listener");
+        outbound
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set read timeout");
+        outbound
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .expect("set write timeout");
+        let server_name = ServerName::IpAddress(std::net::IpAddr::from([127, 0, 0, 1]).into());
+        let connection =
+            ClientConnection::new(client_config, server_name).expect("create tls client");
+        StreamOwned::new(connection, outbound)
+    }
+
     fn wait_for_proxy_listener_state(
         engine: &RuleEngine,
         listener_id: &str,
@@ -3972,6 +3985,222 @@ mod tests {
 
         drop(engine);
         let _ = server.join();
+    }
+
+    #[test]
+    fn proxy_http_listener_does_not_half_close_plain_http_upstream_before_response() {
+        let target_port = free_tcp_port();
+        let listen_port = free_tcp_port();
+
+        let server = thread::spawn(move || {
+            let listener = TcpListener::bind(("127.0.0.1", target_port)).expect("target bind");
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .expect("set timeout");
+
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => panic!("proxy half-closed upstream before response"),
+                    Ok(len) => {
+                        request.extend_from_slice(&chunk[..len]);
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(err)
+                        if err.kind() == std::io::ErrorKind::WouldBlock
+                            || err.kind() == std::io::ErrorKind::TimedOut =>
+                    {
+                        break;
+                    }
+                    Err(err) => panic!("read request failed: {err}"),
+                }
+            }
+
+            let request_text = String::from_utf8_lossy(&request).to_string();
+            assert!(request_text.contains("GET / HTTP/1.1"));
+            assert!(request_text
+                .to_ascii_lowercase()
+                .contains("connection: close"));
+
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .expect("write response");
+        });
+
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "http-no-half-close-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: Vec::new(),
+                path_prefix: None,
+                is_default: true,
+                enabled: true,
+            })
+            .expect("create route");
+
+        engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Http,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        let status = wait_for_proxy_listener_state(&engine, &listener_id, RuntimeState::Running);
+        assert_eq!(status.state, RuntimeState::Running);
+
+        let mut client = TcpStream::connect(("127.0.0.1", listen_port)).expect("connect proxy");
+        client
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost:8081\r\nConnection: keep-alive\r\n\r\n")
+            .expect("send request");
+        let mut response = String::new();
+        client.read_to_string(&mut response).expect("read response");
+        assert!(response.contains("HTTP/1.1 200 OK"));
+        assert!(response.ends_with("ok"));
+
+        drop(engine);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn proxy_https_listener_does_not_half_close_plain_http_upstream_before_response() {
+        let _local_ca_lock = proxy_test_local_ca_lock();
+        let target_port = free_tcp_port();
+        let listen_port = free_tcp_port();
+
+        let server = thread::spawn(move || {
+            let listener = TcpListener::bind(("127.0.0.1", target_port)).expect("target bind");
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .expect("set timeout");
+
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 1024];
+            loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) => panic!("proxy half-closed upstream before response"),
+                    Ok(len) => {
+                        request.extend_from_slice(&chunk[..len]);
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(err)
+                        if err.kind() == std::io::ErrorKind::WouldBlock
+                            || err.kind() == std::io::ErrorKind::TimedOut =>
+                    {
+                        break;
+                    }
+                    Err(err) => panic!("read request failed: {err}"),
+                }
+            }
+
+            let request_text = String::from_utf8_lossy(&request).to_string();
+            assert!(request_text.contains("GET / HTTP/1.1"));
+            assert!(request_text
+                .to_ascii_lowercase()
+                .contains("connection: close"));
+
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .expect("write response");
+        });
+
+        let (cert_pem, key_pem) =
+            generate_trusted_local_ca_leaf(&["127.0.0.1"], "https-plain-http-upstream");
+        let cert_path = write_temp_fixture("wsl-bridge-https-no-half-close-cert", "pem", &cert_pem);
+        let key_path = write_temp_fixture("wsl-bridge-https-no-half-close-key", "key", &key_pem);
+
+        let engine = RuleEngine::new();
+        let cert_id = engine
+            .create_proxy_certificate(CreateProxyCertificateRequest {
+                name: "https-no-half-close".to_owned(),
+                source_type: ProxyCertificateSourceType::ManualUpload,
+                cert_path: cert_path.to_string_lossy().to_string(),
+                key_path: key_path.to_string_lossy().to_string(),
+                domains: vec!["127.0.0.1".to_owned()],
+            })
+            .expect("create certificate");
+
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "https-no-half-close-listener".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port,
+                protocol: ProxyProtocol::Https,
+                tls_mode: ProxyTlsMode::ManualCert,
+                cert_id: Some(cert_id),
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: Vec::new(),
+                path_prefix: None,
+                is_default: true,
+                enabled: true,
+            })
+            .expect("create route");
+
+        engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id,
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port,
+                upstream_scheme: UpstreamScheme::Http,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        let status = wait_for_proxy_listener_state(&engine, &listener_id, RuntimeState::Running);
+        assert_eq!(status.state, RuntimeState::Running);
+
+        let mut client = connect_tls_test_client(listen_port);
+        client
+            .write_all(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n")
+            .expect("send request");
+        let mut response = String::new();
+        client.read_to_string(&mut response).expect("read response");
+        assert!(response.contains("HTTP/1.1 200 OK"));
+        assert!(response.ends_with("ok"));
+
+        drop(engine);
+        let _ = server.join();
+        let _ = fs::remove_file(cert_path);
+        let _ = fs::remove_file(key_path);
     }
 
     #[test]

@@ -220,6 +220,75 @@ pub fn resolve_dynamic_target_host(target_kind: TargetKind, target_ref: &str) ->
     }
 }
 
+pub fn resolve_dynamic_target_candidates(
+    target_kind: TargetKind,
+    target_ref: &str,
+    fallback_host: Option<&str>,
+) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let fallback_host = fallback_host
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+
+    match target_kind {
+        TargetKind::Static => {
+            if let Some(host) = fallback_host {
+                push_unique_host_candidate(&mut candidates, host);
+            }
+        }
+        TargetKind::Wsl => {
+            let key = target_ref.trim();
+            let instance = (!key.is_empty()).then(|| {
+                list_wsl_instances()
+                    .into_iter()
+                    .find(|item| item.distro.eq_ignore_ascii_case(key))
+            });
+            let Some(instance) = instance.flatten() else {
+                if let Some(host) = fallback_host {
+                    push_unique_host_candidate(&mut candidates, host);
+                }
+                return candidates;
+            };
+
+            if let Some(host) = fallback_host {
+                push_unique_host_candidate(&mut candidates, host);
+            }
+
+            let prefer_loopback = instance
+                .networking_mode
+                .trim()
+                .eq_ignore_ascii_case("mirrored");
+            if prefer_loopback {
+                append_wsl_loopback_candidates(&mut candidates);
+            }
+            if let Some(ip) = instance.ip {
+                push_unique_host_candidate(&mut candidates, ip);
+            }
+            if !prefer_loopback {
+                append_wsl_loopback_candidates(&mut candidates);
+            }
+        }
+        TargetKind::Hyperv => {
+            let key = target_ref.trim();
+            if !key.is_empty() {
+                if let Some(ip) = list_hyperv_vms()
+                    .into_iter()
+                    .find(|item| item.vm_name.eq_ignore_ascii_case(key))
+                    .and_then(|item| item.ip)
+                {
+                    push_unique_host_candidate(&mut candidates, ip);
+                }
+            }
+            if let Some(host) = fallback_host {
+                push_unique_host_candidate(&mut candidates, host);
+            }
+        }
+    }
+
+    candidates
+}
+
 pub fn resolve_nic_ip(nic_id: &str) -> Option<IpAddr> {
     #[cfg(windows)]
     {
@@ -248,6 +317,22 @@ pub fn resolve_nic_ip(nic_id: &str) -> Option<IpAddr> {
         let _ = nic_id;
         None
     }
+}
+
+fn push_unique_host_candidate(candidates: &mut Vec<String>, candidate: String) {
+    if candidates
+        .iter()
+        .any(|value| value.eq_ignore_ascii_case(&candidate))
+    {
+        return;
+    }
+    candidates.push(candidate);
+}
+
+fn append_wsl_loopback_candidates(candidates: &mut Vec<String>) {
+    push_unique_host_candidate(candidates, "127.0.0.1".to_owned());
+    push_unique_host_candidate(candidates, "::1".to_owned());
+    push_unique_host_candidate(candidates, "localhost".to_owned());
 }
 
 #[cfg(windows)]
@@ -678,7 +763,10 @@ Get-VM | Get-VMNetworkAdapter | Format-Table VMName, SwitchName, MacAddress, IPA
 mod tests {
     #[cfg(windows)]
     use super::parse_hyperv_json_output;
-    use super::{clean_text, decode_command_output, first_ip_token};
+    use super::{
+        append_wsl_loopback_candidates, clean_text, decode_command_output, first_ip_token,
+        push_unique_host_candidate,
+    };
 
     #[test]
     fn decode_utf16le_output() {
@@ -697,6 +785,23 @@ mod tests {
     fn first_ip_token_prefers_ipv4() {
         let ip = first_ip_token("fd7a:115c:a1e0::1 172.24.1.2").expect("ip");
         assert_eq!(ip, "172.24.1.2");
+    }
+
+    #[test]
+    fn push_unique_host_candidate_deduplicates_case_insensitively() {
+        let mut candidates = Vec::new();
+        push_unique_host_candidate(&mut candidates, "127.0.0.1".to_owned());
+        push_unique_host_candidate(&mut candidates, "127.0.0.1".to_owned());
+        push_unique_host_candidate(&mut candidates, "LOCALHOST".to_owned());
+        push_unique_host_candidate(&mut candidates, "localhost".to_owned());
+        assert_eq!(candidates, vec!["127.0.0.1", "LOCALHOST"]);
+    }
+
+    #[test]
+    fn append_wsl_loopback_candidates_adds_expected_entries_once() {
+        let mut candidates = vec!["127.0.0.1".to_owned()];
+        append_wsl_loopback_candidates(&mut candidates);
+        assert_eq!(candidates, vec!["127.0.0.1", "::1", "localhost"]);
     }
 
     #[cfg(windows)]
