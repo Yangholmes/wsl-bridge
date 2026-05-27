@@ -118,6 +118,8 @@ struct ToggleForwardRuleArgs {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct QueryTrafficStatsArgs {
+    entity_type: Option<wsl_bridge_shared::TrafficEntityType>,
+    entity_id: Option<String>,
     rule_id: String,
     start_time: Option<chrono::DateTime<chrono::Utc>>,
     end_time: Option<chrono::DateTime<chrono::Utc>>,
@@ -127,6 +129,8 @@ struct QueryTrafficStatsArgs {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GetTrafficWindowArgs {
+    entity_type: Option<wsl_bridge_shared::TrafficEntityType>,
+    entity_id: Option<String>,
     rule_id: String,
 }
 
@@ -616,7 +620,8 @@ fn execute_set_forward_rule_enabled(engine: &Arc<RuleEngine>, arguments: Value) 
 fn execute_query_traffic_stats(engine: &Arc<RuleEngine>, arguments: Value) -> Result<Value> {
     let args: QueryTrafficStatsArgs = serde_json::from_value(arguments)?;
     let result = engine.query_traffic_stats(QueryTrafficStatsRequest {
-        rule_id: args.rule_id,
+        entity_type: args.entity_type.unwrap_or(wsl_bridge_shared::TrafficEntityType::LegacyRule),
+        entity_id: args.entity_id.unwrap_or(args.rule_id),
         start_time: args.start_time,
         end_time: args.end_time,
         interval: args.interval,
@@ -626,7 +631,10 @@ fn execute_query_traffic_stats(engine: &Arc<RuleEngine>, arguments: Value) -> Re
 
 fn execute_get_traffic_window(engine: &Arc<RuleEngine>, arguments: Value) -> Result<Value> {
     let args: GetTrafficWindowArgs = serde_json::from_value(arguments)?;
-    let result = engine.get_traffic_window_data(vec![args.rule_id]);
+    let result = engine.get_traffic_window_data(vec![wsl_bridge_shared::TrafficWindowQueryEntity {
+        entity_type: args.entity_type.unwrap_or(wsl_bridge_shared::TrafficEntityType::LegacyRule),
+        entity_id: args.entity_id.unwrap_or(args.rule_id),
+    }]);
     Ok(json!({
       "items": result
     }))

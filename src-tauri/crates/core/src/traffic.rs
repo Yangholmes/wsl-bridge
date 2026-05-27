@@ -4,8 +4,8 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use wsl_bridge_shared::{
-    QueryTrafficStatsRequest, QueryTrafficStatsResult, TrafficSample, TrafficStatsInterval,
-    TrafficStatsPoint, TrafficWindowData,
+    QueryTrafficStatsRequest, QueryTrafficStatsResult, TrafficEntityType, TrafficSample,
+    TrafficStatsInterval, TrafficStatsPoint, TrafficWindowData, TrafficWindowQueryEntity,
 };
 
 use crate::app_logs::{AccessLogEntry, AppLogger, ErrorLogEntry};
@@ -15,26 +15,42 @@ const MAX_WINDOW_SECONDS: i64 = 120;
 
 #[derive(Debug, Clone)]
 pub struct TrafficRecorder {
-    rule_id: String,
+    entity_type: TrafficEntityType,
+    entity_id: String,
     tracker: Arc<TrafficTracker>,
     logger: Arc<AppLogger>,
 }
 
 impl TrafficRecorder {
     pub fn new(
-        rule_id: impl Into<String>,
+        entity_type: TrafficEntityType,
+        entity_id: impl Into<String>,
         tracker: Arc<TrafficTracker>,
         logger: Arc<AppLogger>,
     ) -> Self {
         Self {
-            rule_id: rule_id.into(),
+            entity_type,
+            entity_id: entity_id.into(),
             tracker,
             logger,
         }
     }
 
     pub fn rule_id(&self) -> &str {
-        &self.rule_id
+        &self.entity_id
+    }
+
+    pub fn scoped(
+        &self,
+        entity_type: TrafficEntityType,
+        entity_id: impl Into<String>,
+    ) -> TrafficRecorder {
+        TrafficRecorder::new(
+            entity_type,
+            entity_id,
+            Arc::clone(&self.tracker),
+            Arc::clone(&self.logger),
+        )
     }
 
     pub fn record(
@@ -46,7 +62,8 @@ impl TrafficRecorder {
         duration_ms: u64,
     ) {
         self.tracker.record(
-            &self.rule_id,
+            self.entity_type,
+            &self.entity_id,
             Utc::now(),
             bytes_in,
             bytes_out,
@@ -64,7 +81,7 @@ impl TrafficRecorder {
         let entry = if entry.rule_id.is_some() {
             entry
         } else {
-            entry.with_rule_id(self.rule_id.clone())
+            entry.with_rule_id(self.entity_id.clone())
         };
         self.logger.log_error(entry);
     }
@@ -72,7 +89,8 @@ impl TrafficRecorder {
 
 #[derive(Debug, Clone)]
 pub struct PersistedTrafficStat {
-    pub rule_id: String,
+    pub entity_type: TrafficEntityType,
+    pub entity_id: String,
     pub time_bucket: i64,
     pub bytes_in: u64,
     pub bytes_out: u64,
@@ -91,11 +109,17 @@ pub struct TrafficTracker {
 
 #[derive(Debug, Default)]
 struct TrafficState {
-    rules: HashMap<String, RuleTrafficState>,
+    entities: HashMap<TrafficEntityKey, EntityTrafficState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TrafficEntityKey {
+    entity_type: TrafficEntityType,
+    entity_id: String,
 }
 
 #[derive(Debug, Default)]
-struct RuleTrafficState {
+struct EntityTrafficState {
     seconds: BTreeMap<i64, TrafficSample>,
     current_minute: Option<MinuteBucket>,
 }
@@ -126,7 +150,7 @@ impl MinuteBucket {
         self.total_duration_ms = self.total_duration_ms.saturating_add(duration_ms);
     }
 
-    fn into_persisted(self, rule_id: String) -> PersistedTrafficStat {
+    fn into_persisted(self, entity_key: &TrafficEntityKey) -> PersistedTrafficStat {
         let avg_duration_ms = if self.requests > 0 {
             self.total_duration_ms / self.requests
         } else if self.connections > 0 {
@@ -135,7 +159,8 @@ impl MinuteBucket {
             0
         };
         PersistedTrafficStat {
-            rule_id,
+            entity_type: entity_key.entity_type,
+            entity_id: entity_key.entity_id.clone(),
             time_bucket: self.time_bucket,
             bytes_in: self.bytes_in,
             bytes_out: self.bytes_out,
@@ -147,7 +172,7 @@ impl MinuteBucket {
         }
     }
 
-    fn to_point(&self, rule_id: &str) -> TrafficStatsPoint {
+    fn to_point(&self, entity_key: &TrafficEntityKey) -> TrafficStatsPoint {
         let avg_duration_ms = if self.requests > 0 {
             self.total_duration_ms / self.requests
         } else if self.connections > 0 {
@@ -157,7 +182,8 @@ impl MinuteBucket {
         };
         TrafficStatsPoint {
             time_bucket: self.time_bucket,
-            rule_id: rule_id.to_owned(),
+            entity_type: entity_key.entity_type,
+            entity_id: entity_key.entity_id.clone(),
             bytes_in: self.bytes_in,
             bytes_out: self.bytes_out,
             connections: self.connections,
@@ -178,15 +204,17 @@ impl TrafficTracker {
 
     pub fn recorder(
         self: &Arc<Self>,
-        rule_id: impl Into<String>,
+        entity_type: TrafficEntityType,
+        entity_id: impl Into<String>,
         logger: Arc<AppLogger>,
     ) -> TrafficRecorder {
-        TrafficRecorder::new(rule_id, Arc::clone(self), logger)
+        TrafficRecorder::new(entity_type, entity_id, Arc::clone(self), logger)
     }
 
     pub fn record(
         &self,
-        rule_id: &str,
+        entity_type: TrafficEntityType,
+        entity_id: &str,
         at: DateTime<Utc>,
         bytes_in: u64,
         bytes_out: u64,
@@ -196,12 +224,16 @@ impl TrafficTracker {
     ) {
         let second_bucket = at.timestamp();
         let minute_bucket = second_bucket - second_bucket.rem_euclid(60);
+        let entity_key = TrafficEntityKey {
+            entity_type,
+            entity_id: entity_id.to_owned(),
+        };
 
         let finalized = {
             let mut inner = self.inner.lock();
-            let rule = inner.rules.entry(rule_id.to_owned()).or_default();
+            let entity = inner.entities.entry(entity_key.clone()).or_default();
 
-            let sample = rule
+            let sample = entity
                 .seconds
                 .entry(second_bucket)
                 .or_insert_with(|| TrafficSample {
@@ -217,20 +249,20 @@ impl TrafficTracker {
             sample.total_duration_ms = sample.total_duration_ms.saturating_add(duration_ms);
 
             let min_keep = second_bucket - (MAX_WINDOW_SECONDS - 1);
-            rule.seconds.retain(|bucket, _| *bucket >= min_keep);
+            entity.seconds.retain(|bucket, _| *bucket >= min_keep);
 
-            let finalized = match rule.current_minute.as_ref() {
+            let finalized = match entity.current_minute.as_ref() {
                 Some(current) if current.time_bucket == minute_bucket => None,
-                Some(_) => rule.current_minute.take(),
+                Some(_) => entity.current_minute.take(),
                 None => None,
             };
 
-            let current = rule.current_minute.get_or_insert_with(|| MinuteBucket {
+            let current = entity.current_minute.get_or_insert_with(|| MinuteBucket {
                 time_bucket: minute_bucket,
                 ..MinuteBucket::default()
             });
             current.add(bytes_in, bytes_out, connections, requests, duration_ms);
-            finalized.map(|bucket| bucket.into_persisted(rule_id.to_owned()))
+            finalized.map(|bucket| bucket.into_persisted(&entity_key))
         };
 
         if let Some(stat) = finalized {
@@ -238,38 +270,77 @@ impl TrafficTracker {
         }
     }
 
-    pub fn flush_rule(&self, rule_id: &str) {
+    pub fn flush_entity(&self, entity_type: TrafficEntityType, entity_id: &str) {
+        let entity_key = TrafficEntityKey {
+            entity_type,
+            entity_id: entity_id.to_owned(),
+        };
         let flushed = {
             let mut inner = self.inner.lock();
             inner
-                .rules
-                .get_mut(rule_id)
+                .entities
+                .get_mut(&entity_key)
                 .and_then(|rule| rule.current_minute.take())
-                .map(|bucket| bucket.into_persisted(rule_id.to_owned()))
+                .map(|bucket| bucket.into_persisted(&entity_key))
         };
         if let Some(stat) = flushed {
             self.persist_rows(&[stat]);
         }
     }
 
-    pub fn get_window_data(&self, rule_ids: &[String]) -> Vec<TrafficWindowData> {
+    pub fn flush_entities_of_type(&self, entity_type: TrafficEntityType) {
+        let flushed = {
+            let mut inner = self.inner.lock();
+            let keys = inner
+                .entities
+                .keys()
+                .filter(|key| key.entity_type == entity_type)
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut rows = Vec::new();
+            for key in keys {
+                if let Some(entity) = inner.entities.get_mut(&key) {
+                    if let Some(bucket) = entity.current_minute.take() {
+                        rows.push(bucket.into_persisted(&key));
+                    }
+                }
+            }
+            rows
+        };
+        self.persist_rows(&flushed);
+    }
+
+    pub fn get_window_data(&self, entities: &[TrafficWindowQueryEntity]) -> Vec<TrafficWindowData> {
         let inner = self.inner.lock();
-        let selected = if rule_ids.is_empty() {
-            inner.rules.keys().cloned().collect::<Vec<_>>()
+        let selected = if entities.is_empty() {
+            inner.entities.keys().cloned().collect::<Vec<_>>()
         } else {
-            rule_ids.to_vec()
+            entities
+                .iter()
+                .map(|entity| TrafficEntityKey {
+                    entity_type: entity.entity_type,
+                    entity_id: entity.entity_id.clone(),
+                })
+                .collect::<Vec<_>>()
         };
 
         let mut items = selected
             .into_iter()
-            .filter_map(|rule_id| {
-                inner.rules.get(&rule_id).map(|rule| TrafficWindowData {
-                    rule_id,
-                    samples: rule.seconds.values().cloned().collect(),
-                })
+            .filter_map(|entity_key| {
+                inner
+                    .entities
+                    .get(&entity_key)
+                    .map(|rule| TrafficWindowData {
+                        entity_type: entity_key.entity_type,
+                        entity_id: entity_key.entity_id,
+                        samples: rule.seconds.values().cloned().collect(),
+                    })
             })
             .collect::<Vec<_>>();
-        items.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+        items.sort_by(|a, b| {
+            (traffic_entity_type_rank(a.entity_type), &a.entity_id)
+                .cmp(&(traffic_entity_type_rank(b.entity_type), &b.entity_id))
+        });
         items
     }
 
@@ -277,13 +348,17 @@ impl TrafficTracker {
         let interval = req.interval.unwrap_or(TrafficStatsInterval::Minute);
         let start_bucket = req.start_time.map(|value| align_bucket(value, interval));
         let end_bucket = req.end_time.map(|value| align_bucket(value, interval));
+        let entity_key = TrafficEntityKey {
+            entity_type: req.entity_type,
+            entity_id: req.entity_id.clone(),
+        };
 
         let mut stats = self
             .sqlite
             .as_ref()
             .and_then(|sqlite| {
                 sqlite
-                    .query_traffic_stats(&req.rule_id, start_bucket, end_bucket)
+                    .query_traffic_stats(req.entity_type, &req.entity_id, start_bucket, end_bucket)
                     .ok()
             })
             .unwrap_or_default();
@@ -291,10 +366,10 @@ impl TrafficTracker {
         let current_point = {
             let inner = self.inner.lock();
             inner
-                .rules
-                .get(&req.rule_id)
+                .entities
+                .get(&entity_key)
                 .and_then(|rule| rule.current_minute.as_ref())
-                .map(|bucket| bucket.to_point(&req.rule_id))
+                .map(|bucket| bucket.to_point(&entity_key))
         };
 
         if let Some(point) = current_point {
@@ -332,5 +407,12 @@ fn align_bucket(value: DateTime<Utc>, interval: TrafficStatsInterval) -> i64 {
     let seconds = value.timestamp();
     match interval {
         TrafficStatsInterval::Minute => seconds - seconds.rem_euclid(60),
+    }
+}
+
+fn traffic_entity_type_rank(value: TrafficEntityType) -> u8 {
+    match value {
+        TrafficEntityType::LegacyRule => 0,
+        TrafficEntityType::ProxyUpstream => 1,
     }
 }

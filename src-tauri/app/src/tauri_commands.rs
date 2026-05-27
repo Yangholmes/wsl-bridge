@@ -13,7 +13,8 @@ use wsl_bridge_shared::{
     ProxyUpstream, ProxyUpstreamRuntimeItem, QueryTrafficStatsRequest,
     QueryTrafficStatsResult, RuleLogStatsItem, RuleLogStatsRequest, RuleMigrationRecord,
     RulePatch, RuntimeStatusItem, SaveHostsEntriesRequest, StopRulesResult, TailLogsResult,
-    TopologySnapshot, TrafficWindowData, UpdateHostsGroupRequest,
+    TopologySnapshot, TrafficMonitorEntity, TrafficWindowData, TrafficWindowQueryEntity,
+    UpdateHostsGroupRequest,
     UpdateProxyCertificateRequest, UpdateProxyListenerRequest, UpdateProxyRouteRequest,
     UpdateProxyUpstreamRequest,
 };
@@ -475,11 +476,19 @@ pub fn get_rule_log_stats(
 
 #[cfg(feature = "tauri")]
 #[tauri::command]
+pub fn list_traffic_monitor_entities(
+    state: tauri::State<'_, AppState>,
+) -> Vec<TrafficMonitorEntity> {
+    commands::list_traffic_monitor_entities(&state)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
 pub fn get_traffic_window_data(
     state: tauri::State<'_, AppState>,
-    rule_ids: Vec<String>,
+    entities: Vec<TrafficWindowQueryEntity>,
 ) -> Vec<TrafficWindowData> {
-    commands::get_traffic_window_data(&state, rule_ids)
+    commands::get_traffic_window_data(&state, entities)
 }
 
 #[cfg(feature = "tauri")]

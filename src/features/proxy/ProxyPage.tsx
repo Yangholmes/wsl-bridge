@@ -347,6 +347,8 @@ function ModalShell(props: {
   title: string;
   onOpenChange: (open: boolean) => void;
   busy?: boolean;
+  closeOnOutside?: boolean;
+  closeOnEscape?: boolean;
   children: any;
   actions: any;
 }) {
@@ -363,6 +365,16 @@ function ModalShell(props: {
         <KDialog.Content
           class="kb-dialog-content close-guard-dialog"
           aria-busy={props.busy ? "true" : undefined}
+          onInteractOutside={(event) => {
+            if (!props.closeOnOutside) {
+              event.preventDefault();
+            }
+          }}
+          onEscapeKeyDown={(event) => {
+            if (!props.closeOnEscape) {
+              event.preventDefault();
+            }
+          }}
         >
           <div class="panel-title">
             <KDialog.Title>{props.title}</KDialog.Title>
@@ -1460,36 +1472,37 @@ export function ProxyPage() {
 
       <div class="proxy-canvas-host">
         <Show when={showMigrationGuide()}>
-          <div class="proxy-migration-float">
-            <div class="proxy-migration-float-header">
-              <div class="proxy-migration-float-body">
-                <strong class="proxy-migration-float-title">{t("proxy.migrationGuideTitle")}</strong>
-                <span class="proxy-migration-float-text">
-                  {t("proxy.migrationGuideSummary", {
-                    pending: migrationSummary().pending,
-                    migrated: migrationSummary().migrated,
-                    rollbacked: migrationSummary().rollbacked
-                  })}
+          <Hint
+            variant="info"
+            class="proxy-migration-hint"
+            closable
+            closeLabel={t("proxy.migrationGuideDismiss")}
+            onClose={() => setMigrationGuideDismissed(true)}
+          >
+            <div class="proxy-migration-hint-body">
+              <strong class="proxy-migration-hint-title">{t("proxy.migrationGuideTitle")}</strong>
+              <span class="proxy-migration-hint-text">
+                {t("proxy.migrationGuideSummary", {
+                  pending: migrationSummary().pending,
+                  migrated: migrationSummary().migrated,
+                  rollbacked: migrationSummary().rollbacked
+                })}
+              </span>
+              <Show when={migrationSummary().drafts > 0}>
+                <span class="proxy-migration-hint-text">
+                  {t("proxy.migrationGuideDrafts", { count: migrationSummary().drafts })}
                 </span>
-                <Show when={migrationSummary().drafts > 0}>
-                  <span class="proxy-migration-float-text">
-                    {t("proxy.migrationGuideDrafts", { count: migrationSummary().drafts })}
-                  </span>
-                </Show>
+              </Show>
+              <div class="proxy-migration-hint-actions">
+                <ActionButton size="small" onClick={() => navigate({ to: "/rules" })}>
+                  {t("proxy.migrationGuideOpenRules")}
+                </ActionButton>
+                <ActionButton size="small" onClick={() => void refreshAll()}>
+                  {t("common.refresh")}
+                </ActionButton>
               </div>
-              <ActionButton size="small" onClick={() => setMigrationGuideDismissed(true)}>
-                {t("proxy.migrationGuideDismiss")}
-              </ActionButton>
             </div>
-            <div class="proxy-migration-float-actions">
-              <ActionButton size="small" onClick={() => navigate({ to: "/rules" })}>
-                {t("proxy.migrationGuideOpenRules")}
-              </ActionButton>
-              <ActionButton size="small" onClick={() => void refreshAll()}>
-                {t("common.refresh")}
-              </ActionButton>
-            </div>
-          </div>
+          </Hint>
         </Show>
         <ProxyCanvas
           listeners={topologyQuery.data?.listeners ?? []}

@@ -8,7 +8,8 @@ use wsl_bridge_shared::{
     AppSettings, AuditLog, BindMode, FirewallPolicy, HostsEntry, HostsGroup, HostsGroupSourceType,
     McpServerConfig, ProxyCertificate, ProxyCertificateSourceType, ProxyListener, ProxyProtocol,
     ProxyRoute, ProxyRule, ProxyTlsMode, ProxyUpstream, RuleMigrationRecord, RuleMigrationStatus,
-    RuleType, RuntimeState, RuntimeStatusItem, TargetKind, TrafficStatsPoint, UpstreamScheme,
+    RuleType, RuntimeState, RuntimeStatusItem, TargetKind, TrafficEntityType, TrafficStatsPoint,
+    UpstreamScheme,
 };
 
 use crate::engine::EngineError;
@@ -769,9 +770,9 @@ impl SqliteStore {
 
         for row in rows {
             tx.execute(
-                "INSERT INTO traffic_stats (id,rule_id,time_bucket,bytes_in,bytes_out,connections,requests,total_duration_ms,avg_duration_ms,created_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
-                 ON CONFLICT(rule_id, time_bucket) DO UPDATE SET
+                "INSERT INTO traffic_stats (id,entity_type,entity_id,time_bucket,bytes_in,bytes_out,connections,requests,total_duration_ms,avg_duration_ms,created_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                 ON CONFLICT(entity_type, entity_id, time_bucket) DO UPDATE SET
                    bytes_in = traffic_stats.bytes_in + excluded.bytes_in,
                    bytes_out = traffic_stats.bytes_out + excluded.bytes_out,
                    connections = traffic_stats.connections + excluded.connections,
@@ -786,8 +787,14 @@ impl SqliteStore {
                    END,
                    created_at = excluded.created_at",
                 params![
-                    format!("{}-{}", row.rule_id, row.time_bucket),
-                    row.rule_id,
+                    format!(
+                        "{}-{}-{}",
+                        traffic_entity_type_to_db(row.entity_type),
+                        row.entity_id,
+                        row.time_bucket
+                    ),
+                    traffic_entity_type_to_db(row.entity_type),
+                    row.entity_id,
                     row.time_bucket,
                     row.bytes_in,
                     row.bytes_out,
@@ -808,35 +815,47 @@ impl SqliteStore {
 
     pub fn query_traffic_stats(
         &self,
-        rule_id: &str,
+        entity_type: TrafficEntityType,
+        entity_id: &str,
         start_bucket: Option<i64>,
         end_bucket: Option<i64>,
     ) -> Result<Vec<TrafficStatsPoint>, EngineError> {
         let conn = self.conn.lock();
         let mut stmt = conn
             .prepare(
-                "SELECT time_bucket,rule_id,bytes_in,bytes_out,connections,requests,total_duration_ms,avg_duration_ms
+                "SELECT time_bucket,entity_type,entity_id,bytes_in,bytes_out,connections,requests,total_duration_ms,avg_duration_ms
                  FROM traffic_stats
-                 WHERE rule_id = ?1
-                   AND (?2 IS NULL OR time_bucket >= ?2)
-                   AND (?3 IS NULL OR time_bucket <= ?3)
+                 WHERE entity_type = ?1
+                   AND entity_id = ?2
+                   AND (?3 IS NULL OR time_bucket >= ?3)
+                   AND (?4 IS NULL OR time_bucket <= ?4)
                  ORDER BY time_bucket ASC",
             )
             .map_err(|err| EngineError::Storage(err.to_string()))?;
 
         let rows = stmt
-            .query_map(params![rule_id, start_bucket, end_bucket], |row| {
-                Ok(TrafficStatsPoint {
-                    time_bucket: row.get(0)?,
-                    rule_id: row.get(1)?,
-                    bytes_in: row.get(2)?,
-                    bytes_out: row.get(3)?,
-                    connections: row.get(4)?,
-                    requests: row.get(5)?,
-                    total_duration_ms: row.get(6)?,
-                    avg_duration_ms: row.get(7)?,
-                })
-            })
+            .query_map(
+                params![
+                    traffic_entity_type_to_db(entity_type),
+                    entity_id,
+                    start_bucket,
+                    end_bucket
+                ],
+                |row| {
+                    Ok(TrafficStatsPoint {
+                        time_bucket: row.get(0)?,
+                        entity_type: traffic_entity_type_from_db(&row.get::<_, String>(1)?)
+                            .map_err(db_err)?,
+                        entity_id: row.get(2)?,
+                        bytes_in: row.get(3)?,
+                        bytes_out: row.get(4)?,
+                        connections: row.get(5)?,
+                        requests: row.get(6)?,
+                        total_duration_ms: row.get(7)?,
+                        avg_duration_ms: row.get(8)?,
+                    })
+                },
+            )
             .map_err(|err| EngineError::Storage(err.to_string()))?;
 
         let mut stats = Vec::new();
@@ -987,7 +1006,8 @@ impl SqliteStore {
 
             CREATE TABLE IF NOT EXISTS traffic_stats (
                 id TEXT PRIMARY KEY,
-                rule_id TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
                 time_bucket INTEGER NOT NULL,
                 bytes_in INTEGER NOT NULL DEFAULT 0,
                 bytes_out INTEGER NOT NULL DEFAULT 0,
@@ -998,8 +1018,6 @@ impl SqliteStore {
                 created_at INTEGER NOT NULL
             );
 
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_traffic_stats_rule_bucket
-                ON traffic_stats(rule_id, time_bucket);
             CREATE INDEX IF NOT EXISTS idx_traffic_stats_time
                 ON traffic_stats(time_bucket);
             "#,
@@ -1014,6 +1032,7 @@ impl SqliteStore {
                 return Err(EngineError::Storage(message));
             }
         }
+        migrate_traffic_stats_schema(&conn)?;
         Ok(())
     }
 }
@@ -1039,6 +1058,96 @@ fn rule_type_to_db(value: RuleType) -> &'static str {
         RuleType::HttpProxy => "http_proxy",
         RuleType::Socks5Proxy => "socks5_proxy",
     }
+}
+
+fn traffic_entity_type_to_db(value: TrafficEntityType) -> &'static str {
+    match value {
+        TrafficEntityType::LegacyRule => "legacy_rule",
+        TrafficEntityType::ProxyUpstream => "proxy_upstream",
+    }
+}
+
+fn traffic_entity_type_from_db(value: &str) -> Result<TrafficEntityType, String> {
+    match value {
+        "legacy_rule" => Ok(TrafficEntityType::LegacyRule),
+        "proxy_upstream" => Ok(TrafficEntityType::ProxyUpstream),
+        _ => Err(format!("unknown traffic entity type: {value}")),
+    }
+}
+
+fn migrate_traffic_stats_schema(conn: &Connection) -> Result<(), EngineError> {
+    let mut stmt = conn
+        .prepare("PRAGMA table_info(traffic_stats)")
+        .map_err(|err| EngineError::Storage(err.to_string()))?;
+    let column_names = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|err| EngineError::Storage(err.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| EngineError::Storage(err.to_string()))?;
+    if column_names.iter().any(|name| name == "entity_type") {
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_traffic_stats_entity_bucket
+             ON traffic_stats(entity_type, entity_id, time_bucket)",
+            [],
+        )
+        .map_err(|err| EngineError::Storage(err.to_string()))?;
+        return Ok(());
+    }
+
+    conn.execute_batch(
+        r#"
+        ALTER TABLE traffic_stats RENAME TO traffic_stats_legacy;
+
+        CREATE TABLE traffic_stats (
+            id TEXT PRIMARY KEY,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            time_bucket INTEGER NOT NULL,
+            bytes_in INTEGER NOT NULL DEFAULT 0,
+            bytes_out INTEGER NOT NULL DEFAULT 0,
+            connections INTEGER NOT NULL DEFAULT 0,
+            requests INTEGER NOT NULL DEFAULT 0,
+            total_duration_ms INTEGER NOT NULL DEFAULT 0,
+            avg_duration_ms INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        );
+
+        INSERT INTO traffic_stats (
+            id,
+            entity_type,
+            entity_id,
+            time_bucket,
+            bytes_in,
+            bytes_out,
+            connections,
+            requests,
+            total_duration_ms,
+            avg_duration_ms,
+            created_at
+        )
+        SELECT
+            id,
+            'legacy_rule',
+            rule_id,
+            time_bucket,
+            bytes_in,
+            bytes_out,
+            connections,
+            requests,
+            total_duration_ms,
+            avg_duration_ms,
+            created_at
+        FROM traffic_stats_legacy;
+
+        DROP TABLE traffic_stats_legacy;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_traffic_stats_entity_bucket
+            ON traffic_stats(entity_type, entity_id, time_bucket);
+        CREATE INDEX IF NOT EXISTS idx_traffic_stats_time
+            ON traffic_stats(time_bucket);
+        "#,
+    )
+    .map_err(|err| EngineError::Storage(err.to_string()))
 }
 
 fn rule_type_from_db(value: &str) -> Result<RuleType, String> {

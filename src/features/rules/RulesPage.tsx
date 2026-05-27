@@ -1361,7 +1361,15 @@ export function RulesPage() {
       <KDialog.Root open={deleteDialog() !== null} onOpenChange={(open) => !open && setDeleteDialog(null)}>
         <KDialog.Portal>
           <KDialog.Overlay class="kb-dialog-overlay" />
-          <KDialog.Content class="kb-dialog-content">
+          <KDialog.Content
+            class="kb-dialog-content"
+            onInteractOutside={(event) => {
+              event.preventDefault();
+            }}
+            onEscapeKeyDown={(event) => {
+              event.preventDefault();
+            }}
+          >
             <div class="panel-title">
               <KDialog.Title>{deleteDialog()?.title ?? t("rules.deleteConfirmTitle")}</KDialog.Title>
             </div>
@@ -1382,7 +1390,15 @@ export function RulesPage() {
       <KDialog.Root open={migrateDialog() !== null} onOpenChange={(open) => !open && setMigrateDialog(null)}>
         <KDialog.Portal>
           <KDialog.Overlay class="kb-dialog-overlay" />
-          <KDialog.Content class="kb-dialog-content">
+          <KDialog.Content
+            class="kb-dialog-content"
+            onInteractOutside={(event) => {
+              event.preventDefault();
+            }}
+            onEscapeKeyDown={(event) => {
+              event.preventDefault();
+            }}
+          >
             <div class="panel-title">
               <KDialog.Title>{migrateDialog()?.title ?? t("rules.migratePreviewTitle")}</KDialog.Title>
             </div>
@@ -1415,7 +1431,15 @@ export function RulesPage() {
       <KDialog.Root open={rollbackDialog() !== null} onOpenChange={(open) => !open && setRollbackDialog(null)}>
         <KDialog.Portal>
           <KDialog.Overlay class="kb-dialog-overlay" />
-          <KDialog.Content class="kb-dialog-content">
+          <KDialog.Content
+            class="kb-dialog-content"
+            onInteractOutside={(event) => {
+              event.preventDefault();
+            }}
+            onEscapeKeyDown={(event) => {
+              event.preventDefault();
+            }}
+          >
             <div class="panel-title">
               <KDialog.Title>{rollbackDialog()?.title ?? t("rules.rollbackConfirmTitle")}</KDialog.Title>
             </div>

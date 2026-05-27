@@ -15,7 +15,7 @@ use rustls::{
     ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned,
 };
 use serde_json::json;
-use wsl_bridge_shared::{ProxyRoute, ProxyUpstream, TargetKind, UpstreamScheme};
+use wsl_bridge_shared::{ProxyRoute, ProxyUpstream, TargetKind, TrafficEntityType, UpstreamScheme};
 
 use crate::app_logs::{classify_io_error, AccessLogEntry, ErrorLogEntry};
 use crate::proxy_metrics::ProxyMetricsRecorder;
@@ -127,6 +127,15 @@ fn connect_proxy_upstream(upstream: &ProxyUpstream) -> io::Result<(TcpStream, St
         proxy_upstream_host_candidates(upstream),
         upstream.target_port,
     )
+}
+
+fn proxy_upstream_request_count(upstream_scheme: UpstreamScheme) -> u64 {
+    match upstream_scheme {
+        UpstreamScheme::Http | UpstreamScheme::Https => 1,
+        UpstreamScheme::Ws | UpstreamScheme::Wss | UpstreamScheme::Grpc | UpstreamScheme::Grpcs => {
+            0
+        }
+    }
 }
 
 pub fn spawn_http_reverse_proxy(
@@ -793,6 +802,8 @@ fn handle_http_reverse_proxy_tcp_connection(
             return Err(err);
         }
     };
+    let upstream_traffic = traffic.scoped(TrafficEntityType::ProxyUpstream, upstream.id.clone());
+    let upstream_request_count = proxy_upstream_request_count(upstream.upstream_scheme);
 
     if matches!(
         upstream.upstream_scheme,
@@ -963,8 +974,8 @@ fn handle_http_reverse_proxy_tcp_connection(
             true,
         )?;
         forward_request_body(&mut inbound, &mut outbound, content_length)?;
-        traffic.record(request_bytes as u64, 0, 1, 1, 0);
-        let relay = relay_tcp_streams(inbound, outbound, &traffic, 0)?;
+        upstream_traffic.record(request_bytes as u64, 0, 1, upstream_request_count, 0);
+        let relay = relay_tcp_streams(inbound, outbound, &upstream_traffic, 0)?;
         if let Some(err) = relay.error {
             metrics.record_route_error(
                 &matched.route.id,
@@ -1062,8 +1073,8 @@ fn handle_http_reverse_proxy_tcp_connection(
             true,
         )?;
         forward_request_body(&mut inbound, &mut tls_stream, content_length)?;
-        traffic.record(request_bytes as u64, 0, 1, 1, 0);
-        let relay = relay_websocket_tls_streams(inbound, tls_stream, &traffic, 0)?;
+        upstream_traffic.record(request_bytes as u64, 0, 1, upstream_request_count, 0);
+        let relay = relay_websocket_tls_streams(inbound, tls_stream, &upstream_traffic, 0)?;
         if let Some(err) = relay.error {
             metrics.record_route_error(
                 &matched.route.id,
@@ -1203,7 +1214,13 @@ fn handle_http_reverse_proxy_tcp_connection(
             &target_label,
             &rewritten_path,
         );
-        traffic.record(request_bytes as u64, response_bytes, 1, 1, duration_ms);
+        upstream_traffic.record(
+            request_bytes as u64,
+            response_bytes,
+            1,
+            upstream_request_count,
+            duration_ms,
+        );
         traffic.log_access(AccessLogEntry::success(
             traffic.rule_id().to_owned(),
             client,
@@ -1272,7 +1289,13 @@ fn handle_http_reverse_proxy_tcp_connection(
         &target_label,
         &rewritten_path,
     );
-    traffic.record(request_bytes as u64, response_bytes, 1, 1, duration_ms);
+    upstream_traffic.record(
+        request_bytes as u64,
+        response_bytes,
+        1,
+        upstream_request_count,
+        duration_ms,
+    );
 
     traffic.log_access(AccessLogEntry::success(
         traffic.rule_id().to_owned(),
@@ -1319,6 +1342,10 @@ fn handle_grpc_h2c_proxy_connection(
     };
 
     metrics.record_route_match(&matched.route.id, &matched.route.listener_id, "", "h2c");
+    let upstream_traffic = traffic.scoped(
+        TrafficEntityType::ProxyUpstream,
+        matched.upstream.id.clone(),
+    );
 
     let mut target_label = format!(
         "{}:{}",
@@ -1361,7 +1388,7 @@ fn handle_grpc_h2c_proxy_connection(
         }
     };
 
-    let relay = relay_tcp_streams(inbound, outbound, &traffic, 1)?;
+    let relay = relay_tcp_streams(inbound, outbound, &upstream_traffic, 0)?;
     if let Some(err) = relay.error {
         metrics.record_route_error(
             &matched.route.id,
@@ -1583,6 +1610,8 @@ fn handle_http_reverse_proxy_stream(
             return Err(err);
         }
     };
+    let upstream_traffic = traffic.scoped(TrafficEntityType::ProxyUpstream, upstream.id.clone());
+    let upstream_request_count = proxy_upstream_request_count(upstream.upstream_scheme);
 
     if matches!(
         upstream.upstream_scheme,
@@ -1742,8 +1771,9 @@ fn handle_http_reverse_proxy_stream(
             true,
         )?;
         forward_request_body(&mut inbound, &mut outbound, content_length)?;
-        traffic.record(request_bytes as u64, 0, 1, 1, 0);
-        let relay = relay_https_listener_websocket_streams(inbound, outbound, &traffic, 0)?;
+        upstream_traffic.record(request_bytes as u64, 0, 1, upstream_request_count, 0);
+        let relay =
+            relay_https_listener_websocket_streams(inbound, outbound, &upstream_traffic, 0)?;
         if let Some(err) = relay.error {
             metrics.record_route_error(
                 &matched.route.id,
@@ -1841,8 +1871,8 @@ fn handle_http_reverse_proxy_stream(
             true,
         )?;
         forward_request_body(&mut inbound, &mut tls_stream, content_length)?;
-        traffic.record(request_bytes as u64, 0, 1, 1, 0);
-        let relay = relay_https_listener_wss_streams(inbound, tls_stream, &traffic, 0)?;
+        upstream_traffic.record(request_bytes as u64, 0, 1, upstream_request_count, 0);
+        let relay = relay_https_listener_wss_streams(inbound, tls_stream, &upstream_traffic, 0)?;
         if let Some(err) = relay.error {
             metrics.record_route_error(
                 &matched.route.id,
@@ -1981,7 +2011,13 @@ fn handle_http_reverse_proxy_stream(
             &target_label,
             &rewritten_path,
         );
-        traffic.record(request_bytes as u64, response_bytes, 1, 1, duration_ms);
+        upstream_traffic.record(
+            request_bytes as u64,
+            response_bytes,
+            1,
+            upstream_request_count,
+            duration_ms,
+        );
         traffic.log_access(AccessLogEntry::success(
             traffic.rule_id().to_owned(),
             client,
@@ -2049,7 +2085,13 @@ fn handle_http_reverse_proxy_stream(
         &target_label,
         &rewritten_path,
     );
-    traffic.record(request_bytes as u64, response_bytes, 1, 1, duration_ms);
+    upstream_traffic.record(
+        request_bytes as u64,
+        response_bytes,
+        1,
+        upstream_request_count,
+        duration_ms,
+    );
 
     traffic.log_access(AccessLogEntry::success(
         traffic.rule_id().to_owned(),
@@ -2121,6 +2163,10 @@ fn handle_grpcs_prior_knowledge_tunnel(
         };
 
     metrics.record_route_match(&matched.route.id, &matched.route.listener_id, "", "h2");
+    let upstream_traffic = traffic.scoped(
+        TrafficEntityType::ProxyUpstream,
+        matched.upstream.id.clone(),
+    );
 
     let mut upstream_host = matched
         .upstream
@@ -2210,14 +2256,14 @@ fn handle_grpcs_prior_knowledge_tunnel(
     }
 
     let inbound = reader.into_inner();
-    traffic.record(
+    upstream_traffic.record(
         (HTTP2_PRIOR_KNOWLEDGE_PREFACE.len() + buffered_payload.len()) as u64,
         0,
         1,
-        1,
+        0,
         0,
     );
-    let relay = relay_grpcs_tunnel_streams(inbound, tls_stream, &traffic, 0)?;
+    let relay = relay_grpcs_tunnel_streams(inbound, tls_stream, &upstream_traffic, 0)?;
     if let Some(err) = relay.error {
         metrics.record_route_error(
             &matched.route.id,

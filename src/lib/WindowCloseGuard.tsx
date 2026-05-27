@@ -67,7 +67,15 @@ export function WindowCloseGuard() {
       <KDialog.Root open={dialogOpen()} onOpenChange={setDialogOpen}>
         <KDialog.Portal>
           <KDialog.Overlay class="kb-dialog-overlay" />
-          <KDialog.Content class="kb-dialog-content close-guard-dialog">
+          <KDialog.Content
+            class="kb-dialog-content close-guard-dialog"
+            onInteractOutside={(event) => {
+              event.preventDefault();
+            }}
+            onEscapeKeyDown={(event) => {
+              event.preventDefault();
+            }}
+          >
             <div class="panel-title">
               <KDialog.Title>{t("app.closeConfirmTitle")}</KDialog.Title>
             </div>

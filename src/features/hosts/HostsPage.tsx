@@ -84,6 +84,8 @@ function ModalShell(props: {
   title: string;
   contentClass?: string;
   onOpenChange: (open: boolean) => void;
+  closeOnOutside?: boolean;
+  closeOnEscape?: boolean;
   children: any;
   actions: any;
 }) {
@@ -91,7 +93,19 @@ function ModalShell(props: {
     <KDialog.Root open={props.open} onOpenChange={props.onOpenChange}>
       <KDialog.Portal>
         <KDialog.Overlay class="kb-dialog-overlay" />
-        <KDialog.Content class={`kb-dialog-content ${props.contentClass ?? "close-guard-dialog"}`}>
+        <KDialog.Content
+          class={`kb-dialog-content ${props.contentClass ?? "close-guard-dialog"}`}
+          onInteractOutside={(event) => {
+            if (!props.closeOnOutside) {
+              event.preventDefault();
+            }
+          }}
+          onEscapeKeyDown={(event) => {
+            if (!props.closeOnEscape) {
+              event.preventDefault();
+            }
+          }}
+        >
           <div class="panel-title">
             <KDialog.Title>{props.title}</KDialog.Title>
           </div>

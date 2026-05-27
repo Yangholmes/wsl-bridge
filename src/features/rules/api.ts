@@ -11,7 +11,9 @@ import type {
   TopologySnapshot,
   QueryTrafficStatsRequest,
   QueryTrafficStatsResult,
-  TrafficWindowData
+  TrafficMonitorEntity,
+  TrafficWindowData,
+  TrafficWindowQueryEntity
 } from "../../lib/types";
 
 export function listRules() {
@@ -58,8 +60,12 @@ export function getRuntimeStatus() {
   return invokeBridge<RuntimeStatusItem[]>("get_runtime_status");
 }
 
-export function getTrafficWindowData(ruleIds: string[]) {
-  return invokeBridge<TrafficWindowData[]>("get_traffic_window_data", { ruleIds });
+export function listTrafficMonitorEntities() {
+  return invokeBridge<TrafficMonitorEntity[]>("list_traffic_monitor_entities");
+}
+
+export function getTrafficWindowData(entities: TrafficWindowQueryEntity[]) {
+  return invokeBridge<TrafficWindowData[]>("get_traffic_window_data", { entities });
 }
 
 export function queryTrafficStats(req: QueryTrafficStatsRequest) {

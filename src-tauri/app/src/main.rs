@@ -143,6 +143,7 @@ fn main() {
             tauri_commands::tail_logs,
             tauri_commands::query_logs,
             tauri_commands::get_rule_log_stats,
+            tauri_commands::list_traffic_monitor_entities,
             tauri_commands::get_traffic_window_data,
             tauri_commands::query_traffic_stats,
             tauri_commands::get_mcp_server_status,

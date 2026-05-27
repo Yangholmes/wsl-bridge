@@ -12,9 +12,9 @@ use wsl_bridge_shared::{
     ProxyUpstream, ProxyUpstreamRuntimeItem, QueryTrafficStatsRequest,
     QueryTrafficStatsResult, RuleLogStatsItem, RuleLogStatsRequest, RuleMigrationRecord,
     RulePatch, RuleType, RuntimeStatusItem, SaveHostsEntriesRequest, StopRulesResult,
-    TailLogsResult, TopologySnapshot, TrafficWindowData, UpdateHostsGroupRequest,
-    UpdateProxyCertificateRequest, UpdateProxyListenerRequest, UpdateProxyRouteRequest,
-    UpdateProxyUpstreamRequest,
+    TailLogsResult, TopologySnapshot, TrafficMonitorEntity, TrafficWindowData,
+    TrafficWindowQueryEntity, UpdateHostsGroupRequest, UpdateProxyCertificateRequest,
+    UpdateProxyListenerRequest, UpdateProxyRouteRequest, UpdateProxyUpstreamRequest,
 };
 
 use crate::{mcp, runtime_status, state::AppState};
@@ -265,8 +265,15 @@ pub fn get_rule_log_stats(state: &AppState, req: RuleLogStatsRequest) -> Vec<Rul
     state.engine.get_rule_log_stats(req)
 }
 
-pub fn get_traffic_window_data(state: &AppState, rule_ids: Vec<String>) -> Vec<TrafficWindowData> {
-    state.engine.get_traffic_window_data(rule_ids)
+pub fn list_traffic_monitor_entities(state: &AppState) -> Vec<TrafficMonitorEntity> {
+    state.engine.list_traffic_monitor_entities()
+}
+
+pub fn get_traffic_window_data(
+    state: &AppState,
+    entities: Vec<TrafficWindowQueryEntity>,
+) -> Vec<TrafficWindowData> {
+    state.engine.get_traffic_window_data(entities)
 }
 
 pub fn query_traffic_stats(

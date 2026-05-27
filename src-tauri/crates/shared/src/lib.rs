@@ -628,9 +628,32 @@ pub struct TrafficSample {
     pub total_duration_ms: u64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TrafficEntityType {
+    #[default]
+    LegacyRule,
+    ProxyUpstream,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrafficMonitorEntity {
+    pub entity_type: TrafficEntityType,
+    pub entity_id: String,
+    pub label: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrafficWindowQueryEntity {
+    pub entity_type: TrafficEntityType,
+    pub entity_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrafficWindowData {
-    pub rule_id: String,
+    pub entity_type: TrafficEntityType,
+    pub entity_id: String,
     pub samples: Vec<TrafficSample>,
 }
 
@@ -643,7 +666,8 @@ pub enum TrafficStatsInterval {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct QueryTrafficStatsRequest {
-    pub rule_id: String,
+    pub entity_type: TrafficEntityType,
+    pub entity_id: String,
     pub start_time: Option<DateTime<Utc>>,
     pub end_time: Option<DateTime<Utc>>,
     pub interval: Option<TrafficStatsInterval>,
@@ -652,7 +676,8 @@ pub struct QueryTrafficStatsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrafficStatsPoint {
     pub time_bucket: i64,
-    pub rule_id: String,
+    pub entity_type: TrafficEntityType,
+    pub entity_id: String,
     pub bytes_in: u64,
     pub bytes_out: u64,
     pub connections: u64,

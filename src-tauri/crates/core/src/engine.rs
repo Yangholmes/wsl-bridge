@@ -23,9 +23,9 @@ use wsl_bridge_shared::{
     QueryTrafficStatsRequest, QueryTrafficStatsResult, RuleLogStatsItem, RuleLogStatsRequest,
     RuleMigrationRecord, RuleMigrationStatus, RulePatch, RuleType, RuntimeState, RuntimeStatusItem,
     SaveHostsEntriesRequest, StopRulesResult, TailLogsResult, TargetKind, TopologySnapshot,
-    TrafficWindowData, UpdateHostsGroupRequest, UpdateProxyCertificateRequest,
-    UpdateProxyListenerRequest, UpdateProxyRouteRequest, UpdateProxyUpstreamRequest,
-    UpstreamScheme,
+    TrafficEntityType, TrafficMonitorEntity, TrafficWindowData, TrafficWindowQueryEntity,
+    UpdateHostsGroupRequest, UpdateProxyCertificateRequest, UpdateProxyListenerRequest,
+    UpdateProxyRouteRequest, UpdateProxyUpstreamRequest, UpstreamScheme,
 };
 
 use crate::app_logs::{AppLogger, ErrorLogEntry};
@@ -884,9 +884,11 @@ impl RuleEngine {
                 continue;
             }
 
-            let traffic_recorder = self
-                .traffic
-                .recorder(listener.id.clone(), Arc::clone(&self.logger));
+            let traffic_recorder = self.traffic.recorder(
+                TrafficEntityType::LegacyRule,
+                listener.id.clone(),
+                Arc::clone(&self.logger),
+            );
             let spawn_result = match listener.protocol {
                 ProxyProtocol::Http => spawn_http_reverse_proxy(
                     listen_addr,
@@ -2080,9 +2082,11 @@ impl RuleEngine {
                 .cloned()
                 .unwrap_or_else(|| FirewallPolicy::default_allow(rule.id.clone()));
 
-            let traffic_recorder = self
-                .traffic
-                .recorder(rule.id.clone(), Arc::clone(&self.logger));
+            let traffic_recorder = self.traffic.recorder(
+                TrafficEntityType::LegacyRule,
+                rule.id.clone(),
+                Arc::clone(&self.logger),
+            );
             let forwarder =
                 match spawn_forwarder(forward_kind, listen_addr, target_addr, traffic_recorder) {
                     Ok(handle) => handle,
@@ -2238,8 +2242,54 @@ impl RuleEngine {
         }
     }
 
-    pub fn get_traffic_window_data(&self, rule_ids: Vec<String>) -> Vec<TrafficWindowData> {
-        self.traffic.get_window_data(&rule_ids)
+    pub fn list_traffic_monitor_entities(&self) -> Vec<TrafficMonitorEntity> {
+        let store = self.store.read();
+        let mut items = store
+            .rules
+            .values()
+            .map(|rule| TrafficMonitorEntity {
+                entity_type: TrafficEntityType::LegacyRule,
+                entity_id: rule.id.clone(),
+                label: rule.name.clone(),
+                enabled: rule.enabled,
+            })
+            .collect::<Vec<_>>();
+
+        for route in store.proxy_routes.values().flatten() {
+            let route_label = build_proxy_route_traffic_label(route);
+            for upstream in store.proxy_upstreams.get(&route.id).into_iter().flatten() {
+                items.push(TrafficMonitorEntity {
+                    entity_type: TrafficEntityType::ProxyUpstream,
+                    entity_id: upstream.id.clone(),
+                    label: format!(
+                        "{route_label} / {}",
+                        build_proxy_upstream_traffic_label(upstream)
+                    ),
+                    enabled: upstream.enabled && route.enabled,
+                });
+            }
+        }
+
+        items.sort_by(|a, b| {
+            (
+                traffic_entity_type_rank(a.entity_type),
+                !a.enabled,
+                a.label.to_ascii_lowercase(),
+            )
+                .cmp(&(
+                    traffic_entity_type_rank(b.entity_type),
+                    !b.enabled,
+                    b.label.to_ascii_lowercase(),
+                ))
+        });
+        items
+    }
+
+    pub fn get_traffic_window_data(
+        &self,
+        entities: Vec<TrafficWindowQueryEntity>,
+    ) -> Vec<TrafficWindowData> {
+        self.traffic.get_window_data(&entities)
     }
 
     pub fn query_traffic_stats(&self, req: QueryTrafficStatsRequest) -> QueryTrafficStatsResult {
@@ -2584,7 +2634,8 @@ impl RuleEngine {
         let mut store = self.store.write();
         for (listener_id, runtime) in old_active {
             runtime.stop_and_join();
-            self.traffic.flush_rule(&listener_id);
+            self.traffic
+                .flush_entity(TrafficEntityType::LegacyRule, &listener_id);
             store.proxy_runtime.insert(
                 listener_id.clone(),
                 ProxyRuntimeStatusItem {
@@ -2595,11 +2646,14 @@ impl RuleEngine {
                 },
             );
         }
+        self.traffic
+            .flush_entities_of_type(TrafficEntityType::ProxyUpstream);
     }
 
     fn stop_active_runtime(&self, rule_id: &str, runtime: ActiveRuleRuntime) {
         runtime.forwarder.stop_and_join();
-        self.traffic.flush_rule(rule_id);
+        self.traffic
+            .flush_entity(TrafficEntityType::LegacyRule, rule_id);
         if let Err(err) = cleanup_firewall(self.options.firewall_mode, &runtime.firewall.names) {
             let mut store = self.store.write();
             append_log(
@@ -3264,6 +3318,50 @@ fn build_local_ca_params() -> Result<CertificateParams, EngineError> {
     Ok(params)
 }
 
+fn traffic_entity_type_rank(value: TrafficEntityType) -> u8 {
+    match value {
+        TrafficEntityType::LegacyRule => 0,
+        TrafficEntityType::ProxyUpstream => 1,
+    }
+}
+
+fn build_proxy_route_traffic_label(route: &ProxyRoute) -> String {
+    if route.is_default {
+        return "default".to_owned();
+    }
+    route
+        .server_names
+        .first()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("route:{}", short_id(&route.id)))
+}
+
+fn build_proxy_upstream_traffic_label(upstream: &ProxyUpstream) -> String {
+    if let Some(target_ref) = upstream
+        .target_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return target_ref.to_owned();
+    }
+    if let Some(target_host) = upstream
+        .target_host
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return format!("{target_host}:{}", upstream.target_port);
+    }
+    format!("upstream:{}", short_id(&upstream.id))
+}
+
+fn short_id(value: &str) -> &str {
+    value.get(..8).unwrap_or(value)
+}
+
 fn append_log(store: &mut EngineStore, level: &str, module: &str, event: &str, detail: &str) {
     store.log_seq += 1;
     store.logs.push(AuditLog {
@@ -3411,7 +3509,8 @@ mod tests {
         ImportHostsGroupRequest, LogQueryRequest, NewProxyRule, ProxyCertificateSourceType,
         ProxyProtocol, ProxyTlsMode, QueryTrafficStatsRequest, RuleLogStatsRequest,
         RuleMigrationStatus, RulePatch, RuleType, RuntimeState, SaveHostsEntriesRequest,
-        TargetKind, UpdateHostsGroupRequest, UpstreamScheme,
+        TargetKind, TrafficEntityType, TrafficWindowQueryEntity, UpdateHostsGroupRequest,
+        UpstreamScheme,
     };
 
     use crate::forwarder::HTTP2_PRIOR_KNOWLEDGE_PREFACE;
@@ -3863,14 +3962,18 @@ mod tests {
 
         thread::sleep(Duration::from_millis(150));
 
-        let window = engine.get_traffic_window_data(vec![rule_id.clone()]);
+        let window = engine.get_traffic_window_data(vec![TrafficWindowQueryEntity {
+            entity_type: TrafficEntityType::LegacyRule,
+            entity_id: rule_id.clone(),
+        }]);
         assert_eq!(window.len(), 1);
         assert!(window[0].samples.iter().any(|item| item.bytes_in > 0));
 
         let _ = engine.stop_rules();
 
         let stats = engine.query_traffic_stats(QueryTrafficStatsRequest {
-            rule_id: rule_id.clone(),
+            entity_type: TrafficEntityType::LegacyRule,
+            entity_id: rule_id.clone(),
             ..QueryTrafficStatsRequest::default()
         });
         assert_eq!(stats.stats.len(), 1);

@@ -38,46 +38,34 @@
   overflow: hidden;
 }
 
-.proxy-migration-float {
+.hint.proxy-migration-hint,
+.hint.proxy-migration-hint.closable {
   position: absolute;
   top: 76px;
   left: var(--space-20);
   z-index: 6;
   width: min(560px, calc(100% - 40px));
-  padding: var(--space-14);
-  border: 1px solid var(--hint-info-line);
-  border-radius: var(--radius-xl);
-  background: color-mix(in srgb, var(--hint-info-bg) 92%, transparent);
-  color: var(--hint-info-text);
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(12px);
 }
 
-.proxy-migration-float-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-12);
-  min-width: 0;
-}
-
-.proxy-migration-float-body {
+.proxy-migration-hint-body {
   display: grid;
   gap: var(--space-8);
   min-width: 0;
 }
 
-.proxy-migration-float-title {
+.proxy-migration-hint-title {
   color: inherit;
   font-weight: var(--font-semibold);
 }
 
-.proxy-migration-float-text {
+.proxy-migration-hint-text {
   color: inherit;
   font-size: var(--text-sm);
 }
 
-.proxy-migration-float-actions {
+.proxy-migration-hint-actions {
   display: flex;
   align-items: center;
   gap: var(--space-8);

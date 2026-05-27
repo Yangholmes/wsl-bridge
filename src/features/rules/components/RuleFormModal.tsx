@@ -110,7 +110,15 @@ export function RuleFormModal(props: RuleFormModalProps) {
       <KDialog.Root open={props.open} onOpenChange={props.onOpenChange}>
         <KDialog.Portal>
           <KDialog.Overlay class="kb-dialog-overlay" />
-          <KDialog.Content class="kb-dialog-content">
+          <KDialog.Content
+            class="kb-dialog-content"
+            onInteractOutside={(event) => {
+              event.preventDefault();
+            }}
+            onEscapeKeyDown={(event) => {
+              event.preventDefault();
+            }}
+          >
             <div class="panel-title">
               <KDialog.Title>{props.isEditing ? t("rules.formEditTitle") : t("rules.formCreateTitle")}</KDialog.Title>
               <div class="modal-title-actions">

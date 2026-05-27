@@ -6,6 +6,7 @@ export type ProxyProtocol = "http" | "https";
 export type ProxyTlsMode = "disabled" | "manual_cert" | "local_ca";
 export type UpstreamScheme = "http" | "https" | "ws" | "wss" | "grpc" | "grpcs";
 export type ProxyCertificateSourceType = "manual_upload" | "local_ca";
+export type TrafficEntityType = "legacy_rule" | "proxy_upstream";
 
 export type ProxyRule = {
   id: string;
@@ -387,15 +388,29 @@ export type TrafficSample = {
   total_duration_ms: number;
 };
 
+export type TrafficMonitorEntity = {
+  entity_type: TrafficEntityType;
+  entity_id: string;
+  label: string;
+  enabled: boolean;
+};
+
+export type TrafficWindowQueryEntity = {
+  entity_type: TrafficEntityType;
+  entity_id: string;
+};
+
 export type TrafficWindowData = {
-  rule_id: string;
+  entity_type: TrafficEntityType;
+  entity_id: string;
   samples: TrafficSample[];
 };
 
 export type TrafficStatsInterval = "minute";
 
 export type QueryTrafficStatsRequest = {
-  rule_id: string;
+  entity_type: TrafficEntityType;
+  entity_id: string;
   start_time?: string | null;
   end_time?: string | null;
   interval?: TrafficStatsInterval | null;
@@ -403,7 +418,8 @@ export type QueryTrafficStatsRequest = {
 
 export type TrafficStatsPoint = {
   time_bucket: number;
-  rule_id: string;
+  entity_type: TrafficEntityType;
+  entity_id: string;
   bytes_in: number;
   bytes_out: number;
   connections: number;
