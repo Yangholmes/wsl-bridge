@@ -17,13 +17,13 @@ import {
 } from "@tanstack/solid-table";
 import * as KButton from "@kobalte/core/button";
 import * as KCheckbox from "@kobalte/core/checkbox";
-import * as KDialog from "@kobalte/core/dialog";
 import * as KSwitch from "@kobalte/core/switch";
 import * as KTextField from "@kobalte/core/text-field";
 import { useI18n } from "../../i18n/context";
 import { appQueryClient } from "../../lib/queryClient";
 import { EllipsisCell } from "../../lib/EllipsisCell";
 import { Hint } from "../../lib/Hint";
+import { Modal } from "../../lib/Modal";
 import { toLocalTime } from "../../lib/datetime";
 import { SkeletonLine } from "../../lib/Skeleton";
 import { SimpleSelect } from "../../lib/SimpleSelect";
@@ -1358,110 +1358,77 @@ export function RulesPage() {
         onSubmit={submitForm}
         onCancel={closeFormModal}
       />
-      <KDialog.Root open={deleteDialog() !== null} onOpenChange={(open) => !open && setDeleteDialog(null)}>
-        <KDialog.Portal>
-          <KDialog.Overlay class="kb-dialog-overlay" />
-          <KDialog.Content
-            class="kb-dialog-content"
-            onInteractOutside={(event) => {
-              event.preventDefault();
-            }}
-            onEscapeKeyDown={(event) => {
-              event.preventDefault();
-            }}
-          >
-            <div class="panel-title">
-              <KDialog.Title>{deleteDialog()?.title ?? t("rules.deleteConfirmTitle")}</KDialog.Title>
-            </div>
-            <div style={{ display: "grid", gap: "16px" }}>
-              <KDialog.Description>{deleteDialog()?.prompt ?? ""}</KDialog.Description>
-              <div class="row-actions" style={{ "justify-content": "flex-end" }}>
-                <KButton.Root class="kb-btn ghost" onClick={() => setDeleteDialog(null)}>
-                  {t("rules.formCancel")}
-                </KButton.Root>
-                <KButton.Root class="kb-btn danger" onClick={() => void confirmDelete()}>
-                  {t("rules.confirmDeleteAction")}
-                </KButton.Root>
+      <Modal
+        open={deleteDialog() !== null}
+        title={deleteDialog()?.title ?? t("rules.deleteConfirmTitle")}
+        description={<>{deleteDialog()?.prompt ?? ""}</>}
+        onOpenChange={(open) => !open && setDeleteDialog(null)}
+        footer={
+          <>
+            <KButton.Root class="kb-btn ghost" onClick={() => setDeleteDialog(null)}>
+              {t("rules.formCancel")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn danger" onClick={() => void confirmDelete()}>
+              {t("rules.confirmDeleteAction")}
+            </KButton.Root>
+          </>
+        }
+      >
+        <></>
+      </Modal>
+      <Modal
+        open={migrateDialog() !== null}
+        title={migrateDialog()?.title ?? t("rules.migratePreviewTitle")}
+        description={<>{migrateDialog()?.summary ?? ""}</>}
+        onOpenChange={(open) => !open && setMigrateDialog(null)}
+        footer={
+          <>
+            <KButton.Root class="kb-btn ghost" onClick={() => setMigrateDialog(null)}>
+              {t("rules.formCancel")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn accent" onClick={() => void confirmMigrate()}>
+              {t("rules.migrateConfirmAction")}
+            </KButton.Root>
+          </>
+        }
+      >
+        <>
+          <div class="panel panel-muted" style={{ display: "grid", gap: "8px" }}>
+            <For each={migrateDialog()?.details ?? []}>
+              {(detail) => <div>{detail}</div>}
+            </For>
+          </div>
+          <Show when={migrateDialog()?.warning}>
+            {(warning) => (
+              <div class="panel panel-muted" style={{ border: "1px solid var(--warning-500, #d97706)" }}>
+                {warning()}
               </div>
-            </div>
-          </KDialog.Content>
-        </KDialog.Portal>
-      </KDialog.Root>
-      <KDialog.Root open={migrateDialog() !== null} onOpenChange={(open) => !open && setMigrateDialog(null)}>
-        <KDialog.Portal>
-          <KDialog.Overlay class="kb-dialog-overlay" />
-          <KDialog.Content
-            class="kb-dialog-content"
-            onInteractOutside={(event) => {
-              event.preventDefault();
-            }}
-            onEscapeKeyDown={(event) => {
-              event.preventDefault();
-            }}
-          >
-            <div class="panel-title">
-              <KDialog.Title>{migrateDialog()?.title ?? t("rules.migratePreviewTitle")}</KDialog.Title>
-            </div>
-            <div style={{ display: "grid", gap: "16px" }}>
-              <KDialog.Description>{migrateDialog()?.summary ?? ""}</KDialog.Description>
-              <div class="panel panel-muted" style={{ display: "grid", gap: "8px" }}>
-                <For each={migrateDialog()?.details ?? []}>
-                  {(detail) => <div>{detail}</div>}
-                </For>
-              </div>
-              <Show when={migrateDialog()?.warning}>
-                {(warning) => (
-                  <div class="panel panel-muted" style={{ border: "1px solid var(--warning-500, #d97706)" }}>
-                    {warning()}
-                  </div>
-                )}
-              </Show>
-              <div class="row-actions" style={{ "justify-content": "flex-end" }}>
-                <KButton.Root class="kb-btn ghost" onClick={() => setMigrateDialog(null)}>
-                  {t("rules.formCancel")}
-                </KButton.Root>
-                <KButton.Root class="kb-btn accent" onClick={() => void confirmMigrate()}>
-                  {t("rules.migrateConfirmAction")}
-                </KButton.Root>
-              </div>
-            </div>
-          </KDialog.Content>
-        </KDialog.Portal>
-      </KDialog.Root>
-      <KDialog.Root open={rollbackDialog() !== null} onOpenChange={(open) => !open && setRollbackDialog(null)}>
-        <KDialog.Portal>
-          <KDialog.Overlay class="kb-dialog-overlay" />
-          <KDialog.Content
-            class="kb-dialog-content"
-            onInteractOutside={(event) => {
-              event.preventDefault();
-            }}
-            onEscapeKeyDown={(event) => {
-              event.preventDefault();
-            }}
-          >
-            <div class="panel-title">
-              <KDialog.Title>{rollbackDialog()?.title ?? t("rules.rollbackConfirmTitle")}</KDialog.Title>
-            </div>
-            <div style={{ display: "grid", gap: "16px" }}>
-              <KDialog.Description>{rollbackDialog()?.summary ?? ""}</KDialog.Description>
-              <div class="panel panel-muted" style={{ display: "grid", gap: "8px" }}>
-                <For each={rollbackDialog()?.details ?? []}>
-                  {(detail) => <div>{detail}</div>}
-                </For>
-              </div>
-              <div class="row-actions" style={{ "justify-content": "flex-end" }}>
-                <KButton.Root class="kb-btn ghost" onClick={() => setRollbackDialog(null)}>
-                  {t("rules.formCancel")}
-                </KButton.Root>
-                <KButton.Root class="kb-btn danger" onClick={() => void confirmRollback()}>
-                  {t("rules.rollbackConfirmAction")}
-                </KButton.Root>
-              </div>
-            </div>
-          </KDialog.Content>
-        </KDialog.Portal>
-      </KDialog.Root>
+            )}
+          </Show>
+        </>
+      </Modal>
+      <Modal
+        open={rollbackDialog() !== null}
+        title={rollbackDialog()?.title ?? t("rules.rollbackConfirmTitle")}
+        description={<>{rollbackDialog()?.summary ?? ""}</>}
+        onOpenChange={(open) => !open && setRollbackDialog(null)}
+        footer={
+          <>
+            <KButton.Root class="kb-btn ghost" onClick={() => setRollbackDialog(null)}>
+              {t("rules.formCancel")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn danger" onClick={() => void confirmRollback()}>
+              {t("rules.rollbackConfirmAction")}
+            </KButton.Root>
+          </>
+        }
+      >
+        <div class="panel panel-muted" style={{ display: "grid", gap: "8px" }}>
+          <For each={rollbackDialog()?.details ?? []}>
+            {(detail) => <div>{detail}</div>}
+          </For>
+        </div>
+      </Modal>
     </div>
   );
 }

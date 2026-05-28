@@ -1,6 +1,5 @@
 import * as KButton from "@kobalte/core/button";
 import * as KCheckbox from "@kobalte/core/checkbox";
-import * as KDialog from "@kobalte/core/dialog";
 import * as KSwitch from "@kobalte/core/switch";
 import * as KTextField from "@kobalte/core/text-field";
 import { queryOptions, useQuery } from "@tanstack/solid-query";
@@ -12,6 +11,7 @@ import { useI18n } from "../../i18n/context";
 import { useAppRuntimeStatusQuery } from "../../lib/appRuntime";
 import { EllipsisCell } from "../../lib/EllipsisCell";
 import { Hint } from "../../lib/Hint";
+import { Modal } from "../../lib/Modal";
 import { useToast } from "../../lib/Toast";
 import {
   ArrowDownIcon,
@@ -77,48 +77,6 @@ function toImportedDrafts(entries: HostsEntryInput[], offset: number): HostsEntr
     local_id: `new-${Date.now()}-${offset}-${index}`,
     order_index: offset + index
   }));
-}
-
-function ModalShell(props: {
-  open: boolean;
-  title: string;
-  contentClass?: string;
-  onOpenChange: (open: boolean) => void;
-  closeOnOutside?: boolean;
-  closeOnEscape?: boolean;
-  children: any;
-  actions: any;
-}) {
-  return (
-    <KDialog.Root open={props.open} onOpenChange={props.onOpenChange}>
-      <KDialog.Portal>
-        <KDialog.Overlay class="kb-dialog-overlay" />
-        <KDialog.Content
-          class={`kb-dialog-content ${props.contentClass ?? "close-guard-dialog"}`}
-          onInteractOutside={(event) => {
-            if (!props.closeOnOutside) {
-              event.preventDefault();
-            }
-          }}
-          onEscapeKeyDown={(event) => {
-            if (!props.closeOnEscape) {
-              event.preventDefault();
-            }
-          }}
-        >
-          <div class="panel-title">
-            <KDialog.Title>{props.title}</KDialog.Title>
-          </div>
-          <div class="hosts-dialog-body">
-            {props.children}
-            <div class="row-actions hosts-dialog-actions">
-              {props.actions}
-            </div>
-          </div>
-        </KDialog.Content>
-      </KDialog.Portal>
-    </KDialog.Root>
-  );
 }
 
 export function HostsPage() {
@@ -559,11 +517,12 @@ export function HostsPage() {
         onSave={handleSaveGroupDialog}
       />
 
-      <ModalShell
+      <Modal
         open={deleteGroup() !== null}
         title={t("hosts.deleteGroup")}
         onOpenChange={(open) => !open && setDeleteGroup(null)}
-        actions={
+        contentClass="close-guard-dialog"
+        footer={
           <>
             <KButton.Root class="kb-btn ghost" onClick={() => setDeleteGroup(null)}>
               {t("hosts.cancel")}
@@ -575,14 +534,14 @@ export function HostsPage() {
         }
       >
         <p>{t("hosts.confirmDeleteGroup", { name: deleteGroup()?.name ?? "" })}</p>
-      </ModalShell>
+      </Modal>
 
-      <ModalShell
+      <Modal
         open={recordsDialog() !== null}
         title={t("hosts.recordsModalTitle", { name: recordsDialog()?.group.name ?? "" })}
         contentClass="hosts-records-dialog"
         onOpenChange={(open) => !open && closeRecordsDialog()}
-        actions={
+        footer={
           <>
             <KButton.Root class="kb-btn ghost" onClick={closeRecordsDialog}>
               {t("hosts.cancel")}
@@ -762,7 +721,7 @@ export function HostsPage() {
             </tbody>
           </table>
         </div>
-      </ModalShell>
+      </Modal>
     </div>
   );
 }
@@ -785,11 +744,12 @@ function GroupModal(props: {
   });
 
   return (
-    <ModalShell
+    <Modal
       open={props.open}
       title={title()}
       onOpenChange={(open) => !open && props.onClose()}
-      actions={
+      contentClass="close-guard-dialog"
+      footer={
         <>
           <KButton.Root class="kb-btn ghost" onClick={props.onClose}>
             {t("hosts.cancel")}
@@ -818,7 +778,7 @@ function GroupModal(props: {
           />
         </KTextField.Root>
       </div>
-    </ModalShell>
+    </Modal>
   );
 }
 

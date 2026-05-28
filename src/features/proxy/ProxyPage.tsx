@@ -1,6 +1,5 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import * as KButton from "@kobalte/core/button";
-import * as KDialog from "@kobalte/core/dialog";
 import * as KTextField from "@kobalte/core/text-field";
 import { queryOptions, useQuery } from "@tanstack/solid-query";
 import { useNavigate } from "@tanstack/solid-router";
@@ -9,6 +8,7 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { useI18n } from "../../i18n/context";
 import { BottomDrawer } from "../../lib/Drawer";
 import { Hint } from "../../lib/Hint";
+import { Modal } from "../../lib/Modal";
 import { appQueryClient } from "../../lib/queryClient";
 import { useToast } from "../../lib/Toast";
 import {
@@ -341,55 +341,6 @@ type DeleteTarget = {
   cascadeDetail?: string;
 } | null;
 type EditingTarget = { kind: "listener" | "route" | "upstream" | "certificate"; id: string } | null;
-
-function ModalShell(props: {
-  open: boolean;
-  title: string;
-  onOpenChange: (open: boolean) => void;
-  busy?: boolean;
-  closeOnOutside?: boolean;
-  closeOnEscape?: boolean;
-  children: any;
-  actions: any;
-}) {
-  return (
-    <KDialog.Root
-      open={props.open}
-      onOpenChange={(open) => {
-        if (props.busy && !open) return;
-        props.onOpenChange(open);
-      }}
-    >
-      <KDialog.Portal>
-        <KDialog.Overlay class="kb-dialog-overlay" />
-        <KDialog.Content
-          class="kb-dialog-content close-guard-dialog"
-          aria-busy={props.busy ? "true" : undefined}
-          onInteractOutside={(event) => {
-            if (!props.closeOnOutside) {
-              event.preventDefault();
-            }
-          }}
-          onEscapeKeyDown={(event) => {
-            if (!props.closeOnEscape) {
-              event.preventDefault();
-            }
-          }}
-        >
-          <div class="panel-title">
-            <KDialog.Title>{props.title}</KDialog.Title>
-          </div>
-          <div style={{ display: "grid", gap: "16px" }}>
-            {props.children}
-            <div class="row-actions" style={{ "justify-content": "flex-end" }}>
-              {props.actions}
-            </div>
-          </div>
-        </KDialog.Content>
-      </KDialog.Portal>
-    </KDialog.Root>
-  );
-}
 
 function ProxyGuide(props: { locale: string }) {
   const content = () => proxyGuideContent[props.locale] ?? proxyGuideContent["zh-CN"];
@@ -1593,12 +1544,13 @@ export function ProxyPage() {
         </div>
       </BottomDrawer>
 
-      <ModalShell
+      <Modal
         open={dialogMode() === "listener"}
         title={getListenerDialogTitle()}
         onOpenChange={(open) => !open && closeDialog()}
         busy={dialogSubmitting()}
-        actions={
+        contentClass="close-guard-dialog"
+        footer={
           <>
             <ActionButton disabled={dialogSubmitting()} onClick={() => closeDialog()}>
               {t("common.close")}
@@ -1706,14 +1658,15 @@ export function ProxyPage() {
           <Hint variant="info">{t("proxy.listenHostManagedByNic")}</Hint>
         </Show>
         <CheckboxField label={t("common.enabled")} checked={listenerEnabled()} onChange={setListenerEnabled} />
-      </ModalShell>
+      </Modal>
 
-      <ModalShell
+      <Modal
         open={dialogMode() === "route"}
         title={getRouteDialogTitle()}
         onOpenChange={(open) => !open && closeDialog()}
         busy={dialogSubmitting()}
-        actions={
+        contentClass="close-guard-dialog"
+        footer={
           <>
             <ActionButton disabled={dialogSubmitting()} onClick={() => closeDialog()}>
               {t("common.close")}
@@ -1743,14 +1696,15 @@ export function ProxyPage() {
         />
         <CheckboxField label={t("proxy.defaultRoute")} checked={routeIsDefault()} onChange={setRouteIsDefault} />
         <CheckboxField label={t("common.enabled")} checked={routeEnabled()} onChange={setRouteEnabled} />
-      </ModalShell>
+      </Modal>
 
-      <ModalShell
+      <Modal
         open={dialogMode() === "upstream"}
         title={getUpstreamDialogTitle()}
         onOpenChange={(open) => !open && closeDialog()}
         busy={dialogSubmitting()}
-        actions={
+        contentClass="close-guard-dialog"
+        footer={
           <>
             <ActionButton disabled={dialogSubmitting()} onClick={() => closeDialog()}>
               {t("common.close")}
@@ -1825,14 +1779,15 @@ export function ProxyPage() {
           <TextFieldControl label={t("proxy.rewriteTo")} value={upstreamRewriteTo()} onChange={setUpstreamRewriteTo} />
         </div>
         <CheckboxField label={t("common.enabled")} checked={upstreamEnabled()} onChange={setUpstreamEnabled} />
-      </ModalShell>
+      </Modal>
 
-      <ModalShell
+      <Modal
         open={dialogMode() === "certificate"}
         title={getCertificateDialogTitle()}
         onOpenChange={(open) => !open && closeDialog()}
         busy={dialogSubmitting()}
-        actions={
+        contentClass="close-guard-dialog"
+        footer={
           <>
             <ActionButton disabled={dialogSubmitting()} onClick={() => closeDialog()}>
               {t("common.close")}
@@ -1882,27 +1837,29 @@ export function ProxyPage() {
         <Show when={certificateSourceType() === "local_ca"}>
           <Hint variant="info">{t("proxy.localCaGenerateHint")}</Hint>
         </Show>
-      </ModalShell>
+      </Modal>
 
-      <ModalShell
+      <Modal
         open={guideOpen()}
         title={t("proxy.guideTitle")}
         onOpenChange={(open) => !open && setGuideOpen(false)}
-        actions={
+        contentClass="close-guard-dialog"
+        footer={
           <ActionButton onClick={() => setGuideOpen(false)}>
             {t("common.close")}
           </ActionButton>
         }
       >
         <ProxyGuide locale={locale()} />
-      </ModalShell>
+      </Modal>
 
-      <ModalShell
+      <Modal
         open={dialogMode() === "delete"}
         title={t("proxy.delete")}
         onOpenChange={(open) => !open && closeDialog()}
         busy={dialogSubmitting()}
-        actions={
+        contentClass="close-guard-dialog"
+        footer={
           <>
             <ActionButton disabled={dialogSubmitting()} onClick={() => closeDialog()}>
               {t("common.close")}
@@ -1924,7 +1881,7 @@ export function ProxyPage() {
             {(detail) => <Hint variant="warn">{detail()}</Hint>}
           </Show>
         </div>
-      </ModalShell>
+      </Modal>
     </div>
   );
 }

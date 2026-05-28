@@ -2,11 +2,11 @@ import { Show } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
 import * as KButton from "@kobalte/core/button";
 import * as KCheckbox from "@kobalte/core/checkbox";
-import * as KDialog from "@kobalte/core/dialog";
 import * as KSelect from "@kobalte/core/select";
 import * as KSwitch from "@kobalte/core/switch";
 import * as KTextField from "@kobalte/core/text-field";
 import { useI18n } from "../../../i18n/context";
+import { Modal } from "../../../lib/Modal";
 import { NumberInput } from "../../../lib/NumberInput";
 import { toLocalTime } from "../../../lib/datetime";
 import { Hint } from "../../../lib/Hint";
@@ -107,42 +107,36 @@ export function RuleFormModal(props: RuleFormModalProps) {
 
   return (
     <Show when={props.open}>
-      <KDialog.Root open={props.open} onOpenChange={props.onOpenChange}>
-        <KDialog.Portal>
-          <KDialog.Overlay class="kb-dialog-overlay" />
-          <KDialog.Content
-            class="kb-dialog-content"
-            onInteractOutside={(event) => {
-              event.preventDefault();
-            }}
-            onEscapeKeyDown={(event) => {
-              event.preventDefault();
-            }}
+      <Modal
+        open={props.open}
+        title={props.isEditing ? t("rules.formEditTitle") : t("rules.formCreateTitle")}
+        description={props.isEditing ? <Hint>{t("rules.formEditHint")}</Hint> : undefined}
+        titleActions={
+          <KSwitch.Root
+            checked={props.form.enabled}
+            onChange={(checked) => props.setForm("enabled", checked)}
+            class="kb-switch modal-header-switch"
+            disabled={!props.canToggleEnabled}
           >
-            <div class="panel-title">
-              <KDialog.Title>{props.isEditing ? t("rules.formEditTitle") : t("rules.formCreateTitle")}</KDialog.Title>
-              <div class="modal-title-actions">
-                <KSwitch.Root
-                  checked={props.form.enabled}
-                  onChange={(checked) => props.setForm("enabled", checked)}
-                  class="kb-switch modal-header-switch"
-                  disabled={!props.canToggleEnabled}
-                >
-                  <KSwitch.Input aria-label={t("rules.formEnableRule")} />
-                  <KSwitch.Control class="kb-switch-control">
-                    <KSwitch.Thumb class="kb-switch-thumb" />
-                  </KSwitch.Control>
-                </KSwitch.Root>
-              </div>
-            </div>
-
-            <Show when={props.isEditing}>
-              <KDialog.Description>
-                <Hint>{t("rules.formEditHint")}</Hint>
-              </KDialog.Description>
-            </Show>
-
-            <div class="form-grid">
+            <KSwitch.Input aria-label={t("rules.formEnableRule")} />
+            <KSwitch.Control class="kb-switch-control">
+              <KSwitch.Thumb class="kb-switch-thumb" />
+            </KSwitch.Control>
+          </KSwitch.Root>
+        }
+        onOpenChange={props.onOpenChange}
+        footer={
+          <>
+            <KButton.Root class="kb-btn accent" onClick={props.onSubmit}>
+              {props.isEditing ? t("rules.formSaveChanges") : t("rules.formCreateRule")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn ghost" onClick={props.onCancel}>
+              {t("rules.formCancel")}
+            </KButton.Root>
+          </>
+        }
+      >
+        <div class="form-grid">
               <KTextField.Root
                 class="kb-field"
                 value={props.form.name}
@@ -303,23 +297,12 @@ export function RuleFormModal(props: RuleFormModalProps) {
               </div>
             </Show>
 
-            <div class="actions modal-actions">
-              <KButton.Root class="kb-btn accent" onClick={props.onSubmit}>
-                {props.isEditing ? t("rules.formSaveChanges") : t("rules.formCreateRule")}
-              </KButton.Root>
-              <KButton.Root class="kb-btn ghost" onClick={props.onCancel}>
-                {t("rules.formCancel")}
-              </KButton.Root>
-            </div>
-
-            <Show when={props.message}>
-              {(msg) => (
-                <div class={`hint ${msg().type === "error" ? "error" : "info"}`}>{msg().text}</div>
-              )}
-            </Show>
-          </KDialog.Content>
-        </KDialog.Portal>
-      </KDialog.Root>
+        <Show when={props.message}>
+          {(msg) => (
+            <div class={`hint ${msg().type === "error" ? "error" : "info"}`}>{msg().text}</div>
+          )}
+        </Show>
+      </Modal>
     </Show>
   );
 }
