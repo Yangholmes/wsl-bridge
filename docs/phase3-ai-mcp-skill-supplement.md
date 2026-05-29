@@ -841,3 +841,199 @@ install_agent_skill({
 ```
 
 写入用户项目或用户目录属于敏感操作，`apply` 必须经过用户确认。
+
+## AI 模块独立入口
+
+随着 MCP resources/tools、Agent skill 安装、安全策略、诊断和审计日志逐步加入，AI 相关能力已经不再适合作为 Settings tab 中的一组设置项。后续应将 AI 能力独立为一级模块，提供专门的 tab 入口。
+
+### 模块定位
+
+新增一级模块：
+
+```text
+AI 集成
+```
+
+该模块负责管理：
+
+- MCP 服务状态与连接配置。
+- AI 能力暴露范围。
+- `wsl-bridge-operator` skill 安装、更新、卸载。
+- AI 写操作权限与安全策略。
+- MCP / Skill 诊断。
+- AI 调用审计日志。
+
+Settings tab 不再承载完整 MCP 设置，只保留轻量跳转入口或极少量全局开关。
+
+### 导航建议
+
+建议导航结构：
+
+```text
+Dashboard
+Proxy
+Hosts
+Rules
+AI 集成
+Logs / Runtime
+Settings
+```
+
+如果侧边栏空间有限，`AI 集成` 仍应作为一级入口，不应折叠到 Settings 内。
+
+### 页面结构
+
+`AI 集成` tab 建议采用工作台式结构：
+
+```text
+AI 集成
+├─ 顶部状态条
+├─ 快速操作
+├─ MCP 服务
+├─ Agent Skill
+├─ 能力与权限
+├─ 诊断
+└─ 审计日志
+```
+
+顶部状态条展示：
+
+```text
+MCP：运行中 / 已停止 / 错误
+AI API：phase3.ai.v1
+写操作：只读 / 仅 dry-run / 受控 apply
+Skill：已安装 Agent 数量
+最近错误：数量
+```
+
+快速操作建议：
+
+```text
+复制 MCP 配置
+安装 Skill
+运行诊断
+查看 AI Guide
+```
+
+### MCP 服务面板
+
+从原 Settings MCP 设置迁移而来。
+
+展示：
+
+- 服务状态。
+- 监听地址 / 端口 / transport。
+- 启动 / 停止 / 重启。
+- 复制连接配置。
+- 查看最近 MCP 错误。
+
+该面板不再默认展示大量工具明细，而是展示 AI API 概览：
+
+```text
+AI API：phase3.ai.v1
+Resources：N
+Tools：N
+写操作模式：仅 dry-run
+```
+
+完整 resources/tools/schema 列表放入高级展开区。
+
+### Agent Skill 面板
+
+负责安装 `wsl-bridge-operator` 到不同 Agent。
+
+展示目标：
+
+```text
+Claude Code
+Codex
+Cursor
+Copilot
+OpenCode
+OpenClaw
+Generic .agents
+```
+
+每个目标展示：
+
+- 检测状态。
+- 安装范围：当前项目 / 用户全局。
+- 安装类型：native skill / project rule / repository instruction / generic `.agents`。
+- 当前版本。
+- 目标版本。
+- 安装 / 更新 / 卸载 / 预览。
+
+安装必须先 dry-run，预览将写入的文件和影响范围。
+
+### 能力与权限面板
+
+负责控制 AI 能力边界。
+
+建议权限模式：
+
+```text
+只读模式：只能读取 resources。
+规划模式：读取 resources + dry-run。
+受控写入：apply 前需要用户确认。
+完全信任：允许 apply。
+```
+
+默认模式建议为：
+
+```text
+规划模式
+```
+
+危险操作必须独立提示或要求确认：
+
+- 写系统 hosts。
+- 激活 hosts 分组。
+- 删除 Proxy 对象。
+- 绑定 `0.0.0.0`。
+- 安装或覆盖 Agent skill。
+- 导入配置并覆盖现有对象。
+
+### 诊断面板
+
+负责检查 AI 集成可用性。
+
+检查项：
+
+- MCP 服务是否可连接。
+- Resources 是否可读取。
+- Tools schema 是否有效。
+- ConfigPatch schema 是否可加载。
+- `wsl-bridge-operator` skill 是否与当前 AI API 版本兼容。
+- 示例 dry-run 是否可执行。
+
+诊断结果应支持复制为报告。
+
+### 审计日志面板
+
+记录 AI 相关操作：
+
+- MCP 调用记录。
+- dry-run 记录。
+- apply 记录。
+- Agent skill 安装 / 更新 / 卸载。
+- 失败原因。
+- 危险操作确认记录。
+
+审计日志用于排查问题，也用于让用户理解 AI 对应用做过什么。
+
+### Settings 兼容策略
+
+原 Settings 中的 MCP 设置迁移后，Settings 只保留兼容入口：
+
+```text
+AI 集成功能已迁移到独立模块。
+[打开 AI 集成]
+```
+
+如果用户通过旧入口访问 MCP 设置，应跳转到 `AI 集成` tab。
+
+迁移要求：
+
+- 不删除已有 MCP 配置。
+- 不改变现有 MCP 服务默认状态。
+- 旧设置入口只做引导，不重复维护第二套 UI。
