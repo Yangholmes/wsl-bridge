@@ -1,5 +1,6 @@
 #[cfg(feature = "tauri")]
 use tauri::Manager;
+use serde_json::Value;
 #[cfg(feature = "tauri")]
 use wsl_bridge_core::HyperVProbeDebug;
 #[cfg(feature = "tauri")]
@@ -61,6 +62,24 @@ pub fn update_app_settings(
     settings: AppSettings,
 ) -> Result<(), String> {
     commands::update_app_settings(&state, settings).map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn list_agent_targets(scope: Option<String>) -> Result<Value, String> {
+    commands::list_agent_targets(scope).map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn install_agent_skill_preview(
+    target: String,
+    scope: Option<String>,
+    mode: Option<String>,
+    fallback_to_agents_dir: Option<bool>,
+) -> Result<Value, String> {
+    commands::install_agent_skill_preview(target, scope, mode, fallback_to_agents_dir)
+        .map_err(|err| err.to_string())
 }
 
 #[cfg(feature = "tauri")]

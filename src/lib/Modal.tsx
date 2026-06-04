@@ -5,9 +5,9 @@ import "./Modal.css";
 
 type ModalProps = {
   open: boolean;
-  title: string;
+  title: JSX.Element;
   onOpenChange: (open: boolean) => void;
-  description?: string;
+  description?: JSX.Element;
   busy?: boolean;
   closeOnOutside?: boolean;
   closeOnEscape?: boolean;

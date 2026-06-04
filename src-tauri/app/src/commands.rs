@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use anyhow::{bail, Result};
+use serde_json::Value;
 use wsl_bridge_core::HyperVProbeDebug;
 use wsl_bridge_shared::{
     AppRuntimeStatus, AppSettings, ApplyRulesResult, CopyHostsGroupRequest,
@@ -42,6 +43,19 @@ pub fn update_app_settings(state: &AppState, settings: AppSettings) -> Result<()
         .engine
         .update_app_settings(settings)
         .map_err(Into::into)
+}
+
+pub fn list_agent_targets(scope: Option<String>) -> Result<Value> {
+    mcp::list_agent_targets_payload(scope)
+}
+
+pub fn install_agent_skill_preview(
+    target: String,
+    scope: Option<String>,
+    mode: Option<String>,
+    fallback_to_agents_dir: Option<bool>,
+) -> Result<Value> {
+    mcp::install_agent_skill_payload(target, scope, mode, fallback_to_agents_dir)
 }
 
 pub fn list_rules(state: &AppState) -> Vec<ProxyRule> {

@@ -16,9 +16,9 @@ use socket2::{Domain, Protocol, Socket, Type};
 use uuid::Uuid;
 use wsl_bridge_core::RuleEngine;
 use wsl_bridge_shared::{
-    CreateRuleRequest, FirewallPolicy, McpClientPreset, McpServerConfig, McpServerStatus,
-    McpToolDescriptor, NewFirewallPolicy, NewProxyRule, ProxyRule, QueryTrafficStatsRequest,
-    RulePatch, RuleType, TargetKind, TopologySnapshot,
+    CreateRuleRequest, FirewallPolicy, LogQueryRequest, McpClientPreset, McpServerConfig,
+    McpServerStatus, McpToolDescriptor, NewFirewallPolicy, NewProxyRule, ProxyRule,
+    QueryTrafficStatsRequest, RulePatch, RuleType, TargetKind, TopologySnapshot,
 };
 
 use crate::state::AppState;
@@ -31,6 +31,8 @@ const MCP_PATH: &str = "/mcp";
 const HEALTH_PATH: &str = "/health";
 const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-03-26", "2024-11-05"];
 const DEFAULT_PROTOCOL_VERSION: &str = "2025-03-26";
+const AI_API_VERSION: &str = "phase3.ai.v1";
+const CONFIG_PATCH_VERSION: &str = "phase3.ai-patch.v1";
 
 #[derive(Debug)]
 struct ServerHandle {
@@ -132,6 +134,36 @@ struct GetTrafficWindowArgs {
     entity_type: Option<wsl_bridge_shared::TrafficEntityType>,
     entity_id: Option<String>,
     rule_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InspectAppArgs {
+    modules: Option<Vec<String>>,
+    detail: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ValidateConfigArgs {
+    modules: Option<Vec<String>>,
+    patch: Option<Value>,
+    checks: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListAgentTargetsArgs {
+    scope: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstallAgentSkillArgs {
+    target: String,
+    scope: Option<String>,
+    mode: Option<String>,
+    fallback_to_agents_dir: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -382,6 +414,13 @@ fn handle_jsonrpc_message(engine: &Arc<RuleEngine>, message: JsonRpcMessage) -> 
         "initialize" => handle_initialize(message.id, message.params.as_ref()),
         "notifications/initialized" => None,
         "ping" => Some(jsonrpc_result(message.id, json!({}))),
+        "resources/list" => Some(handle_resources_list(message.id)),
+        "resources/read" => Some(handle_resources_read(
+            message.id,
+            engine,
+            &engine.get_mcp_config(),
+            message.params.as_ref(),
+        )),
         "tools/list" => Some(handle_tools_list(message.id, &engine.get_mcp_config())),
         "tools/call" => Some(handle_tools_call(
             message.id,
@@ -415,6 +454,10 @@ fn handle_initialize(id: Option<Value>, params: Option<&Value>) -> Option<Value>
           "capabilities": {
             "tools": {
               "listChanged": false
+            },
+            "resources": {
+              "subscribe": false,
+              "listChanged": false
             }
           },
           "serverInfo": {
@@ -424,6 +467,134 @@ fn handle_initialize(id: Option<Value>, params: Option<&Value>) -> Option<Value>
           }
         }),
     ))
+}
+
+fn handle_resources_list(id: Option<Value>) -> Value {
+    jsonrpc_result(
+        id,
+        json!({
+          "resources": [
+            {
+              "uri": "wsl-bridge://ai-guide",
+              "name": "AI Guide",
+              "description": "Usage guide for AI agents operating wsl-bridge.",
+              "mimeType": "text/markdown"
+            },
+            {
+              "uri": "wsl-bridge://capabilities",
+              "name": "Capabilities",
+              "description": "Current AI API capabilities and safety defaults.",
+              "mimeType": "application/json"
+            },
+            {
+              "uri": "wsl-bridge://state/summary",
+              "name": "State Summary",
+              "description": "Compact app state summary for AI agents.",
+              "mimeType": "application/json"
+            },
+            {
+              "uri": "wsl-bridge://state/proxy",
+              "name": "Proxy State",
+              "description": "Proxy listener, route, upstream, certificate and runtime summary.",
+              "mimeType": "application/json"
+            },
+            {
+              "uri": "wsl-bridge://state/hosts",
+              "name": "Hosts State",
+              "description": "Hosts group, active group and entry summary.",
+              "mimeType": "application/json"
+            },
+            {
+              "uri": "wsl-bridge://state/traffic",
+              "name": "Traffic State",
+              "description": "Traffic monitor entity and recent in-memory traffic summary.",
+              "mimeType": "application/json"
+            },
+            {
+              "uri": "wsl-bridge://logs/recent",
+              "name": "Recent Logs",
+              "description": "Recent audit logs for diagnostics.",
+              "mimeType": "application/json"
+            },
+            {
+              "uri": "wsl-bridge://schemas/config-patch",
+              "name": "ConfigPatch Schema",
+              "description": "Draft schema for structured configuration patches.",
+              "mimeType": "application/json"
+            }
+          ]
+        }),
+    )
+}
+
+fn handle_resources_read(
+    id: Option<Value>,
+    engine: &Arc<RuleEngine>,
+    config: &McpServerConfig,
+    params: Option<&Value>,
+) -> Value {
+    let Some(uri) = params
+        .and_then(|value| value.get("uri"))
+        .and_then(Value::as_str)
+    else {
+        return jsonrpc_error(id, -32602, "resources/read params.uri is required");
+    };
+
+    let result = match read_resource(uri, engine, config) {
+        Ok((mime_type, text)) => jsonrpc_result(
+            id,
+            json!({
+              "contents": [
+                {
+                  "uri": uri,
+                  "mimeType": mime_type,
+                  "text": text
+                }
+              ]
+            }),
+        ),
+        Err(err) => jsonrpc_error(id, -32602, &err.to_string()),
+    };
+    result
+}
+
+fn read_resource(
+    uri: &str,
+    engine: &Arc<RuleEngine>,
+    config: &McpServerConfig,
+) -> Result<(&'static str, String)> {
+    match uri {
+        "wsl-bridge://ai-guide" => Ok(("text/markdown", ai_guide_resource().to_owned())),
+        "wsl-bridge://capabilities" => Ok((
+            "application/json",
+            serde_json::to_string_pretty(&capabilities_resource(config))?,
+        )),
+        "wsl-bridge://state/summary" => Ok((
+            "application/json",
+            serde_json::to_string_pretty(&state_summary_resource(engine, config))?,
+        )),
+        "wsl-bridge://state/proxy" => Ok((
+            "application/json",
+            serde_json::to_string_pretty(&state_proxy_resource(engine))?,
+        )),
+        "wsl-bridge://state/hosts" => Ok((
+            "application/json",
+            serde_json::to_string_pretty(&state_hosts_resource(engine))?,
+        )),
+        "wsl-bridge://state/traffic" => Ok((
+            "application/json",
+            serde_json::to_string_pretty(&state_traffic_resource(engine))?,
+        )),
+        "wsl-bridge://logs/recent" => Ok((
+            "application/json",
+            serde_json::to_string_pretty(&recent_logs_resource(engine))?,
+        )),
+        "wsl-bridge://schemas/config-patch" => Ok((
+            "application/json",
+            serde_json::to_string_pretty(&config_patch_schema_resource())?,
+        )),
+        _ => Err(anyhow!("resource not found: {uri}")),
+    }
 }
 
 fn handle_tools_list(id: Option<Value>, config: &McpServerConfig) -> Value {
@@ -453,6 +624,10 @@ fn handle_tools_call(
         .unwrap_or_else(|| json!({}));
 
     let result = match name {
+        "inspect_app" => execute_inspect_app(engine, config, arguments),
+        "validate_config" => execute_validate_config(engine, arguments),
+        "list_agent_targets" => execute_list_agent_targets(arguments),
+        "install_agent_skill" => execute_install_agent_skill(arguments),
         "read_virtualization_topology" if config.expose_topology_read => {
             execute_read_virtualization_topology(engine, arguments)
         }
@@ -513,6 +688,155 @@ fn execute_read_virtualization_topology(
     let args: TopologyArgs = serde_json::from_value(arguments)?;
     let topology = engine.scan_topology();
     Ok(topology_to_value(topology, args.include_adapters))
+}
+
+fn execute_inspect_app(
+    engine: &Arc<RuleEngine>,
+    config: &McpServerConfig,
+    arguments: Value,
+) -> Result<Value> {
+    let args: InspectAppArgs = serde_json::from_value(arguments)?;
+    let modules = args.modules.unwrap_or_else(|| {
+        vec![
+            "summary".to_owned(),
+            "rules".to_owned(),
+            "proxy".to_owned(),
+            "hosts".to_owned(),
+            "traffic".to_owned(),
+        ]
+    });
+    let detail = args.detail.unwrap_or_else(|| "summary".to_owned());
+    let mut result = serde_json::Map::new();
+
+    for module in modules {
+        match module.as_str() {
+            "summary" => {
+                result.insert("summary".to_owned(), state_summary_resource(engine, config));
+            }
+            "rules" => {
+                result.insert("rules".to_owned(), inspect_rules(engine, &detail));
+            }
+            "proxy" => {
+                result.insert("proxy".to_owned(), state_proxy_resource(engine));
+            }
+            "hosts" => {
+                result.insert("hosts".to_owned(), state_hosts_resource(engine));
+            }
+            "traffic" => {
+                result.insert("traffic".to_owned(), state_traffic_resource(engine));
+            }
+            other => {
+                result.insert(
+                    other.to_owned(),
+                    json!({
+                      "status": "unknown-module"
+                    }),
+                );
+            }
+        }
+    }
+
+    Ok(json!({
+      "aiApiVersion": AI_API_VERSION,
+      "detail": detail,
+      "modules": result
+    }))
+}
+
+fn execute_validate_config(engine: &Arc<RuleEngine>, arguments: Value) -> Result<Value> {
+    let args: ValidateConfigArgs = serde_json::from_value(arguments)?;
+    let modules = args.modules.unwrap_or_else(|| vec!["summary".to_owned(), "rules".to_owned()]);
+    let checks = args.checks.unwrap_or_else(|| {
+        vec![
+            "schema".to_owned(),
+            "conflict".to_owned(),
+            "permission".to_owned(),
+        ]
+    });
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+
+    if checks.iter().any(|check| check == "schema") {
+        if let Some(patch) = args.patch.as_ref() {
+            validate_config_patch_shape(patch, &mut errors, &mut warnings);
+        }
+    }
+
+    if checks.iter().any(|check| check == "conflict") && modules.iter().any(|item| item == "rules") {
+        validate_legacy_rule_listen_conflicts(engine, &mut warnings);
+    }
+
+    if checks.iter().any(|check| check == "permission") {
+        warnings.push(json!({
+          "severity": "info",
+          "code": "SENSITIVE_OPERATIONS_REQUIRE_CONFIRMATION",
+          "message": "System hosts writes, 0.0.0.0 listeners, destructive proxy changes, config overwrites, and Agent skill installation require explicit confirmation."
+        }));
+    }
+
+    if args.patch.is_some() {
+        warnings.push(json!({
+          "severity": "info",
+          "code": "CONFIG_PATCH_APPLY_NOT_AVAILABLE",
+          "message": "ConfigPatch apply is not enabled yet. This tool only validates shape and obvious conflicts in the current build."
+        }));
+    }
+
+    Ok(json!({
+      "ok": errors.is_empty(),
+      "aiApiVersion": AI_API_VERSION,
+      "checkedModules": modules,
+      "checks": checks,
+      "errors": errors,
+      "warnings": warnings
+    }))
+}
+
+fn execute_list_agent_targets(arguments: Value) -> Result<Value> {
+    let args: ListAgentTargetsArgs = serde_json::from_value(arguments)?;
+    list_agent_targets_payload(args.scope)
+}
+
+pub(crate) fn list_agent_targets_payload(scope: Option<String>) -> Result<Value> {
+    let scope = normalize_install_scope(scope.as_deref());
+    Ok(json!({
+      "skill": skill_manifest_summary(),
+      "scope": scope,
+      "targets": agent_targets()
+        .into_iter()
+        .map(|target| agent_target_descriptor(target, scope))
+        .collect::<Vec<_>>()
+    }))
+}
+
+fn execute_install_agent_skill(arguments: Value) -> Result<Value> {
+    let args: InstallAgentSkillArgs = serde_json::from_value(arguments)?;
+    install_agent_skill_payload(
+        args.target,
+        args.scope,
+        args.mode,
+        args.fallback_to_agents_dir,
+    )
+}
+
+pub(crate) fn install_agent_skill_payload(
+    target: String,
+    scope: Option<String>,
+    mode: Option<String>,
+    fallback_to_agents_dir: Option<bool>,
+) -> Result<Value> {
+    let mode = mode.as_deref().unwrap_or("dryRun");
+    if mode != "dryRun" {
+        return Err(anyhow!(
+            "install_agent_skill currently supports mode=dryRun only; apply is planned but not enabled"
+        ));
+    }
+
+    let scope = normalize_install_scope(scope.as_deref());
+    let fallback_to_agents_dir = fallback_to_agents_dir.unwrap_or(true);
+    let target = normalize_agent_target(&target);
+    let plan = build_agent_skill_install_plan(&target, scope, fallback_to_agents_dir)?;
+    Ok(plan)
 }
 
 fn execute_list_forward_rules(engine: &Arc<RuleEngine>) -> Result<Value> {
@@ -698,8 +1022,821 @@ fn topology_to_value(topology: TopologySnapshot, include_adapters: bool) -> Valu
     }
 }
 
+fn inspect_rules(engine: &Arc<RuleEngine>, detail: &str) -> Value {
+    let rules = engine.list_rules();
+    let total = rules.len();
+    let enabled = rules.iter().filter(|rule| rule.enabled).count();
+    let tcp_fwd = rules
+        .iter()
+        .filter(|rule| matches!(rule.rule_type, RuleType::TcpFwd))
+        .count();
+    let udp_fwd = rules
+        .iter()
+        .filter(|rule| matches!(rule.rule_type, RuleType::UdpFwd))
+        .count();
+    let http_proxy = rules
+        .iter()
+        .filter(|rule| matches!(rule.rule_type, RuleType::HttpProxy))
+        .count();
+
+    if detail == "full" || detail == "diagnostic" {
+        json!({
+          "legacyMode": true,
+          "total": total,
+          "enabled": enabled,
+          "byType": {
+            "tcp_fwd": tcp_fwd,
+            "udp_fwd": udp_fwd,
+            "http_proxy": http_proxy
+          },
+          "allowedCreateTypes": ["udp_fwd", "socks5_proxy"],
+          "migratableTypes": ["tcp_fwd", "http_proxy"],
+          "items": rules
+        })
+    } else {
+        json!({
+          "legacyMode": true,
+          "total": total,
+          "enabled": enabled,
+          "byType": {
+            "tcp_fwd": tcp_fwd,
+            "udp_fwd": udp_fwd,
+            "http_proxy": http_proxy
+          },
+          "allowedCreateTypes": ["udp_fwd", "socks5_proxy"],
+          "migratableTypes": ["tcp_fwd", "http_proxy"]
+        })
+    }
+}
+
+fn validate_config_patch_shape(
+    patch: &Value,
+    errors: &mut Vec<Value>,
+    warnings: &mut Vec<Value>,
+) {
+    let Some(object) = patch.as_object() else {
+        errors.push(json!({
+          "code": "PATCH_NOT_OBJECT",
+          "target": "patch",
+          "message": "ConfigPatch must be a JSON object."
+        }));
+        return;
+    };
+
+    match object.get("version").and_then(Value::as_str) {
+        Some(CONFIG_PATCH_VERSION) => {}
+        Some(other) => errors.push(json!({
+          "code": "PATCH_VERSION_UNSUPPORTED",
+          "target": "patch.version",
+          "message": format!("Unsupported ConfigPatch version: {other}")
+        })),
+        None => errors.push(json!({
+          "code": "PATCH_VERSION_REQUIRED",
+          "target": "patch.version",
+          "message": "ConfigPatch version is required."
+        })),
+    }
+
+    for key in object.keys() {
+        if !matches!(
+            key.as_str(),
+            "version" | "reason" | "proxy" | "hosts" | "rules" | "settings"
+        ) {
+            errors.push(json!({
+              "code": "PATCH_UNKNOWN_TOP_LEVEL_FIELD",
+              "target": key,
+              "message": format!("Unknown ConfigPatch top-level field: {key}")
+            }));
+        }
+    }
+
+    for key in ["proxy", "hosts", "rules", "settings"] {
+        if let Some(value) = object.get(key) {
+            if !value.is_object() {
+                errors.push(json!({
+                  "code": "PATCH_SECTION_NOT_OBJECT",
+                  "target": key,
+                  "message": format!("ConfigPatch section `{key}` must be an object.")
+                }));
+            }
+        }
+    }
+
+    if object.contains_key("hosts") {
+        warnings.push(json!({
+          "severity": "warning",
+          "code": "HOSTS_MAY_REQUIRE_ADMIN",
+          "target": "hosts",
+          "message": "Hosts activation and system hosts writes require administrator privileges."
+        }));
+    }
+
+    if object.contains_key("proxy") {
+        warnings.push(json!({
+          "severity": "info",
+          "code": "PROXY_PATCH_SCHEMA_DRAFT",
+          "target": "proxy",
+          "message": "Proxy ConfigPatch detailed schema is still draft in this build."
+        }));
+    }
+}
+
+fn validate_legacy_rule_listen_conflicts(engine: &Arc<RuleEngine>, warnings: &mut Vec<Value>) {
+    let mut seen: HashMap<(String, u16), Vec<String>> = HashMap::new();
+    for rule in engine.list_rules() {
+        if !matches!(rule.rule_type, RuleType::TcpFwd | RuleType::UdpFwd) {
+            continue;
+        }
+        let target_port = rule.target_port.unwrap_or_default();
+        if rule.listen_port == 0 || target_port == 0 {
+            warnings.push(json!({
+              "severity": "warning",
+              "code": "LEGACY_RULE_PORT_INCOMPLETE",
+              "target": rule.id,
+              "message": format!("Legacy rule `{}` has incomplete listen or target port.", rule.name)
+            }));
+        }
+        seen.entry((rule.listen_host.clone(), rule.listen_port))
+            .or_default()
+            .push(rule.name);
+    }
+
+    for ((host, port), names) in seen {
+        if names.len() > 1 {
+            warnings.push(json!({
+              "severity": "warning",
+              "code": "LEGACY_RULE_LISTEN_CONFLICT",
+              "target": format!("{host}:{port}"),
+              "message": format!("Multiple legacy rules use {host}:{port}: {}", names.join(", "))
+            }));
+        }
+    }
+}
+
+fn skill_manifest_summary() -> Value {
+    json!({
+      "id": "wsl-bridge-operator",
+      "name": "wsl-bridge Operator",
+      "version": "0.1.0",
+      "requiresWslBridgeAiApi": AI_API_VERSION,
+      "canonicalPackage": "skills/wsl-bridge-operator"
+    })
+}
+
+fn agent_targets() -> Vec<&'static str> {
+    vec![
+        "claude-code",
+        "codex",
+        "cursor",
+        "copilot",
+        "opencode",
+        "openclaw",
+        "generic",
+    ]
+}
+
+fn normalize_install_scope(scope: Option<&str>) -> &'static str {
+    match scope {
+        Some("user") => "user",
+        _ => "project",
+    }
+}
+
+fn normalize_agent_target(target: &str) -> String {
+    match target.trim().to_ascii_lowercase().as_str() {
+        "claude" | "claude_code" | "claude-code" => "claude-code".to_owned(),
+        "github-copilot" | "copilot" => "copilot".to_owned(),
+        "open-code" | "opencode" => "opencode".to_owned(),
+        "open-claw" | "openclaw" => "openclaw".to_owned(),
+        "cursor" => "cursor".to_owned(),
+        "codex" => "codex".to_owned(),
+        _ => "generic".to_owned(),
+    }
+}
+
+fn agent_target_descriptor(target: &str, scope: &str) -> Value {
+    let install_type = match target {
+        "claude-code" => "native-skill",
+        "cursor" => "project-rule",
+        "copilot" => "repository-instructions",
+        _ => "generic-project-skill",
+    };
+    json!({
+      "id": target,
+      "displayName": agent_target_display_name(target),
+      "scope": scope,
+      "detected": "unknown",
+      "supportsNativeSkill": target == "claude-code",
+      "supportsProjectInstall": true,
+      "supportsUserInstall": target == "claude-code",
+      "installType": install_type,
+      "fallbackToAgentsDir": !matches!(target, "claude-code" | "cursor" | "copilot"),
+      "dryRunSupported": true,
+      "applySupported": false
+    })
+}
+
+fn agent_target_display_name(target: &str) -> &'static str {
+    match target {
+        "claude-code" => "Claude Code",
+        "codex" => "Codex",
+        "cursor" => "Cursor",
+        "copilot" => "Copilot",
+        "opencode" => "OpenCode",
+        "openclaw" => "OpenClaw",
+        _ => "Generic .agents",
+    }
+}
+
+fn build_agent_skill_install_plan(
+    target: &str,
+    scope: &str,
+    fallback_to_agents_dir: bool,
+) -> Result<Value> {
+    let install_type = match target {
+        "claude-code" => "native-skill",
+        "cursor" if scope == "project" => "project-rule",
+        "copilot" if scope == "project" => "repository-instructions",
+        "cursor" | "copilot" if fallback_to_agents_dir => "generic-project-skill",
+        "codex" | "opencode" | "openclaw" | "generic" if fallback_to_agents_dir => {
+            "generic-project-skill"
+        }
+        "codex" | "opencode" | "openclaw" | "generic" => "manual-package",
+        _ => "generic-project-skill",
+    };
+
+    let writes = match install_type {
+        "native-skill" => canonical_skill_file_paths(&format!(
+            "{}/skills/wsl-bridge-operator",
+            if scope == "user" { "~/.claude" } else { ".claude" }
+        )),
+        "project-rule" => vec![json!({
+          "path": ".cursor/rules/wsl-bridge.mdc",
+          "action": "create-or-update",
+          "source": "rendered-cursor-rule"
+        })],
+        "repository-instructions" => vec![json!({
+          "path": ".github/copilot-instructions.md",
+          "action": "create-or-update",
+          "source": "rendered-copilot-instructions"
+        })],
+        "generic-project-skill" => canonical_skill_file_paths(
+            ".agents/skills/wsl-bridge-operator",
+        ),
+        _ => canonical_skill_file_paths("wsl-bridge-operator-skill"),
+    };
+
+    Ok(json!({
+      "ok": true,
+      "mode": "dryRun",
+      "skill": skill_manifest_summary(),
+      "targetAgent": target,
+      "scope": scope,
+      "installType": install_type,
+      "writes": writes,
+      "warnings": agent_install_warnings(target, scope, install_type)
+    }))
+}
+
+fn canonical_skill_file_paths(base: &str) -> Vec<Value> {
+    [
+        "SKILL.md",
+        "manifest.json",
+        "references/concepts.md",
+        "references/proxy-recipes.md",
+        "references/hosts-recipes.md",
+        "references/rules-legacy.md",
+        "references/troubleshooting.md",
+        "references/patch-schema.md",
+        "references/safety.md",
+    ]
+    .iter()
+    .map(|path| {
+        json!({
+          "path": format!("{base}/{path}"),
+          "action": "create-or-update",
+          "source": format!("skills/wsl-bridge-operator/{path}")
+        })
+    })
+    .collect()
+}
+
+fn agent_install_warnings(target: &str, scope: &str, install_type: &str) -> Vec<Value> {
+    let mut warnings = Vec::new();
+    warnings.push(json!({
+      "severity": "info",
+      "code": "DRY_RUN_ONLY",
+      "message": "This preview does not write files. install_agent_skill apply is not enabled yet."
+    }));
+    if install_type == "generic-project-skill" {
+        warnings.push(json!({
+          "severity": "warning",
+          "code": "GENERIC_SKILL_FALLBACK",
+          "message": "The skill will be installed to the project-level .agents fallback path when apply becomes available."
+        }));
+    }
+    if scope == "user" {
+        warnings.push(json!({
+          "severity": "warning",
+          "code": "USER_SCOPE_AFFECTS_ALL_PROJECTS",
+          "message": "User-scope installation can affect multiple projects used by the target Agent."
+        }));
+    }
+    if matches!(target, "cursor" | "copilot") {
+        warnings.push(json!({
+          "severity": "info",
+          "code": "ADAPTED_INSTRUCTIONS",
+          "message": "This target uses an adapted rule or instructions file rather than a native Skill runtime."
+        }));
+    }
+    warnings
+}
+
+fn ai_guide_resource() -> &'static str {
+    r#"# wsl-bridge AI Guide
+
+wsl-bridge is a Windows desktop app for managing WSL / Hyper-V bridge rules, reverse proxy configuration, structured Hosts groups, runtime status, and traffic monitoring.
+
+Recommended AI workflow:
+
+1. Read `wsl-bridge://capabilities` and `wsl-bridge://state/summary`.
+2. Inspect module-specific state before suggesting changes.
+3. Represent complex writes as `ConfigPatch`.
+4. Dry-run patches before apply.
+5. Explain warnings to the user.
+6. Validate configuration and connectivity after changes.
+
+Current Phase3 AI API status:
+
+- Resources are available for discovery and read-only context.
+- Existing legacy MCP tools remain available according to the user's exposed capability toggles.
+- `ConfigPatch` is documented as a draft schema; apply support is not enabled in this build.
+- Rules is a legacy module. New `tcp_fwd` and `http_proxy` rules should migrate to Proxy instead of being created in Rules.
+"#
+}
+
+fn capabilities_resource(config: &McpServerConfig) -> Value {
+    json!({
+      "aiApiVersion": AI_API_VERSION,
+      "configPatchVersion": CONFIG_PATCH_VERSION,
+      "server": {
+        "name": config.server_name,
+        "enabled": config.enabled,
+        "listenPort": config.listen_port
+      },
+      "resources": [
+        "wsl-bridge://ai-guide",
+        "wsl-bridge://capabilities",
+        "wsl-bridge://state/summary",
+        "wsl-bridge://state/proxy",
+        "wsl-bridge://state/hosts",
+        "wsl-bridge://state/traffic",
+        "wsl-bridge://logs/recent",
+        "wsl-bridge://schemas/config-patch"
+      ],
+      "tools": {
+        "legacyTools": build_tool_definitions(config),
+        "configPatch": {
+          "dryRun": false,
+          "apply": false,
+          "status": "planned"
+        },
+        "agentSkill": {
+          "listTargets": true,
+          "installDryRun": true,
+          "installApply": false,
+          "genericFallback": ".agents/skills/wsl-bridge-operator"
+        }
+      },
+      "safety": {
+        "defaultMode": "planning",
+        "writesRequireConfirmation": true,
+        "sensitiveOperations": [
+          "system-hosts-write",
+          "hosts-group-activation",
+          "proxy-object-delete",
+          "listener-0.0.0.0",
+          "agent-skill-install",
+          "config-import-overwrite"
+        ]
+      }
+    })
+}
+
+fn state_summary_resource(engine: &Arc<RuleEngine>, config: &McpServerConfig) -> Value {
+    let rules = engine.list_rules();
+    let proxy_listeners = engine.list_proxy_listeners();
+    let proxy_routes = proxy_listeners
+        .iter()
+        .map(|listener| engine.list_proxy_routes(&listener.id).unwrap_or_default().len())
+        .sum::<usize>();
+    let proxy_upstreams = proxy_listeners
+        .iter()
+        .flat_map(|listener| engine.list_proxy_routes(&listener.id).unwrap_or_default())
+        .map(|route| engine.list_proxy_upstreams(&route.id).unwrap_or_default().len())
+        .sum::<usize>();
+    let hosts_groups = engine.list_hosts_groups();
+    let hosts_entries = hosts_groups
+        .iter()
+        .map(|group| engine.list_hosts_entries(&group.id).unwrap_or_default().len())
+        .sum::<usize>();
+    let legacy_forward_rules = rules
+        .iter()
+        .filter(|rule| matches!(rule.rule_type, RuleType::TcpFwd | RuleType::UdpFwd))
+        .count();
+    let migratable_rules = rules
+        .iter()
+        .filter(|rule| matches!(rule.rule_type, RuleType::TcpFwd | RuleType::HttpProxy))
+        .count();
+
+    json!({
+      "app": {
+        "name": "wsl-bridge",
+        "aiApiVersion": AI_API_VERSION
+      },
+      "mcp": {
+        "enabled": config.enabled,
+        "serverName": config.server_name,
+        "listenPort": config.listen_port,
+        "exposedTools": build_tool_definitions(config).len()
+      },
+      "rules": {
+        "legacyMode": true,
+        "total": rules.len(),
+        "legacyForwardRules": legacy_forward_rules,
+        "migratable": migratable_rules,
+        "allowedCreateTypes": ["udp_fwd", "socks5_proxy"]
+      },
+      "proxy": {
+        "listeners": proxy_listeners.len(),
+        "routes": proxy_routes,
+        "upstreams": proxy_upstreams,
+        "certificates": engine.list_proxy_certificates().len(),
+        "resource": "wsl-bridge://state/proxy"
+      },
+      "hosts": {
+        "groups": hosts_groups.len(),
+        "entries": hosts_entries,
+        "activeGroup": hosts_groups.iter().find(|group| group.is_active).map(|group| group.name.clone()),
+        "requiresAdminForSystemApply": true,
+        "resource": "wsl-bridge://state/hosts"
+      },
+      "configPatch": {
+        "version": CONFIG_PATCH_VERSION,
+        "dryRun": "planned",
+        "apply": "planned"
+      }
+    })
+}
+
+fn state_proxy_resource(engine: &Arc<RuleEngine>) -> Value {
+    let listeners = engine.list_proxy_listeners();
+    let certificates = engine.list_proxy_certificates();
+    let runtime = engine.get_proxy_runtime_status();
+    let mut route_count = 0usize;
+    let mut upstream_count = 0usize;
+    let mut enabled_routes = 0usize;
+    let mut enabled_upstreams = 0usize;
+    let mut route_runtime_total_hits = 0u64;
+    let mut route_runtime_total_errors = 0u64;
+    let mut upstream_runtime_total_hits = 0u64;
+    let mut upstream_runtime_total_errors = 0u64;
+    let mut topology = Vec::new();
+
+    for listener in listeners.iter() {
+        let routes = engine.list_proxy_routes(&listener.id).unwrap_or_default();
+        let route_runtime = engine.list_proxy_route_runtime(&listener.id);
+        route_runtime_total_hits += route_runtime.iter().map(|item| item.hit_count).sum::<u64>();
+        route_runtime_total_errors += route_runtime.iter().map(|item| item.error_count).sum::<u64>();
+        route_count += routes.len();
+        enabled_routes += routes.iter().filter(|route| route.enabled).count();
+
+        let route_items = routes
+            .iter()
+            .map(|route| {
+                let upstreams = engine.list_proxy_upstreams(&route.id).unwrap_or_default();
+                let upstream_runtime = engine.list_proxy_upstream_runtime(&route.id);
+                upstream_runtime_total_hits += upstream_runtime.iter().map(|item| item.hit_count).sum::<u64>();
+                upstream_runtime_total_errors += upstream_runtime.iter().map(|item| item.error_count).sum::<u64>();
+                upstream_count += upstreams.len();
+                enabled_upstreams += upstreams.iter().filter(|upstream| upstream.enabled).count();
+                json!({
+                  "route": route,
+                  "runtime": route_runtime.iter().find(|item| item.route_id == route.id),
+                  "upstreams": upstreams,
+                  "upstreamRuntime": upstream_runtime
+                })
+            })
+            .collect::<Vec<_>>();
+
+        topology.push(json!({
+          "listener": listener,
+          "runtime": runtime.iter().find(|item| item.listener_id == listener.id),
+          "routes": route_items
+        }));
+    }
+
+    json!({
+      "summary": {
+        "listeners": listeners.len(),
+        "enabledListeners": listeners.iter().filter(|listener| listener.enabled).count(),
+        "routes": route_count,
+        "enabledRoutes": enabled_routes,
+        "upstreams": upstream_count,
+        "enabledUpstreams": enabled_upstreams,
+        "certificates": certificates.len(),
+        "runtime": {
+          "listeners": runtime.len(),
+          "running": runtime.iter().filter(|item| matches!(item.state, wsl_bridge_shared::RuntimeState::Running)).count(),
+          "stopped": runtime.iter().filter(|item| matches!(item.state, wsl_bridge_shared::RuntimeState::Stopped)).count(),
+          "error": runtime.iter().filter(|item| matches!(item.state, wsl_bridge_shared::RuntimeState::Error)).count()
+        },
+        "metrics": {
+          "routeHits": route_runtime_total_hits,
+          "routeErrors": route_runtime_total_errors,
+          "upstreamHits": upstream_runtime_total_hits,
+          "upstreamErrors": upstream_runtime_total_errors
+        }
+      },
+      "certificates": certificates,
+      "topology": topology
+    })
+}
+
+fn state_hosts_resource(engine: &Arc<RuleEngine>) -> Value {
+    let groups = engine.list_hosts_groups();
+    let mut total_entries = 0usize;
+    let mut enabled_entries = 0usize;
+    let group_items = groups
+        .iter()
+        .map(|group| {
+            let entries = engine.list_hosts_entries(&group.id).unwrap_or_default();
+            let enabled = entries.iter().filter(|entry| entry.enabled).count();
+            total_entries += entries.len();
+            enabled_entries += enabled;
+            json!({
+              "group": group,
+              "entries": {
+                "total": entries.len(),
+                "enabled": enabled,
+                "disabled": entries.len().saturating_sub(enabled)
+              }
+            })
+        })
+        .collect::<Vec<_>>();
+    let active_group = groups.iter().find(|group| group.is_active);
+
+    json!({
+      "summary": {
+        "groups": groups.len(),
+        "entries": total_entries,
+        "enabledEntries": enabled_entries,
+        "disabledEntries": total_entries.saturating_sub(enabled_entries),
+        "activeGroup": active_group.map(|group| json!({
+          "id": group.id,
+          "name": group.name,
+          "updatedAt": group.updated_at
+        })),
+        "requiresAdminForSystemApply": true
+      },
+      "groups": group_items,
+      "notes": [
+        "Only one Hosts group can be active at a time.",
+        "Activating a group writes the system hosts file and requires administrator privileges."
+      ]
+    })
+}
+
+fn state_traffic_resource(engine: &Arc<RuleEngine>) -> Value {
+    let entities = engine.list_traffic_monitor_entities();
+    let queries = entities
+        .iter()
+        .map(|entity| wsl_bridge_shared::TrafficWindowQueryEntity {
+            entity_type: entity.entity_type,
+            entity_id: entity.entity_id.clone(),
+        })
+        .collect::<Vec<_>>();
+    let windows = engine.get_traffic_window_data(queries);
+    let mut total_bytes_in = 0u64;
+    let mut total_bytes_out = 0u64;
+    let mut total_connections = 0u64;
+    let mut active_series = 0usize;
+
+    let series = windows
+        .iter()
+        .map(|window| {
+            let bytes_in = window.samples.iter().map(|sample| sample.bytes_in).sum::<u64>();
+            let bytes_out = window.samples.iter().map(|sample| sample.bytes_out).sum::<u64>();
+            let connections = window
+                .samples
+                .iter()
+                .map(|sample| sample.connections)
+                .sum::<u64>();
+            let latest_timestamp = window.samples.iter().map(|sample| sample.timestamp).max();
+            if bytes_in > 0 || bytes_out > 0 || connections > 0 {
+                active_series += 1;
+            }
+            total_bytes_in += bytes_in;
+            total_bytes_out += bytes_out;
+            total_connections += connections;
+
+            let label = entities
+                .iter()
+                .find(|entity| {
+                    entity.entity_type == window.entity_type && entity.entity_id == window.entity_id
+                })
+                .map(|entity| entity.label.clone())
+                .unwrap_or_else(|| window.entity_id.clone());
+
+            json!({
+              "entityType": window.entity_type,
+              "entityId": window.entity_id,
+              "label": label,
+              "samples": window.samples.len(),
+              "latestTimestamp": latest_timestamp,
+              "bytesIn": bytes_in,
+              "bytesOut": bytes_out,
+              "connections": connections
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+      "summary": {
+        "entities": entities.len(),
+        "enabledEntities": entities.iter().filter(|entity| entity.enabled).count(),
+        "legacyRuleEntities": entities.iter().filter(|entity| matches!(entity.entity_type, wsl_bridge_shared::TrafficEntityType::LegacyRule)).count(),
+        "proxyUpstreamEntities": entities.iter().filter(|entity| matches!(entity.entity_type, wsl_bridge_shared::TrafficEntityType::ProxyUpstream)).count(),
+        "activeSeries": active_series,
+        "windowTotals": {
+          "bytesIn": total_bytes_in,
+          "bytesOut": total_bytes_out,
+          "connections": total_connections
+        }
+      },
+      "entities": entities,
+      "series": series
+    })
+}
+
+fn recent_logs_resource(engine: &Arc<RuleEngine>) -> Value {
+    let result = engine.query_logs(LogQueryRequest {
+        limit: Some(80),
+        newest_first: Some(true),
+        ..Default::default()
+    });
+    let errors = result
+        .events
+        .iter()
+        .filter(|event| event.level.eq_ignore_ascii_case("error"))
+        .count();
+    let warnings = result
+        .events
+        .iter()
+        .filter(|event| event.level.eq_ignore_ascii_case("warn") || event.level.eq_ignore_ascii_case("warning"))
+        .count();
+    let modules = result.events.iter().fold(
+        std::collections::BTreeMap::<String, usize>::new(),
+        |mut acc, event| {
+            *acc.entry(event.module.clone()).or_insert(0) += 1;
+            acc
+        },
+    );
+
+    json!({
+      "summary": {
+        "totalMatched": result.total,
+        "returned": result.events.len(),
+        "errors": errors,
+        "warnings": warnings,
+        "modules": modules
+      },
+      "events": result.events
+    })
+}
+
+fn config_patch_schema_resource() -> Value {
+    json!({
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "wsl-bridge ConfigPatch",
+      "type": "object",
+      "required": ["version"],
+      "properties": {
+        "version": {
+          "const": CONFIG_PATCH_VERSION
+        },
+        "reason": {
+          "type": "string"
+        },
+        "proxy": {
+          "type": "object",
+          "description": "Proxy listener / route / upstream changes. Detailed schema is planned."
+        },
+        "hosts": {
+          "type": "object",
+          "description": "Hosts group / record changes. Detailed schema is planned."
+        },
+        "rules": {
+          "type": "object",
+          "description": "Legacy Rules migration and limited legacy-rule changes. Detailed schema is planned."
+        },
+        "settings": {
+          "type": "object",
+          "description": "Application or AI integration settings. Detailed schema is planned."
+        }
+      },
+      "additionalProperties": false
+    })
+}
+
 fn build_tool_definitions(config: &McpServerConfig) -> Vec<Value> {
     let mut tools = Vec::new();
+    tools.push(json!({
+      "name": "inspect_app",
+      "description": "Inspect wsl-bridge AI API state and selected module summaries without changing configuration.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["summary", "rules", "proxy", "hosts", "traffic"]
+            }
+          },
+          "detail": {
+            "type": "string",
+            "enum": ["summary", "full", "diagnostic"]
+          }
+        }
+      }
+    }));
+    tools.push(json!({
+      "name": "validate_config",
+      "description": "Validate current configuration or a draft ConfigPatch without applying changes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["summary", "rules", "proxy", "hosts", "traffic"]
+            }
+          },
+          "patch": {
+            "type": "object",
+            "description": "Draft ConfigPatch to validate."
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["schema", "conflict", "permission", "reachability", "runtime"]
+            }
+          }
+        }
+      }
+    }));
+    tools.push(json!({
+      "name": "list_agent_targets",
+      "description": "List supported Agent skill installation targets and dry-run capabilities.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": ["project", "user"]
+          }
+        }
+      }
+    }));
+    tools.push(json!({
+      "name": "install_agent_skill",
+      "description": "Preview installation of the wsl-bridge-operator skill for a target Agent. Only mode=dryRun is supported.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["target"],
+        "properties": {
+          "target": {
+            "type": "string",
+            "enum": ["claude-code", "codex", "cursor", "copilot", "opencode", "openclaw", "generic"]
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["project", "user"]
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["dryRun"]
+          },
+          "fallbackToAgentsDir": {
+            "type": "boolean",
+            "description": "Use project-level .agents/skills fallback when native installation is unavailable."
+          }
+        }
+      }
+    }));
     if config.expose_topology_read {
         tools.push(json!({
           "name": "read_virtualization_topology",
@@ -844,6 +1981,26 @@ fn firewall_schema() -> Value {
 
 fn describe_tools(config: &McpServerConfig) -> Vec<McpToolDescriptor> {
     vec![
+        McpToolDescriptor {
+            name: "inspect_app".to_owned(),
+            description_key: "mcpToolInspectApp".to_owned(),
+            enabled: true,
+        },
+        McpToolDescriptor {
+            name: "validate_config".to_owned(),
+            description_key: "mcpToolValidateConfig".to_owned(),
+            enabled: true,
+        },
+        McpToolDescriptor {
+            name: "list_agent_targets".to_owned(),
+            description_key: "mcpToolListAgentTargets".to_owned(),
+            enabled: true,
+        },
+        McpToolDescriptor {
+            name: "install_agent_skill".to_owned(),
+            description_key: "mcpToolInstallAgentSkill".to_owned(),
+            enabled: true,
+        },
         McpToolDescriptor {
             name: "read_virtualization_topology".to_owned(),
             description_key: "mcpToolTopology".to_owned(),

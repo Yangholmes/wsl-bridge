@@ -14,6 +14,7 @@ import {
   RulesIcon,
   RuntimeIcon,
   SettingsIcon,
+  SparkIcon,
   StatusBadge,
   TopologyIcon
 } from "./lib/ui";
@@ -44,6 +45,9 @@ const HostsPage = lazy(() =>
 );
 const ProxyPage = lazy(() =>
   import("./features/proxy/ProxyPage").then((module) => ({ default: module.ProxyPage }))
+);
+const AiIntegrationPage = lazy(() =>
+  import("./features/ai/AiIntegrationPage").then((module) => ({ default: module.AiIntegrationPage }))
 );
 const SettingsPage = lazy(() =>
   import("./features/settings/SettingsPage").then((module) => ({ default: module.SettingsPage }))
@@ -84,6 +88,7 @@ function RootLayout() {
     { path: "/rules", label: t("nav.rules"), icon: RulesIcon },
     { path: "/proxy", label: t("nav.proxy"), icon: ProxyIcon },
     { path: "/hosts", label: t("nav.hosts"), icon: HostsIcon },
+    { path: "/ai", label: t("nav.ai"), icon: SparkIcon },
     { path: "/runtime", label: t("nav.runtime"), icon: RuntimeIcon },
     { path: "/topology", label: t("nav.topology"), icon: TopologyIcon },
     { path: "/settings", label: t("nav.settings"), icon: SettingsIcon }
@@ -189,6 +194,12 @@ const hostsRoute = createRoute({
   component: withSuspense(() => <HostsPage />)
 });
 
+const aiRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/ai",
+  component: withSuspense(() => <AiIntegrationPage />)
+});
+
 const topologyRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/topology",
@@ -207,6 +218,7 @@ const routeTree = rootRoute.addChildren([
   rulesRoute,
   proxyRoute,
   hostsRoute,
+  aiRoute,
   runtimeRoute,
   topologyRoute,
   settingsRoute

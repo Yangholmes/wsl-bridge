@@ -93,6 +93,8 @@ fn main() {
             tauri_commands::get_app_runtime_status,
             tauri_commands::get_app_settings,
             tauri_commands::update_app_settings,
+            tauri_commands::list_agent_targets,
+            tauri_commands::install_agent_skill_preview,
             tauri_commands::set_tray_visibility,
             tauri_commands::hide_main_window_to_tray,
             tauri_commands::exit_application,
