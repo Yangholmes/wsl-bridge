@@ -76,7 +76,7 @@ wsl-bridge://schemas/state
 {
   "app": {
     "version": "x.y.z",
-    "aiApiVersion": "phase3.ai.v1",
+    "aiApiVersion": "v1",
     "isAdmin": true
   },
   "proxy": {
@@ -664,7 +664,7 @@ MCP tool
 - 创建 `wsl-bridge-operator` skill。
 - 写入 Proxy / Hosts / Rules / troubleshooting recipes。
 - 对齐 MCP resources 和 patch schema。
-- 增加版本字段，例如 `requiresWslBridgeAiApi >= phase3.ai.v1`。
+- 增加版本字段，例如 `requiresWslBridgeAiApi >= v1`。
 
 验收标准：
 
@@ -825,22 +825,129 @@ skills/wsl-bridge-operator/
 ```text
 list_agent_targets
 install_agent_skill
+uninstall_agent_skill
 ```
 
-`list_agent_targets` 返回可识别 Agent、原生安装能力以及 `.agents/` fallback 能力。
+`list_agent_targets` 返回可识别 Agent、全局安装检测状态、冲突状态以及 `.agents/` fallback 能力。
 
-`install_agent_skill` 默认只执行 dry-run：
+`install_agent_skill` 支持全局安装和项目级安装；项目级安装需要用户选择项目根目录。
 
 ```ts
 install_agent_skill({
-  target: "generic" | "claude-code" | "codex" | "cursor" | "copilot" | "opencode" | "openclaw",
+  target: "generic" | "claude-code" | "codex" | "cursor" | "copilot" | "opencode",
   scope: "project" | "user",
+  mode: "dryRun" | "apply",
+  fallbackToAgentsDir: true,
+  projectRoot?: "C:\\proj"
+})
+```
+
+`uninstall_agent_skill` 只用于卸载全局 skill：
+
+```ts
+uninstall_agent_skill({
+  target: "generic" | "claude-code" | "codex" | "cursor" | "copilot" | "opencode",
+  scope: "user",
   mode: "dryRun" | "apply",
   fallbackToAgentsDir: true
 })
 ```
 
 写入用户项目或用户目录属于敏感操作，`apply` 必须经过用户确认。
+
+### Agent Skill 路径规则
+
+Phase3 后续实现中，Agent Skill 统一采用 `skills/<name>/SKILL.md` 结构，不再继续沿用 Cursor rules 等旧适配方式。
+
+skill 名称固定为：
+
+```text
+wsl-bridge-operator
+```
+
+全局配置根目录：
+
+```text
+Claude Code: ~/.claude
+OpenCode: ~/.config/opencode
+Cursor: ~/.cursor
+Codex: ~/.codex
+Copilot: ~/.copilot
+Generic: ~/.agents
+```
+
+对应全局安装目标：
+
+```text
+<global-root>/skills/wsl-bridge-operator/
+```
+
+项目级配置根目录规则：
+
+```text
+<project>/.claude
+<project>/.opencode
+<project>/.cursor
+<project>/.codex
+<project>/.copilot
+<project>/.agents
+```
+
+对应项目级安装目标：
+
+```text
+<project-root>/<agent-project-root>/skills/wsl-bridge-operator/
+```
+
+例如：
+
+```text
+OpenCode + C:\proj
+=> C:\proj\.opencode\skills\wsl-bridge-operator\SKILL.md
+```
+
+OpenCode 的 MCP 客户端配置与 Skill 安装解耦：
+
+```text
+全局：~/.config/opencode/opencode.json
+```
+
+该配置仅安装在全局目录，由本应用自动写入 / 合并，指向本机 `http://127.0.0.1:<listen_port>/mcp`；不再依赖额外 token 认证，避免刷新 token 后导致已安装 Skill 失效。项目级安装只写 Skill，不再创建项目级 `opencode.json`。
+
+### Agent Skill 检测与冲突规则
+
+AI 集成页进入时执行一次局部全局扫描，不阻塞整个 tab panel 的骨架屏；之后支持局部刷新。
+
+检测结果分为：
+
+```text
+not_installed
+installed
+conflict
+unknown
+```
+
+规则：
+
+- `installed`：目标全局路径存在，并且 marker 明确表明由本项目写入。
+- `conflict`：目标全局路径存在同名 skill，但 marker 不属于本项目。
+- `not_installed`：目标全局路径不存在本项目 skill。
+- `unknown`：扫描失败或权限 / IO 异常。
+
+冲突策略：
+
+- 冲突时禁用安装和卸载。
+- 只提示 `skill 冲突`，由用户自行处理。
+- 不允许应用覆盖未知来源 skill。
+
+项目级 skill 不做集中卸载管理：
+
+- 本应用只提供全局 skill 卸载。
+- 项目级 skill 可安装，但不在应用内维护卸载列表。
+
+### Agent Skill 预览与交互
+
+Agent Skill 面板交互改为最小操作集。
 
 ## AI 模块独立入口
 
@@ -900,7 +1007,7 @@ AI 集成
 
 ```text
 MCP：运行中 / 已停止 / 错误
-AI API：phase3.ai.v1
+AI API：第 1 版
 写操作：只读 / 仅 dry-run / 受控 apply
 Skill：已安装 Agent 数量
 最近错误：数量
@@ -930,7 +1037,7 @@ Skill：已安装 Agent 数量
 该面板不再默认展示大量工具明细，而是展示 AI API 概览：
 
 ```text
-AI API：phase3.ai.v1
+AI API：第 1 版
 Resources：N
 Tools：N
 写操作模式：仅 dry-run
@@ -950,20 +1057,55 @@ Codex
 Cursor
 Copilot
 OpenCode
-OpenClaw
 Generic .agents
 ```
 
 每个目标展示：
 
 - 检测状态。
+- 全局安装位置。
 - 安装范围：当前项目 / 用户全局。
-- 安装类型：native skill / project rule / repository instruction / generic `.agents`。
+- 安装类型：统一为 `skills/wsl-bridge-operator`。
 - 当前版本。
 - 目标版本。
-- 安装 / 更新 / 卸载 / 预览。
+- `查看预览`。
 
-安装必须先 dry-run，预览将写入的文件和影响范围。
+点击 `查看预览` 后，直接打开预览 Modal。Modal 打开即预览，不再要求用户先手动生成“安装计划”。
+
+预览展示内容：
+
+- 当前全局状态：未安装 / 已安装 / 冲突。
+- 当前全局位置。
+- 安装结构树。
+- 关键 warning。
+
+树结构示例：
+
+```text
+~/
+└── .agents/
+    └── skills/
+        └── wsl-bridge-operator/
+            ├── SKILL.md
+            ├── manifest.json
+            └── references/
+```
+
+Modal 底部按钮只保留：
+
+```text
+安装 Skill 到全局
+卸载全局 Skill
+安装 Skill 到项目
+关闭
+```
+
+说明：
+
+- 如果检测到已安装全局 skill，默认显示“已安装状态 + 安装位置 + 可卸载”，同时允许覆盖安装 / 更新安装。
+- `卸载全局 Skill` 只在本项目托管的全局 skill 存在时可用。
+- `安装 Skill 到项目` 点击后唤起系统资源选择器，由用户选择项目根目录，再执行项目级安装。
+- 冲突状态下，安装和卸载按钮都禁用，只保留冲突提示和关闭按钮。
 
 ### 能力与权限面板
 

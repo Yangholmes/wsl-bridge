@@ -66,19 +66,110 @@ pub fn update_app_settings(
 
 #[cfg(feature = "tauri")]
 #[tauri::command]
-pub fn list_agent_targets(scope: Option<String>) -> Result<Value, String> {
-    commands::list_agent_targets(scope).map_err(|err| err.to_string())
+pub fn list_agent_targets(
+    state: tauri::State<'_, AppState>,
+    scope: Option<String>,
+) -> Result<Value, String> {
+    commands::list_agent_targets(&state, scope).map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn install_agent_mcp_client(
+    state: tauri::State<'_, AppState>,
+    target: String,
+) -> Result<Value, String> {
+    commands::install_agent_mcp_client(&state, target).map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn uninstall_agent_mcp_client(
+    state: tauri::State<'_, AppState>,
+    target: String,
+) -> Result<Value, String> {
+    commands::uninstall_agent_mcp_client(&state, target).map_err(|err| err.to_string())
 }
 
 #[cfg(feature = "tauri")]
 #[tauri::command]
 pub fn install_agent_skill_preview(
+    state: tauri::State<'_, AppState>,
     target: String,
     scope: Option<String>,
     mode: Option<String>,
     fallback_to_agents_dir: Option<bool>,
+    project_root: Option<String>,
 ) -> Result<Value, String> {
-    commands::install_agent_skill_preview(target, scope, mode, fallback_to_agents_dir)
+    commands::install_agent_skill_preview(
+        &state,
+        target,
+        scope,
+        mode,
+        fallback_to_agents_dir,
+        project_root,
+    )
+    .map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn install_agent_skill(
+    state: tauri::State<'_, AppState>,
+    target: String,
+    scope: Option<String>,
+    mode: Option<String>,
+    fallback_to_agents_dir: Option<bool>,
+    project_root: Option<String>,
+) -> Result<Value, String> {
+    commands::install_agent_skill(
+        &state,
+        target,
+        scope,
+        mode,
+        fallback_to_agents_dir,
+        project_root,
+    )
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn uninstall_agent_skill_preview(
+    target: String,
+    scope: Option<String>,
+    mode: Option<String>,
+    fallback_to_agents_dir: Option<bool>,
+    project_root: Option<String>,
+) -> Result<Value, String> {
+    commands::uninstall_agent_skill_preview(
+        target,
+        scope,
+        mode,
+        fallback_to_agents_dir,
+        project_root,
+    )
+        .map_err(|err| err.to_string())
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn uninstall_agent_skill(
+    state: tauri::State<'_, AppState>,
+    target: String,
+    scope: Option<String>,
+    mode: Option<String>,
+    fallback_to_agents_dir: Option<bool>,
+    project_root: Option<String>,
+) -> Result<Value, String> {
+    commands::uninstall_agent_skill(
+        &state,
+        target,
+        scope,
+        mode,
+        fallback_to_agents_dir,
+        project_root,
+    )
         .map_err(|err| err.to_string())
 }
 

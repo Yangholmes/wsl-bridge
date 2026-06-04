@@ -12,7 +12,6 @@ import {
   HostsIcon,
   ProxyIcon,
   RulesIcon,
-  RuntimeIcon,
   SettingsIcon,
   SparkIcon,
   StatusBadge,
@@ -33,9 +32,6 @@ const DashboardPage = lazy(() =>
 );
 const RulesPage = lazy(() =>
   import("./features/rules/RulesPage").then((module) => ({ default: module.RulesPage }))
-);
-const RuntimePage = lazy(() =>
-  import("./features/runtime/RuntimePage").then((module) => ({ default: module.RuntimePage }))
 );
 const TopologyPage = lazy(() =>
   import("./features/topology/TopologyPage").then((module) => ({ default: module.TopologyPage }))
@@ -89,7 +85,6 @@ function RootLayout() {
     { path: "/proxy", label: t("nav.proxy"), icon: ProxyIcon },
     { path: "/hosts", label: t("nav.hosts"), icon: HostsIcon },
     { path: "/ai", label: t("nav.ai"), icon: SparkIcon },
-    { path: "/runtime", label: t("nav.runtime"), icon: RuntimeIcon },
     { path: "/topology", label: t("nav.topology"), icon: TopologyIcon },
     { path: "/settings", label: t("nav.settings"), icon: SettingsIcon }
   ]);
@@ -182,12 +177,6 @@ const proxyRoute = createRoute({
   component: withSuspense(() => <ProxyPage />)
 });
 
-const runtimeRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/runtime",
-  component: withSuspense(() => <RuntimePage />)
-});
-
 const hostsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/hosts",
@@ -219,7 +208,6 @@ const routeTree = rootRoute.addChildren([
   proxyRoute,
   hostsRoute,
   aiRoute,
-  runtimeRoute,
   topologyRoute,
   settingsRoute
 ]);

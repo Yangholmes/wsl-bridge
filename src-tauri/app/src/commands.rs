@@ -45,17 +45,125 @@ pub fn update_app_settings(state: &AppState, settings: AppSettings) -> Result<()
         .map_err(Into::into)
 }
 
-pub fn list_agent_targets(scope: Option<String>) -> Result<Value> {
-    mcp::list_agent_targets_payload(scope)
+pub fn list_agent_targets(state: &AppState, scope: Option<String>) -> Result<Value> {
+    let config = state.engine.get_mcp_config();
+    mcp::list_agent_targets_payload(scope, Some(&config))
+}
+
+pub fn install_agent_mcp_client(state: &AppState, target: String) -> Result<Value> {
+    let config = state.engine.get_mcp_config();
+    mcp::install_agent_mcp_client_payload(target, &config)
+}
+
+pub fn uninstall_agent_mcp_client(state: &AppState, target: String) -> Result<Value> {
+    let config = state.engine.get_mcp_config();
+    mcp::uninstall_agent_mcp_client_payload(target, &config)
 }
 
 pub fn install_agent_skill_preview(
+    state: &AppState,
     target: String,
     scope: Option<String>,
     mode: Option<String>,
     fallback_to_agents_dir: Option<bool>,
+    project_root: Option<String>,
 ) -> Result<Value> {
-    mcp::install_agent_skill_payload(target, scope, mode, fallback_to_agents_dir)
+    let config = state.engine.get_mcp_config();
+    mcp::install_agent_skill_payload(
+        target,
+        scope,
+        mode,
+        fallback_to_agents_dir,
+        project_root,
+        Some(&config),
+    )
+}
+
+pub fn install_agent_skill(
+    state: &AppState,
+    target: String,
+    scope: Option<String>,
+    mode: Option<String>,
+    fallback_to_agents_dir: Option<bool>,
+    project_root: Option<String>,
+) -> Result<Value> {
+    let result = mcp::install_agent_skill_payload(
+        target,
+        scope,
+        mode,
+        fallback_to_agents_dir,
+        project_root,
+        Some(&state.engine.get_mcp_config()),
+    )?;
+    if result.get("mode").and_then(Value::as_str) == Some("apply")
+        && result.get("ok").and_then(Value::as_bool) == Some(true)
+    {
+        let target = result
+            .get("targetAgent")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let install_type = result
+            .get("installType")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        state.engine.append_audit_log(
+            "info",
+            "ai",
+            "agent_skill_installed",
+            &format!("target={target},install_type={install_type}"),
+        );
+    }
+    Ok(result)
+}
+
+pub fn uninstall_agent_skill_preview(
+    target: String,
+    scope: Option<String>,
+    mode: Option<String>,
+    fallback_to_agents_dir: Option<bool>,
+    project_root: Option<String>,
+) -> Result<Value> {
+    mcp::uninstall_agent_skill_payload(target, scope, mode, fallback_to_agents_dir, project_root)
+}
+
+pub fn uninstall_agent_skill(
+    state: &AppState,
+    target: String,
+    scope: Option<String>,
+    mode: Option<String>,
+    fallback_to_agents_dir: Option<bool>,
+    project_root: Option<String>,
+) -> Result<Value> {
+    let result = mcp::uninstall_agent_skill_payload(
+        target,
+        scope,
+        mode,
+        fallback_to_agents_dir,
+        project_root,
+    )?;
+    if result.get("mode").and_then(Value::as_str) == Some("apply")
+        && result.get("ok").and_then(Value::as_bool) == Some(true)
+    {
+        let target = result
+            .get("targetAgent")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let install_type = result
+            .get("installType")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let detected_state = result
+            .get("detectedState")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        state.engine.append_audit_log(
+            "info",
+            "ai",
+            "agent_skill_uninstalled",
+            &format!("target={target},install_type={install_type},detected_state={detected_state}"),
+        );
+    }
+    Ok(result)
 }
 
 pub fn list_rules(state: &AppState) -> Vec<ProxyRule> {

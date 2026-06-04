@@ -14,3 +14,19 @@
 ## HTTPS
 
 HTTPS requires certificate configuration. Prefer dry-run and validation before enabling an HTTPS Listener.
+
+## Update an Existing Proxy Object
+
+1. Read `wsl-bridge://state/proxy`.
+2. Find the stable `id` of the existing Listener, Route, or Upstream.
+3. Build a ConfigPatch `update` operation with that `id`.
+4. Keep unchanged fields omitted. Do not convert an update into a create.
+5. Dry-run before apply.
+
+## Delete an Existing Proxy Object
+
+1. Read `wsl-bridge://state/proxy`.
+2. Find the stable `id` of the Listener, Route, or Upstream to remove.
+3. Build a ConfigPatch `delete` operation with that `id`.
+4. Expect cascade warnings when deleting a Listener or Route.
+5. Dry-run before apply.

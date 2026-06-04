@@ -224,6 +224,45 @@ impl RuleEngine {
         self.sqlite.as_ref().map(|store| store.path())
     }
 
+    pub fn capture_snapshot(&self) -> Snapshot {
+        let store = self.store.read();
+        snapshot_from_store(&store)
+    }
+
+    pub fn restore_snapshot(&self, snapshot: Snapshot) -> Result<(), EngineError> {
+        if let Some(sqlite) = &self.sqlite {
+            sqlite.save_snapshot(&snapshot)?;
+        }
+
+        self.stop_all_active_proxy_listeners();
+
+        {
+            let mut store = self.store.write();
+            store.rules = snapshot.rules;
+            store.firewalls = snapshot.firewalls;
+            store.runtime = snapshot.runtime;
+            store.hosts_groups = snapshot.hosts_groups;
+            store.hosts_entries = snapshot.hosts_entries;
+            store.proxy_listeners = snapshot.proxy_listeners;
+            store.proxy_routes = snapshot.proxy_routes;
+            store.proxy_upstreams = snapshot.proxy_upstreams;
+            store.proxy_certificates = snapshot.proxy_certificates;
+            store.proxy_runtime = HashMap::new();
+            store.rule_migrations = snapshot.rule_migrations;
+            store.logs = snapshot.logs;
+            store.log_seq = snapshot.log_seq;
+            store.mcp_config = snapshot.mcp_config;
+            store.app_settings = snapshot.app_settings;
+        }
+
+        self.apply_proxy_listeners();
+        Ok(())
+    }
+
+    pub fn append_audit_log(&self, level: &str, module: &str, event: &str, detail: &str) {
+        self.append_engine_log(level, module, event, detail);
+    }
+
     pub fn scan_topology(&self) -> TopologySnapshot {
         let hyperv = scan_hyperv();
         if let Some(error) = hyperv.error.clone() {
@@ -723,16 +762,10 @@ impl RuleEngine {
                 "mcp listen_port must be > 0".to_owned(),
             ));
         }
-        if config.api_token.trim().is_empty() {
-            return Err(EngineError::InvalidRule(
-                "mcp api_token is required".to_owned(),
-            ));
-        }
 
         let mut store = self.store.write();
         store.mcp_config = McpServerConfig {
             server_name: server_name.to_owned(),
-            api_token: config.api_token.trim().to_owned(),
             ..config
         };
         let detail = format!(
@@ -2678,22 +2711,7 @@ impl RuleEngine {
         let Some(sqlite) = &self.sqlite else {
             return;
         };
-        let snapshot = Snapshot {
-            rules: store.rules.clone(),
-            firewalls: store.firewalls.clone(),
-            runtime: store.runtime.clone(),
-            hosts_groups: store.hosts_groups.clone(),
-            hosts_entries: store.hosts_entries.clone(),
-            proxy_listeners: store.proxy_listeners.clone(),
-            proxy_routes: store.proxy_routes.clone(),
-            proxy_upstreams: store.proxy_upstreams.clone(),
-            proxy_certificates: store.proxy_certificates.clone(),
-            rule_migrations: store.rule_migrations.clone(),
-            logs: store.logs.clone(),
-            log_seq: store.log_seq,
-            mcp_config: store.mcp_config.clone(),
-            app_settings: store.app_settings.clone(),
-        };
+        let snapshot = snapshot_from_store(store);
         if let Err(err) = sqlite.save_snapshot(&snapshot) {
             warn!("persist snapshot failed: {err}");
         }
@@ -3372,6 +3390,25 @@ fn append_log(store: &mut EngineStore, level: &str, module: &str, event: &str, d
         event: event.to_owned(),
         detail: detail.to_owned(),
     });
+}
+
+fn snapshot_from_store(store: &EngineStore) -> Snapshot {
+    Snapshot {
+        rules: store.rules.clone(),
+        firewalls: store.firewalls.clone(),
+        runtime: store.runtime.clone(),
+        hosts_groups: store.hosts_groups.clone(),
+        hosts_entries: store.hosts_entries.clone(),
+        proxy_listeners: store.proxy_listeners.clone(),
+        proxy_routes: store.proxy_routes.clone(),
+        proxy_upstreams: store.proxy_upstreams.clone(),
+        proxy_certificates: store.proxy_certificates.clone(),
+        rule_migrations: store.rule_migrations.clone(),
+        logs: store.logs.clone(),
+        log_seq: store.log_seq,
+        mcp_config: store.mcp_config.clone(),
+        app_settings: store.app_settings.clone(),
+    }
 }
 
 fn set_runtime_status(

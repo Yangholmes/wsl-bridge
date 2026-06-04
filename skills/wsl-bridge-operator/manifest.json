@@ -2,7 +2,7 @@
   "id": "wsl-bridge-operator",
   "name": "wsl-bridge Operator",
   "version": "0.1.0",
-  "requiresWslBridgeAiApi": "phase3.ai.v1",
+  "requiresWslBridgeAiApi": "v1",
   "description": "Operate wsl-bridge through MCP resources, config patches, dry-run and validation.",
   "files": [
     "SKILL.md",

@@ -7,6 +7,10 @@ export type AgentSkillTarget = {
   displayName: string;
   scope: AgentSkillScope;
   detected: string;
+  mcpDetected: string;
+  mcpInstallSupported: boolean;
+  mcpGlobalPath?: string;
+  globalPath: string;
   supportsNativeSkill: boolean;
   supportsProjectInstall: boolean;
   supportsUserInstall: boolean;
@@ -22,6 +26,14 @@ export type AgentSkillInfo = {
   version: string;
   requiresWslBridgeAiApi: string;
   canonicalPackage: string;
+};
+
+export type AgentMcpClientPayload = {
+  ok: boolean;
+  targetAgent: string;
+  detectedState: string;
+  path?: string;
+  metadataPath?: string;
 };
 
 export type AgentSkillTargetsPayload = {
@@ -45,16 +57,56 @@ export type AgentSkillPreviewWarning = {
 export type AgentSkillPreviewPayload = {
   ok: boolean;
   mode: string;
+  operation: "install" | "uninstall";
   skill: AgentSkillInfo;
   targetAgent: string;
   scope: AgentSkillScope;
   installType: string;
+  detectedState?: string;
+  rootPath?: string;
+  resolvedPaths: string[];
   writes: AgentSkillPreviewWrite[];
+  deletes: AgentSkillPreviewWrite[];
   warnings: AgentSkillPreviewWarning[];
+  appliedPaths?: string[];
+  deletedPaths?: string[];
+};
+
+export type AuditLog = {
+  id: number;
+  time: string;
+  level: string;
+  module: string;
+  event: string;
+  detail: string;
+};
+
+export type LogQueryRequest = {
+  level?: string;
+  module?: string;
+  rule_id?: string;
+  keyword?: string;
+  start_time?: string;
+  end_time?: string;
+  limit?: number;
+  newest_first?: boolean;
+};
+
+export type LogQueryResult = {
+  total: number;
+  events: AuditLog[];
 };
 
 export function listAgentTargets(scope?: AgentSkillScope) {
   return invokeBridge<AgentSkillTargetsPayload>("list_agent_targets", { scope });
+}
+
+export function installAgentMcpClient(target: string) {
+  return invokeBridge<AgentMcpClientPayload>("install_agent_mcp_client", { target });
+}
+
+export function uninstallAgentMcpClient(target: string) {
+  return invokeBridge<AgentMcpClientPayload>("uninstall_agent_mcp_client", { target });
 }
 
 export function installAgentSkillPreview(input: {
@@ -62,11 +114,65 @@ export function installAgentSkillPreview(input: {
   scope?: AgentSkillScope;
   mode?: "dryRun";
   fallbackToAgentsDir?: boolean;
+  projectRoot?: string;
 }) {
   return invokeBridge<AgentSkillPreviewPayload>("install_agent_skill_preview", {
     target: input.target,
     scope: input.scope,
     mode: input.mode ?? "dryRun",
-    fallbackToAgentsDir: input.fallbackToAgentsDir
+    fallbackToAgentsDir: input.fallbackToAgentsDir,
+    projectRoot: input.projectRoot
   });
+}
+
+export function installAgentSkill(input: {
+  target: string;
+  scope?: AgentSkillScope;
+  mode?: "dryRun" | "apply";
+  fallbackToAgentsDir?: boolean;
+  projectRoot?: string;
+}) {
+  return invokeBridge<AgentSkillPreviewPayload>("install_agent_skill", {
+    target: input.target,
+    scope: input.scope,
+    mode: input.mode ?? "apply",
+    fallbackToAgentsDir: input.fallbackToAgentsDir,
+    projectRoot: input.projectRoot
+  });
+}
+
+export function uninstallAgentSkillPreview(input: {
+  target: string;
+  scope?: AgentSkillScope;
+  mode?: "dryRun";
+  fallbackToAgentsDir?: boolean;
+  projectRoot?: string;
+}) {
+  return invokeBridge<AgentSkillPreviewPayload>("uninstall_agent_skill_preview", {
+    target: input.target,
+    scope: input.scope,
+    mode: input.mode ?? "dryRun",
+    fallbackToAgentsDir: input.fallbackToAgentsDir,
+    projectRoot: input.projectRoot
+  });
+}
+
+export function uninstallAgentSkill(input: {
+  target: string;
+  scope?: AgentSkillScope;
+  mode?: "dryRun" | "apply";
+  fallbackToAgentsDir?: boolean;
+  projectRoot?: string;
+}) {
+  return invokeBridge<AgentSkillPreviewPayload>("uninstall_agent_skill", {
+    target: input.target,
+    scope: input.scope,
+    mode: input.mode ?? "apply",
+    fallbackToAgentsDir: input.fallbackToAgentsDir,
+    projectRoot: input.projectRoot
+  });
+}
+
+export function queryAuditLogs(req: LogQueryRequest) {
+  return invokeBridge<LogQueryResult>("query_logs", { req });
 }

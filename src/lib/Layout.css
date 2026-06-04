@@ -88,6 +88,7 @@
 
 .sidebar-nav-item svg {
   flex-shrink: 0;
+  display: block;
 }
 
 .sidebar-footer {

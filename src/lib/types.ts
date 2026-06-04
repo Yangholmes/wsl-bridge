@@ -352,7 +352,6 @@ export type McpServerConfig = {
   enabled: boolean;
   server_name: string;
   listen_port: number;
-  api_token: string;
   expose_topology_read: boolean;
   expose_rule_config: boolean;
   expose_traffic_stats: boolean;
