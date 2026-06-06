@@ -105,9 +105,20 @@ export function ProxyCanvas(props: ProxyCanvasProps) {
   });
 
   onMount(() => {
-    if (!stageRef) return;
+    if (!hostRef || !stageRef) return;
     let destroyed = false;
     const pixiApp = new Application();
+
+    const syncStageHeight = () => {
+      if (!hostRef || !stageRef) return;
+      const toolbar = hostRef.querySelector<HTMLElement>(".proxy-canvas-toolbar");
+      const nextHeight = Math.max(0, hostRef.clientHeight - (toolbar?.offsetHeight ?? 0));
+      if (nextHeight > 0) {
+        stageRef.style.height = `${nextHeight}px`;
+      }
+    };
+
+    syncStageHeight();
     void pixiApp
       .init({
         resizeTo: stageRef,
@@ -132,10 +143,13 @@ export function ProxyCanvas(props: ProxyCanvasProps) {
         restoreViewport();
         setupStageInteractions(pixiApp);
         resizeObserver = new ResizeObserver(() => {
+          syncStageHeight();
           pixiApp.resize();
           updateResetVisibility(layout());
         });
+        resizeObserver.observe(hostRef);
         resizeObserver.observe(stageRef);
+        window.addEventListener("resize", syncStageHeight);
         setReady(true);
       });
 
@@ -144,6 +158,7 @@ export function ProxyCanvas(props: ProxyCanvasProps) {
       if (activeAnimation && pixiApp) pixiApp.ticker.remove(activeAnimation);
       if (highlightTimer) window.clearTimeout(highlightTimer);
       resizeObserver?.disconnect();
+      window.removeEventListener("resize", syncStageHeight);
       pixiApp.destroy(true);
     });
   });

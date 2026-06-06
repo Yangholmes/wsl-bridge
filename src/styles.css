@@ -323,6 +323,15 @@ a {
   gap: var(--space-16);
 }
 
+.section-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .section-card-title,
 .panel h2,
 .page-shell h2 {

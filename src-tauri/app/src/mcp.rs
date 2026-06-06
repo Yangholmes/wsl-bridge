@@ -2824,8 +2824,9 @@ fn install_agent_mcp_client_for_user_root(
 
     let destination = agent_mcp_client_path(target, user_root)
         .ok_or_else(|| anyhow!("resolve MCP client path failed"))?;
-    let metadata_path = opencode_client_config_sidecar_path(&destination);
-    let rendered = render_opencode_client_config(
+    let metadata_path = agent_mcp_client_metadata_path(target, &destination);
+    let rendered = render_agent_mcp_client_config(
+        target,
         &destination,
         mcp_config,
         "wsl-bridge-operator",
@@ -2838,7 +2839,7 @@ fn install_agent_mcp_client_for_user_root(
     fs::write(&destination, rendered)?;
     fs::write(
         &metadata_path,
-        render_opencode_client_config_metadata(
+        render_managed_entry_metadata(
             mcp_config,
             "wsl-bridge-operator",
             "0.1.0",
@@ -2865,7 +2866,8 @@ fn uninstall_agent_mcp_client_for_user_root(
 
     let destination = agent_mcp_client_path(target, user_root)
         .ok_or_else(|| anyhow!("resolve MCP client path failed"))?;
-    let removed = remove_managed_opencode_client_config(
+    let removed = remove_managed_agent_mcp_client_config(
+        target,
         &destination,
         "wsl-bridge-operator",
         "skill-directory",
@@ -5708,6 +5710,34 @@ fn canonical_skill_file_paths(base: &str) -> Vec<AgentSkillInstallWrite> {
 
 fn agent_mcp_client_path(target: &str, user_root: &Path) -> Option<PathBuf> {
     match target {
+        "claude-code" => Some(resolve_agent_install_destination(
+            "~/.claude.json",
+            "user",
+            "mcp-client",
+            Path::new("."),
+            user_root,
+        )),
+        "codex" => Some(resolve_agent_install_destination(
+            "~/.codex/config.toml",
+            "user",
+            "mcp-client",
+            Path::new("."),
+            user_root,
+        )),
+        "cursor" => Some(resolve_agent_install_destination(
+            "~/.cursor/mcp.json",
+            "user",
+            "mcp-client",
+            Path::new("."),
+            user_root,
+        )),
+        "copilot" => Some(resolve_agent_install_destination(
+            "~/.copilot/mcp-config.json",
+            "user",
+            "mcp-client",
+            Path::new("."),
+            user_root,
+        )),
         "opencode" => Some(
             resolve_agent_install_destination(
                 "~/.config/opencode/opencode.json",
@@ -5718,6 +5748,16 @@ fn agent_mcp_client_path(target: &str, user_root: &Path) -> Option<PathBuf> {
             ),
         ),
         _ => None,
+    }
+}
+
+fn agent_mcp_client_metadata_path(target: &str, config_path: &Path) -> PathBuf {
+    match target {
+        "claude-code" => managed_entry_metadata_path(config_path, ".wsl-bridge-claude-code-mcp-managed.json"),
+        "codex" => managed_entry_metadata_path(config_path, ".wsl-bridge-codex-mcp-managed.json"),
+        "cursor" => managed_entry_metadata_path(config_path, ".wsl-bridge-cursor-mcp-managed.json"),
+        "copilot" => managed_entry_metadata_path(config_path, ".wsl-bridge-copilot-mcp-managed.json"),
+        _ => opencode_client_config_sidecar_path(config_path),
     }
 }
 
@@ -5738,7 +5778,7 @@ fn detect_agent_mcp_client_state(
     let detected_state = if !path.exists() {
         "not_installed".to_owned()
     } else {
-        match detect_opencode_mcp_client_state(&path, mcp_config) {
+        match detect_managed_agent_mcp_client_state(target, &path, mcp_config) {
             Ok(state) => state,
             Err(_) => "unknown".to_owned(),
         }
@@ -5750,6 +5790,39 @@ fn detect_agent_mcp_client_state(
         detected_state,
         path: Some(path.display().to_string()),
     })
+}
+
+fn detect_managed_agent_mcp_client_state(
+    target: &str,
+    path: &Path,
+    mcp_config: &McpServerConfig,
+) -> Result<String> {
+    match target {
+        "claude-code" => detect_json_mcp_client_state(
+            path,
+            mcp_config,
+            "mcpServers",
+            &agent_mcp_client_metadata_path(target, path),
+        ),
+        "cursor" => detect_json_mcp_client_state(
+            path,
+            mcp_config,
+            "mcpServers",
+            &agent_mcp_client_metadata_path(target, path),
+        ),
+        "copilot" => detect_json_mcp_client_state(
+            path,
+            mcp_config,
+            "mcpServers",
+            &agent_mcp_client_metadata_path(target, path),
+        ),
+        "codex" => detect_codex_mcp_client_state(
+            path,
+            mcp_config,
+            &agent_mcp_client_metadata_path(target, path),
+        ),
+        _ => detect_opencode_mcp_client_state(path, mcp_config),
+    }
 }
 
 fn detect_opencode_mcp_client_state(path: &Path, mcp_config: &McpServerConfig) -> Result<String> {
@@ -6234,7 +6307,7 @@ fn write_agent_install_file(
             skill_version,
             install_type,
         )?,
-        "rendered-opencode-client-config-meta" => render_opencode_client_config_metadata(
+        "rendered-opencode-client-config-meta" => render_managed_entry_metadata(
             mcp_config,
             skill_id,
             skill_version,
@@ -6332,7 +6405,7 @@ fn build_managed_opencode_entry(
     })
 }
 
-fn render_opencode_client_config_metadata(
+fn render_managed_entry_metadata(
     mcp_config: &McpServerConfig,
     skill_id: &str,
     skill_version: &str,
@@ -6350,6 +6423,115 @@ fn render_opencode_client_config_metadata(
     ))
 }
 
+fn render_agent_mcp_client_config(
+    target: &str,
+    destination: &Path,
+    mcp_config: &McpServerConfig,
+    skill_id: &str,
+    skill_version: &str,
+    install_type: &str,
+) -> Result<String> {
+    match target {
+        "claude-code" => render_json_mcp_client_config(
+            destination,
+            "mcpServers",
+            build_managed_claude_code_entry(mcp_config),
+            &agent_mcp_client_metadata_path(target, destination),
+            mcp_config,
+            skill_id,
+            skill_version,
+            install_type,
+        ),
+        "cursor" => render_json_mcp_client_config(
+            destination,
+            "mcpServers",
+            build_managed_cursor_entry(mcp_config),
+            &agent_mcp_client_metadata_path(target, destination),
+            mcp_config,
+            skill_id,
+            skill_version,
+            install_type,
+        ),
+        "copilot" => render_json_mcp_client_config(
+            destination,
+            "mcpServers",
+            build_managed_copilot_entry(mcp_config),
+            &agent_mcp_client_metadata_path(target, destination),
+            mcp_config,
+            skill_id,
+            skill_version,
+            install_type,
+        ),
+        "codex" => render_codex_mcp_client_config(
+            destination,
+            mcp_config,
+            &agent_mcp_client_metadata_path(target, destination),
+            skill_id,
+            skill_version,
+            install_type,
+        ),
+        _ => render_opencode_client_config(
+            destination,
+            mcp_config,
+            skill_id,
+            skill_version,
+            install_type,
+        ),
+    }
+}
+
+fn render_json_mcp_client_config(
+    destination: &Path,
+    container_key: &str,
+    managed_entry: Value,
+    metadata_path: &Path,
+    mcp_config: &McpServerConfig,
+    skill_id: &str,
+    _skill_version: &str,
+    install_type: &str,
+) -> Result<String> {
+    let mut root = if destination.exists() {
+        let text = fs::read_to_string(destination)?;
+        serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({}))
+    } else {
+        json!({})
+    };
+    let root_object = ensure_json_object(&mut root)?;
+    let mcp_value = root_object
+        .entry(container_key.to_owned())
+        .or_insert_with(|| json!({}));
+    let mcp_object = ensure_json_object(mcp_value)?;
+
+    let mut managed_names = read_managed_json_entry_names(metadata_path, skill_id, install_type)?;
+    managed_names.extend(legacy_managed_json_entry_names(mcp_object, skill_id, install_type));
+    managed_names.insert(mcp_config.server_name.clone());
+    mcp_object.retain(|name, _| !managed_names.contains(name));
+    mcp_object.insert(mcp_config.server_name.clone(), managed_entry);
+
+    Ok(format!("{}\n", serde_json::to_string_pretty(&root)?))
+}
+
+fn build_managed_claude_code_entry(mcp_config: &McpServerConfig) -> Value {
+    json!({
+      "type": "http",
+      "url": format!("http://127.0.0.1:{}{}", mcp_config.listen_port, MCP_PATH)
+    })
+}
+
+fn build_managed_cursor_entry(mcp_config: &McpServerConfig) -> Value {
+    json!({
+      "url": format!("http://127.0.0.1:{}{}", mcp_config.listen_port, MCP_PATH)
+    })
+}
+
+fn build_managed_copilot_entry(mcp_config: &McpServerConfig) -> Value {
+    json!({
+      "type": "http",
+      "url": format!("http://127.0.0.1:{}{}", mcp_config.listen_port, MCP_PATH),
+      "tools": ["*"]
+    })
+}
+
 fn ensure_json_object(value: &mut Value) -> Result<&mut serde_json::Map<String, Value>> {
     if !value.is_object() {
         *value = json!({});
@@ -6360,13 +6542,17 @@ fn ensure_json_object(value: &mut Value) -> Result<&mut serde_json::Map<String, 
 }
 
 fn opencode_client_config_sidecar_path(config_path: &Path) -> PathBuf {
+    managed_entry_metadata_path(config_path, ".wsl-bridge-opencode-managed.json")
+}
+
+fn managed_entry_metadata_path(config_path: &Path, filename: &str) -> PathBuf {
     config_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join(".wsl-bridge-opencode-managed.json")
+        .join(filename)
 }
 
-fn read_managed_opencode_entry_names(
+fn read_managed_json_entry_names(
     metadata_path: &Path,
     skill_id: &str,
     install_type: &str,
@@ -6395,21 +6581,37 @@ fn read_managed_opencode_entry_names(
         .collect())
 }
 
-fn legacy_managed_opencode_entry_names(
-    mcp_object: &serde_json::Map<String, Value>,
+fn read_managed_opencode_entry_names(
+    metadata_path: &Path,
+    skill_id: &str,
+    install_type: &str,
+) -> Result<HashSet<String>> {
+    read_managed_json_entry_names(metadata_path, skill_id, install_type)
+}
+
+fn legacy_managed_json_entry_names(
+    entries: &serde_json::Map<String, Value>,
     skill_id: &str,
     install_type: &str,
 ) -> HashSet<String> {
-    mcp_object
+    entries
         .iter()
         .filter_map(|(name, value)| {
-            if is_legacy_managed_opencode_entry_value(value, skill_id, install_type) {
+            if is_legacy_managed_json_entry_value(value, skill_id, install_type) {
                 Some(name.to_owned())
             } else {
                 None
             }
         })
         .collect()
+}
+
+fn legacy_managed_opencode_entry_names(
+    mcp_object: &serde_json::Map<String, Value>,
+    skill_id: &str,
+    install_type: &str,
+) -> HashSet<String> {
+    legacy_managed_json_entry_names(mcp_object, skill_id, install_type)
 }
 
 fn has_managed_opencode_client_config(
@@ -6479,7 +6681,93 @@ fn remove_managed_opencode_client_config(
     Ok(removed)
 }
 
-fn is_legacy_managed_opencode_entry_value(entry: &Value, skill_id: &str, install_type: &str) -> bool {
+fn detect_json_mcp_client_state(
+    path: &Path,
+    mcp_config: &McpServerConfig,
+    container_key: &str,
+    metadata_path: &Path,
+) -> Result<String> {
+    let text = fs::read_to_string(path)?;
+    let value = serde_json::from_str::<Value>(&text)?;
+    let entry = value
+        .get(container_key)
+        .and_then(Value::as_object)
+        .and_then(|mcp| mcp.get(&mcp_config.server_name));
+    let managed_names = read_managed_json_entry_names(
+        metadata_path,
+        "wsl-bridge-operator",
+        "skill-directory",
+    )?;
+
+    match entry {
+        Some(entry_value) => {
+            let managed = managed_names.contains(&mcp_config.server_name)
+                || is_legacy_managed_json_entry_value(
+                    entry_value,
+                    "wsl-bridge-operator",
+                    "skill-directory",
+                );
+            if managed {
+                Ok("installed".to_owned())
+            } else {
+                Ok("conflict".to_owned())
+            }
+        }
+        None => {
+            if managed_names.is_empty() {
+                Ok("not_installed".to_owned())
+            } else {
+                Ok("conflict".to_owned())
+            }
+        }
+    }
+}
+
+fn remove_managed_json_mcp_client_config(
+    path: &Path,
+    container_key: &str,
+    metadata_path: &Path,
+    skill_id: &str,
+    install_type: &str,
+) -> Result<bool> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let text = fs::read_to_string(path)?;
+    let mut value = serde_json::from_str::<Value>(&text)?;
+    let mut removed = false;
+    let metadata_names = read_managed_json_entry_names(metadata_path, skill_id, install_type)?;
+
+    if let Some(root) = value.as_object_mut() {
+        if let Some(mcp) = root.get_mut(container_key).and_then(Value::as_object_mut) {
+            let original_len = mcp.len();
+            mcp.retain(|name, entry| {
+                !(metadata_names.contains(name)
+                    || is_legacy_managed_json_entry_value(entry, skill_id, install_type))
+            });
+            removed = mcp.len() != original_len;
+            if mcp.is_empty() {
+                root.remove(container_key);
+            }
+        }
+
+        if removed {
+            if root.is_empty() {
+                fs::remove_file(path)?;
+            } else {
+                fs::write(path, format!("{}\n", serde_json::to_string_pretty(&value)?))?;
+            }
+        }
+    }
+
+    if metadata_path.exists() {
+        fs::remove_file(metadata_path)?;
+    }
+
+    Ok(removed)
+}
+
+fn is_legacy_managed_json_entry_value(entry: &Value, skill_id: &str, install_type: &str) -> bool {
     entry
         .as_object()
         .map(|object| {
@@ -6488,6 +6776,175 @@ fn is_legacy_managed_opencode_entry_value(entry: &Value, skill_id: &str, install
                 && object.get("_installType").and_then(Value::as_str) == Some(install_type)
         })
         .unwrap_or(false)
+}
+
+fn is_legacy_managed_opencode_entry_value(entry: &Value, skill_id: &str, install_type: &str) -> bool {
+    is_legacy_managed_json_entry_value(entry, skill_id, install_type)
+}
+
+fn render_codex_mcp_client_config(
+    destination: &Path,
+    mcp_config: &McpServerConfig,
+    metadata_path: &Path,
+    skill_id: &str,
+    _skill_version: &str,
+    install_type: &str,
+) -> Result<String> {
+    let existing = if destination.exists() {
+        fs::read_to_string(destination)?
+    } else {
+        String::new()
+    };
+    let managed_names = read_managed_json_entry_names(metadata_path, skill_id, install_type)?;
+    let cleaned = remove_codex_mcp_server_blocks(
+        &existing,
+        managed_names.iter().chain(std::iter::once(&mcp_config.server_name)),
+    );
+    let mut rendered = cleaned.trim_end().to_owned();
+    if !rendered.is_empty() {
+        rendered.push_str("\n\n");
+    }
+    rendered.push_str(&format!(
+        "[mcp_servers.{name}]\nurl = \"{url}\"\n",
+        name = mcp_config.server_name,
+        url = format!("http://127.0.0.1:{}{}", mcp_config.listen_port, MCP_PATH),
+    ));
+    Ok(rendered)
+}
+
+fn remove_codex_mcp_server_blocks<'a>(
+    content: &str,
+    names: impl IntoIterator<Item = &'a String>,
+) -> String {
+    let removal_names: HashSet<String> = names.into_iter().cloned().collect();
+    let mut result = Vec::new();
+    let mut skip = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(name) = parse_codex_mcp_server_header(trimmed) {
+            skip = removal_names.contains(name);
+            if skip {
+                continue;
+            }
+        }
+        if skip {
+            if trimmed.starts_with('[') {
+                skip = false;
+            } else {
+                continue;
+            }
+        }
+        result.push(line);
+    }
+
+    let joined = result.join("\n");
+    format!("{}\n", joined.trim_end())
+}
+
+fn parse_codex_mcp_server_header(line: &str) -> Option<&str> {
+    line
+        .strip_prefix("[mcp_servers.")
+        .and_then(|rest| rest.strip_suffix(']'))
+}
+
+fn detect_codex_mcp_client_state(
+    path: &Path,
+    mcp_config: &McpServerConfig,
+    metadata_path: &Path,
+) -> Result<String> {
+    let text = fs::read_to_string(path)?;
+    let managed_names = read_managed_json_entry_names(
+        metadata_path,
+        "wsl-bridge-operator",
+        "skill-directory",
+    )?;
+    let installed = text
+        .lines()
+        .filter_map(|line| parse_codex_mcp_server_header(line.trim()))
+        .any(|name| name == mcp_config.server_name);
+
+    if installed {
+        if managed_names.contains(&mcp_config.server_name) {
+            Ok("installed".to_owned())
+        } else {
+            Ok("conflict".to_owned())
+        }
+    } else if managed_names.is_empty() {
+        Ok("not_installed".to_owned())
+    } else {
+        Ok("conflict".to_owned())
+    }
+}
+
+fn remove_managed_codex_mcp_client_config(
+    path: &Path,
+    metadata_path: &Path,
+    skill_id: &str,
+    install_type: &str,
+) -> Result<bool> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let text = fs::read_to_string(path)?;
+    let metadata_names = read_managed_json_entry_names(metadata_path, skill_id, install_type)?;
+    if metadata_names.is_empty() {
+        if metadata_path.exists() {
+            fs::remove_file(metadata_path)?;
+        }
+        return Ok(false);
+    }
+    let updated = remove_codex_mcp_server_blocks(&text, metadata_names.iter());
+    let removed = updated.trim() != text.trim();
+    if removed {
+        if updated.trim().is_empty() {
+            fs::remove_file(path)?;
+        } else {
+            fs::write(path, updated)?;
+        }
+    }
+    if metadata_path.exists() {
+        fs::remove_file(metadata_path)?;
+    }
+    Ok(removed)
+}
+
+fn remove_managed_agent_mcp_client_config(
+    target: &str,
+    path: &Path,
+    skill_id: &str,
+    install_type: &str,
+) -> Result<bool> {
+    match target {
+        "claude-code" => remove_managed_json_mcp_client_config(
+            path,
+            "mcpServers",
+            &agent_mcp_client_metadata_path(target, path),
+            skill_id,
+            install_type,
+        ),
+        "cursor" => remove_managed_json_mcp_client_config(
+            path,
+            "mcpServers",
+            &agent_mcp_client_metadata_path(target, path),
+            skill_id,
+            install_type,
+        ),
+        "copilot" => remove_managed_json_mcp_client_config(
+            path,
+            "mcpServers",
+            &agent_mcp_client_metadata_path(target, path),
+            skill_id,
+            install_type,
+        ),
+        "codex" => remove_managed_codex_mcp_client_config(
+            path,
+            &agent_mcp_client_metadata_path(target, path),
+            skill_id,
+            install_type,
+        ),
+        _ => remove_managed_opencode_client_config(path, skill_id, install_type),
+    }
 }
 
 fn managed_marker_block(skill_id: &str, skill_version: &str, install_type: &str) -> String {
@@ -7805,6 +8262,21 @@ fn build_client_presets(config: &McpServerConfig, base_url: &str) -> Vec<McpClie
             }))
             .unwrap_or_else(|_| "{}".to_owned()),
         },
+        McpClientPreset {
+            id: "copilot".to_owned(),
+            label: "Copilot".to_owned(),
+            format: "json".to_owned(),
+            content: serde_json::to_string_pretty(&json!({
+              "mcpServers": {
+                config.server_name.clone(): {
+                  "type": "http",
+                  "url": base_url,
+                  "tools": ["*"]
+                }
+              }
+            }))
+            .unwrap_or_else(|_| "{}".to_owned()),
+        },
     ]
 }
 
@@ -7973,7 +8445,7 @@ mod tests {
     use std::fs;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -8016,6 +8488,86 @@ mod tests {
             expose_rule_config: true,
             expose_traffic_stats: true,
         }
+    }
+
+    fn temp_agent_root(prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "{prefix}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("duration")
+                .as_nanos()
+        ))
+    }
+
+    fn assert_agent_mcp_install_roundtrip(
+        target: &str,
+        user_root: &Path,
+        expected_path: PathBuf,
+        existing_content: Option<&str>,
+        expected_installed_fragment: &str,
+        expected_preserved_fragment: &str,
+    ) {
+        fs::create_dir_all(user_root).expect("create user root");
+        if let Some(parent) = expected_path.parent() {
+            fs::create_dir_all(parent).expect("create config parent");
+        }
+        if let Some(content) = existing_content {
+            fs::write(&expected_path, content).expect("seed config");
+        }
+
+        let detected_before = super::detect_agent_mcp_client_state(
+            target,
+            user_root,
+            &test_mcp_config(),
+        )
+        .expect("detect before install");
+        assert_eq!(detected_before.detected_state, "not_installed");
+
+        let (installed_path, metadata_path) = super::install_agent_mcp_client_for_user_root(
+            target,
+            user_root,
+            &test_mcp_config(),
+        )
+        .expect("install mcp client");
+        assert_eq!(installed_path, expected_path);
+        assert!(metadata_path.exists());
+
+        let detected_after = super::detect_agent_mcp_client_state(
+            target,
+            user_root,
+            &test_mcp_config(),
+        )
+        .expect("detect after install");
+        assert_eq!(detected_after.detected_state, "installed");
+
+        let installed_text = fs::read_to_string(&expected_path).expect("read installed config");
+        assert!(installed_text.contains(expected_installed_fragment));
+        assert!(installed_text.contains(expected_preserved_fragment));
+
+        let (_, removed) = super::uninstall_agent_mcp_client_for_user_root(
+            target,
+            user_root,
+            &test_mcp_config(),
+        )
+        .expect("uninstall mcp client");
+        assert!(removed);
+
+        let detected_final = super::detect_agent_mcp_client_state(
+            target,
+            user_root,
+            &test_mcp_config(),
+        )
+        .expect("detect after uninstall");
+        assert_eq!(detected_final.detected_state, "not_installed");
+
+        if expected_path.exists() {
+            let final_text = fs::read_to_string(&expected_path).expect("read final config");
+            assert!(final_text.contains(expected_preserved_fragment));
+            assert!(!final_text.contains(expected_installed_fragment));
+        }
+
+        let _ = fs::remove_dir_all(user_root);
     }
 
     fn send_http_request(port: u16, body: serde_json::Value) -> (u16, String) {
@@ -9174,6 +9726,110 @@ mod tests {
         assert_eq!(detected, "not_installed");
 
         let _ = fs::remove_dir_all(project_root);
+        let _ = fs::remove_dir_all(user_root);
+    }
+
+    #[test]
+    fn install_and_uninstall_cursor_mcp_client_manage_only_owned_entry() {
+        let user_root = temp_agent_root("wsl-bridge-agent-cursor-mcp-user");
+        let expected_path = user_root.join(".cursor").join("mcp.json");
+        let existing = serde_json::to_string_pretty(&json!({
+          "mcpServers": {
+            "user-service": {
+              "url": "https://example.com/mcp"
+            }
+          },
+          "theme": "dark"
+        }))
+        .expect("serialize cursor config");
+        assert_agent_mcp_install_roundtrip(
+            "cursor",
+            &user_root,
+            expected_path,
+            Some(&existing),
+            "\"wsl-bridge\"",
+            "\"user-service\"",
+        );
+    }
+
+    #[test]
+    fn install_and_uninstall_copilot_mcp_client_manage_only_owned_entry() {
+        let user_root = temp_agent_root("wsl-bridge-agent-copilot-mcp-user");
+        let expected_path = user_root.join(".copilot").join("mcp-config.json");
+        let existing = serde_json::to_string_pretty(&json!({
+          "mcpServers": {
+            "user-service": {
+              "type": "http",
+              "url": "https://example.com/mcp",
+              "tools": ["read"]
+            }
+          }
+        }))
+        .expect("serialize copilot config");
+        assert_agent_mcp_install_roundtrip(
+            "copilot",
+            &user_root,
+            expected_path,
+            Some(&existing),
+            "\"wsl-bridge\"",
+            "\"user-service\"",
+        );
+    }
+
+    #[test]
+    fn install_and_uninstall_claude_code_mcp_client_manage_only_owned_entry() {
+        let user_root = temp_agent_root("wsl-bridge-agent-claude-mcp-user");
+        let expected_path = user_root.join(".claude.json");
+        let existing = serde_json::to_string_pretty(&json!({
+          "mcpServers": {
+            "user-service": {
+              "type": "http",
+              "url": "https://example.com/mcp"
+            }
+          }
+        }))
+        .expect("serialize claude config");
+        assert_agent_mcp_install_roundtrip(
+            "claude-code",
+            &user_root,
+            expected_path,
+            Some(&existing),
+            "\"wsl-bridge\"",
+            "\"user-service\"",
+        );
+    }
+
+    #[test]
+    fn install_and_uninstall_codex_mcp_client_manage_only_owned_entry() {
+        let user_root = temp_agent_root("wsl-bridge-agent-codex-mcp-user");
+        let expected_path = user_root.join(".codex").join("config.toml");
+        assert_agent_mcp_install_roundtrip(
+            "codex",
+            &user_root,
+            expected_path,
+            Some(
+                "model = \"gpt-5.4\"\n\n[mcp_servers.user-service]\nurl = \"https://example.com/mcp\"\n",
+            ),
+            "[mcp_servers.wsl-bridge]",
+            "[mcp_servers.user-service]",
+        );
+    }
+
+    #[test]
+    fn detect_codex_mcp_client_conflict_when_entry_is_user_owned() {
+        let user_root = temp_agent_root("wsl-bridge-agent-codex-mcp-conflict-user");
+        let config_path = user_root.join(".codex").join("config.toml");
+        fs::create_dir_all(config_path.parent().expect("codex parent")).expect("create codex parent");
+        fs::write(
+            &config_path,
+            "[mcp_servers.wsl-bridge]\nurl = \"https://example.com/mcp\"\n",
+        )
+        .expect("write codex config");
+
+        let detected = super::detect_agent_mcp_client_state("codex", &user_root, &test_mcp_config())
+            .expect("detect codex state");
+        assert_eq!(detected.detected_state, "conflict");
+
         let _ = fs::remove_dir_all(user_root);
     }
 

@@ -4,39 +4,11 @@
 
 .ai-page .metric-grid {
   align-items: stretch;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
 }
 
-.ai-capability-metric {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: var(--space-12);
-  align-items: center;
-  width: 100%;
-}
-
-.ai-capability-metric-item {
-  display: grid;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-.ai-capability-metric-item strong {
-  font-size: 28px;
-  font-weight: var(--font-semibold);
-  line-height: 1;
-  color: var(--text-primary);
-}
-
-.ai-capability-metric-item span {
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  line-height: 1.4;
-}
-
-.ai-capability-metric-divider {
-  width: 1px;
-  height: 42px;
-  background: var(--line);
+.ai-page .metric-card {
+  min-height: 116px;
 }
 
 .ai-grid {

@@ -723,21 +723,14 @@ export function AiIntegrationPage() {
           detail={mcpStatusQuery.data?.base_url ?? "127.0.0.1"}
         />
         <MetricCard
-          label={t("ai.exposedCapabilities")}
-          value={
-            <span class="ai-capability-metric">
-              <span class="ai-capability-metric-item">
-                <strong>{enabledResourceCount()}</strong>
-                <span>{t("ai.resourcesCountLabel")}</span>
-              </span>
-              <span class="ai-capability-metric-divider" aria-hidden="true" />
-              <span class="ai-capability-metric-item">
-                <strong>{enabledToolCount()}</strong>
-                <span>{t("ai.toolsCountLabel")}</span>
-              </span>
-            </span>
-          }
-          detail={t("ai.exposedCapabilitiesDetail")}
+          label={t("ai.resourcesCountLabel")}
+          value={String(enabledResourceCount())}
+          detail={t("ai.exposedCapabilities")}
+        />
+        <MetricCard
+          label={t("ai.toolsCountLabel")}
+          value={String(enabledToolCount())}
+          detail={t("ai.exposedCapabilities")}
         />
         <MetricCard
           label={t("ai.recentIssues")}
