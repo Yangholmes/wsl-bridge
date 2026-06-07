@@ -3,6 +3,7 @@ import * as KCheckbox from "@kobalte/core/checkbox";
 import * as KTextField from "@kobalte/core/text-field";
 import type { Component, JSX } from "solid-js";
 import { Show } from "solid-js";
+import "./StatusBadge.css";
 
 type IconProps = JSX.SvgSVGAttributes<SVGSVGElement> & {
   size?: number;
@@ -301,7 +302,12 @@ export const SparkIcon: Component<IconProps> = (props) => (
 export const StatusBadge: Component<{
   state: "running" | "stopped" | "error" | "ready" | "unknown";
   label: string;
-}> = (props) => <span class={`status-badge ${props.state}`}>{props.label}</span>;
+  class?: string;
+}> = (props) => (
+  <span class={`ui-status-badge ${props.class ?? ""}`.trim()} data-state={props.state}>
+    {props.label}
+  </span>
+);
 
 export const PageHeader: Component<{
   title: string;

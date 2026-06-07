@@ -42,12 +42,12 @@
 .kb-text-inline .kb-input:focus {
   outline: none;
   border-color: var(--brand-500);
-  box-shadow: 0 0 0 3px rgba(10, 100, 255, 0.16);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .kb-input[data-invalid="true"] {
   border-color: var(--danger-600);
-  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.12);
+  box-shadow: 0 0 0 3px var(--danger-ring);
 }
 
 .kb-input:disabled,

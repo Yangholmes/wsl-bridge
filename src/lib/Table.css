@@ -40,7 +40,7 @@ thead th {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--bg-panel-muted);
+  background: var(--table-header-bg);
   color: var(--text-secondary);
   font-weight: var(--font-semibold);
 }
@@ -64,11 +64,11 @@ tbody tr:last-child td {
 }
 
 .row-selected {
-  background: var(--brand-50);
+  background: var(--table-row-selected-bg);
 }
 
 .runtime-row-error {
-  background: var(--danger-50);
+  background: var(--table-row-error-bg);
 }
 
 .row-actions {
@@ -92,10 +92,10 @@ tbody tr:last-child td {
   min-width: 168px;
   max-width: 220px;
   padding: var(--space-6);
-  border: 1px solid var(--line);
+  border: 1px solid var(--menu-border);
   border-radius: var(--radius-lg);
-  background: var(--surface-strong);
-  box-shadow: var(--shadow-md);
+  background: var(--menu-surface-bg);
+  box-shadow: var(--menu-shadow);
 }
 
 .rules-action-menu-item {

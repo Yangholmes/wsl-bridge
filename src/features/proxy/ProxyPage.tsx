@@ -39,12 +39,13 @@ import type {
   RuntimeState,
   RuleMigrationRecord,
   TargetKind,
+  TrafficMonitorEntity,
   UpdateProxyListenerRequest,
   UpdateProxyRouteRequest,
   UpdateProxyUpstreamRequest,
   UpstreamScheme
 } from "../../lib/types";
-import { listRuleMigrations, listRules } from "../rules/api";
+import { listRuleMigrations, listRules, listTrafficMonitorEntities } from "../rules/api";
 import { createTopologyQueryOptions } from "../topology/state";
 import { ProxyCanvas } from "./canvas/ProxyCanvas";
 import type { ProxyTopologyData, SelectedProxyNode } from "./canvas/model";
@@ -420,6 +421,41 @@ const certificateSourceTypeOptions: SelectOption[] = [
   { value: "manual_upload", label: "manual_upload" },
   { value: "local_ca", label: "local_ca" }
 ];
+
+function compactTrafficLabelSegment(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? "";
+  return trimmed ? Array.from(trimmed).slice(0, 7).join("") : "";
+}
+
+function buildProxyRouteTrafficLabel(route: ProxyRoute) {
+  if (route.is_default) return "default";
+  return compactTrafficLabelSegment(route.server_names[0]);
+}
+
+function buildProxyListenerTrafficLabel(listener: ProxyListener) {
+  return compactTrafficLabelSegment(listener.name);
+}
+
+function buildProxyUpstreamTrafficLabel(upstream: ProxyUpstream) {
+  return (
+    compactTrafficLabelSegment(upstream.target_ref) ||
+    compactTrafficLabelSegment(upstream.target_host)
+  );
+}
+
+function buildProxyTrafficMonitorLabel(
+  listener: ProxyListener,
+  route: ProxyRoute,
+  upstream: ProxyUpstream
+) {
+  return [
+    buildProxyListenerTrafficLabel(listener),
+    buildProxyRouteTrafficLabel(route),
+    buildProxyUpstreamTrafficLabel(upstream)
+  ]
+    .filter(Boolean)
+    .join(" / ");
+}
 
 function isGrpcScheme(value: UpstreamScheme) {
   return value === "grpc" || value === "grpcs";
@@ -825,6 +861,88 @@ export function ProxyPage() {
     await legacyRulesQuery.refetch();
     await migrationRecordsQuery.refetch();
     await topologyQuery.refetch();
+    await appQueryClient.fetchQuery(
+      queryOptions<TrafficMonitorEntity[]>({
+        queryKey: ["dashboard", "traffic-entities"],
+        queryFn: listTrafficMonitorEntities,
+        staleTime: 0
+      })
+    );
+    await appQueryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  }
+
+  function syncRouteCaches(routeId: string, req: UpdateProxyRouteRequest) {
+    const normalizedServerNames = req.server_names.map((item) => item.trim()).filter(Boolean);
+    const nextPathPrefix = req.path_prefix?.trim() || null;
+    const current = appQueryClient.getQueryData<ProxyTopologyData>(["proxy", "topology"]);
+    if (!current) return;
+
+    let matchedListener: ProxyListener | null = null;
+    let matchedRoute: ProxyRoute | null = null;
+    const routesByListener = new Map<string, ProxyRoute[]>();
+
+    for (const listener of current.listeners) {
+      const routes = current.routesByListener.get(listener.id) ?? [];
+      const nextRoutes = routes.map((route) => {
+        if (route.id !== routeId) return route;
+        matchedListener = listener;
+        matchedRoute = {
+          ...route,
+          server_names: normalizedServerNames,
+          path_prefix: nextPathPrefix,
+          is_default: req.is_default,
+          enabled: req.enabled
+        };
+        return matchedRoute;
+      });
+      routesByListener.set(listener.id, nextRoutes);
+    }
+
+    if (!matchedListener || !matchedRoute) return;
+    const listener = matchedListener as ProxyListener;
+    const route = matchedRoute as ProxyRoute;
+
+    appQueryClient.setQueryData<ProxyTopologyData>(["proxy", "topology"], {
+      ...current,
+      routesByListener
+    });
+
+    appQueryClient.setQueryData<ProxyRoute[]>(["proxy", "routes", listener.id], (routes) =>
+      routes?.map((item) =>
+        item.id === routeId
+          ? {
+              ...item,
+              server_names: normalizedServerNames,
+              path_prefix: nextPathPrefix,
+              is_default: req.is_default,
+              enabled: req.enabled
+            }
+          : item
+      ) ?? routes
+    );
+
+    const trafficEntities = appQueryClient.getQueryData<TrafficMonitorEntity[]>([
+      "dashboard",
+      "traffic-entities"
+    ]);
+    if (!trafficEntities) return;
+    const upstreams = current.upstreamsByRoute.get(routeId) ?? [];
+    const upstreamById = new Map(upstreams.map((item) => [item.id, item] as const));
+    appQueryClient.setQueryData<TrafficMonitorEntity[]>(
+      ["dashboard", "traffic-entities"],
+      trafficEntities.map((entity) => {
+        if (entity.entity_type !== "proxy_upstream") {
+          return entity;
+        }
+        const upstream = upstreamById.get(entity.entity_id);
+        if (!upstream) return entity;
+        return {
+          ...entity,
+          enabled: upstream.enabled && req.enabled,
+          label: buildProxyTrafficMonitorLabel(listener, route, upstream)
+        };
+      })
+    );
   }
 
   function openCreateListenerDialog() {
@@ -877,6 +995,11 @@ export function ProxyPage() {
   }
 
   function openEditRouteDialog(route: ProxyRoute) {
+    setSelectedRouteId(route.id);
+    const listenerId = findListenerIdForRoute(route.id);
+    if (listenerId) {
+      setSelectedListenerId(listenerId);
+    }
     setEditingTarget({ kind: "route", id: route.id });
     setRouteServerNames(route.server_names.join(", "));
     setRoutePathPrefix(route.path_prefix ?? "");
@@ -904,6 +1027,16 @@ export function ProxyPage() {
   }
 
   function openEditUpstreamDialog(upstream: ProxyUpstream) {
+    const routeEntry = [...(topologyQuery.data?.upstreamsByRoute.entries() ?? [])]
+      .find(([, upstreams]) => upstreams.some((item) => item.id === upstream.id));
+    if (routeEntry) {
+      const [routeId] = routeEntry;
+      setSelectedRouteId(routeId);
+      const listenerId = findListenerIdForRoute(routeId);
+      if (listenerId) {
+        setSelectedListenerId(listenerId);
+      }
+    }
     setEditingTarget({ kind: "upstream", id: upstream.id });
     setUpstreamTargetKind(upstream.target_kind);
     setUpstreamHost(upstream.target_host ?? "");
@@ -1235,6 +1368,7 @@ export function ProxyPage() {
       };
       if (isEditing) {
         await updateProxyRoute(editingTarget()!.id, req);
+        syncRouteCaches(editingTarget()!.id, req);
       } else {
         const id = await createProxyRoute({
           listener_id: selectedListenerId(),

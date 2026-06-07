@@ -1,11 +1,11 @@
 .context-menu {
   position: fixed;
-  background: var(--input-bg);
-  border: 1px solid var(--line);
+  background: var(--menu-surface-bg);
+  border: 1px solid var(--menu-border);
   border-radius: var(--radius-lg);
   padding: 4px;
   min-width: 120px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--menu-shadow);
   z-index: 10000;
 }
 
@@ -15,11 +15,18 @@
   cursor: pointer;
   font-size: 13px;
   color: var(--text);
-  transition: background-color 0.1s;
+  transition: background-color 0.1s, color 0.1s;
 }
 
 .context-menu-item:hover:not(.disabled) {
   background: var(--hover);
+  color: var(--accent-strong);
+}
+
+.context-menu-item:focus-visible {
+  outline: none;
+  background: var(--hover);
+  color: var(--accent-strong);
 }
 
 .context-menu-item.disabled {

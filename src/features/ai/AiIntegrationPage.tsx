@@ -799,14 +799,14 @@ export function AiIntegrationPage() {
           subtitle={t("ai.mcpServiceSubtitle")}
           actions={
             <div class="runtime-tools">
-              <KButton.Root
+              {/* <KButton.Root
                 class="kb-btn ghost"
                 onClick={() => void copyText(mcpStatusQuery.data?.base_url ?? "", "settings.mcpBaseUrlCopied")}
                 disabled={!mcpStatusQuery.data?.base_url}
               >
                 <CopyIcon size={14} />
                 {t("ai.copyMcpConfig")}
-              </KButton.Root>
+              </KButton.Root> */}
               <KButton.Root class="kb-btn ghost" onClick={refreshMcpStatus} disabled={mcpStatusQuery.isFetching}>
                 {t("common.refresh")}
               </KButton.Root>

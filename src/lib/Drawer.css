@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   z-index: 45;
-  background: rgba(12, 18, 28, 0.16);
+  background: var(--drawer-overlay-bg);
   animation: bottom-drawer-overlay-in var(--transition-normal) var(--ease-in-out);
 }
 
@@ -20,8 +20,8 @@
   padding: var(--space-10) var(--space-20) var(--space-20);
   border: 1px solid var(--line);
   border-radius: var(--radius-2xl);
-  background: color-mix(in srgb, var(--bg-panel) 96%, transparent);
-  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.18);
+  background: var(--drawer-surface-bg);
+  box-shadow: var(--drawer-shadow);
   backdrop-filter: blur(14px);
   animation: bottom-drawer-in var(--transition-normal) var(--ease-in-out);
 }

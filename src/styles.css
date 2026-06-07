@@ -46,8 +46,6 @@
 
   --input-bg: #fbfcfd;
   --select-bg: #ffffff;
-  --checkbox-bg: #ffffff;
-  --checkbox-mark: #ffffff;
 
   --hint-info-bg: #edf4ff;
   --hint-info-line: #c9dcff;
@@ -58,6 +56,92 @@
   --hint-warn-bg: #fff4d6;
   --hint-warn-line: #f1dd9b;
   --hint-warn-text: #7a5c00;
+
+  --status-badge-running-bg: #ecf8f0;
+  --status-badge-running-border: #b7e4c5;
+  --status-badge-running-fg: #0f6b38;
+  --status-badge-neutral-bg: #eef2f6;
+  --status-badge-neutral-border: #d4dbe4;
+  --status-badge-neutral-fg: #4c5868;
+  --status-badge-error-bg: #fde7e9;
+  --status-badge-error-border: #f4c4ca;
+  --status-badge-error-fg: #a4262c;
+  --status-badge-ready-bg: #e8f1ff;
+  --status-badge-ready-border: #c5d9ff;
+  --status-badge-ready-fg: #0a4fbf;
+
+  --focus-ring: rgba(10, 100, 255, 0.16);
+  --danger-ring: rgba(180, 35, 24, 0.12);
+
+  --button-bg: #f7f8fa;
+  --button-border: transparent;
+  --button-fg: #181c22;
+  --button-hover-bg: #eef2f7;
+  --button-focus-ring: var(--focus-ring);
+
+  --button-primary-bg: #0a64ff;
+  --button-primary-hover-bg: #005bd3;
+  --button-primary-fg: #ffffff;
+
+  --button-ghost-bg: #ffffff;
+  --button-ghost-border: #d7dde6;
+  --button-ghost-fg: #181c22;
+  --button-ghost-hover-bg: #eef2f7;
+  --button-ghost-hover-border: #c5ced9;
+
+  --button-ghost-borderless-fg: #5f6977;
+  --button-ghost-borderless-hover-bg: rgba(24, 28, 34, 0.08);
+
+  --button-danger-bg: #fde7e9;
+  --button-danger-border: transparent;
+  --button-danger-fg: #c42b1c;
+  --button-danger-hover-bg: #ffd9de;
+  --button-danger-hover-border: #c42b1c;
+
+  --switch-track-bg: #e9edf2;
+  --switch-track-border: #c5ced9;
+  --switch-track-hover-bg: #dfe7f3;
+  --switch-track-hover-border: #b5c0ce;
+  --switch-track-checked-bg: #0a64ff;
+  --switch-track-checked-border: #0a64ff;
+  --switch-track-checked-hover-bg: #005bd3;
+  --switch-track-checked-hover-border: #005bd3;
+  --switch-thumb-bg: #ffffff;
+  --switch-thumb-shadow: 0 1px 2px rgba(15, 23, 42, 0.14);
+
+  --checkbox-bg: #ffffff;
+  --checkbox-border: #c5ced9;
+  --checkbox-hover-bg: #f3f6fa;
+  --checkbox-hover-border: #aeb8c4;
+  --checkbox-checked-bg: #0a64ff;
+  --checkbox-checked-border: #0a64ff;
+  --checkbox-checked-hover-bg: #005bd3;
+  --checkbox-checked-hover-border: #005bd3;
+  --checkbox-mark: #ffffff;
+
+  --modal-overlay-bg: rgba(15, 23, 42, 0.46);
+  --modal-surface-bg: #ffffff;
+  --modal-shadow: 0 28px 80px rgba(15, 23, 42, 0.26);
+
+  --drawer-overlay-bg: rgba(12, 18, 28, 0.16);
+  --drawer-surface-bg: rgba(255, 255, 255, 0.94);
+  --drawer-shadow: 0 18px 50px rgba(15, 23, 42, 0.18);
+
+  --tooltip-bg: #ffffff;
+  --tooltip-border: #d7dde6;
+
+  --toast-bg: #f7f8fa;
+  --toast-border: #d7dde6;
+  --toast-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+  --toast-close-hover-bg: #eef2f7;
+
+  --menu-surface-bg: #ffffff;
+  --menu-border: #d7dde6;
+  --menu-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+
+  --table-header-bg: #f7f8fa;
+  --table-row-selected-bg: #e8f1ff;
+  --table-row-error-bg: #fde7e9;
 
   --code-bg: #0f1720;
   --code-text: #e7edf5;
@@ -157,7 +241,6 @@
 
   --input-bg: #1f252d;
   --select-bg: #242c35;
-  --checkbox-bg: #1a2027;
 
   --hint-info-bg: rgba(10, 100, 255, 0.16);
   --hint-info-line: rgba(117, 167, 255, 0.28);
@@ -168,6 +251,92 @@
   --hint-warn-bg: rgba(255, 185, 0, 0.14);
   --hint-warn-line: rgba(255, 210, 95, 0.22);
   --hint-warn-text: #ffd76d;
+
+  --status-badge-running-bg: rgba(16, 124, 65, 0.18);
+  --status-badge-running-border: rgba(83, 186, 120, 0.42);
+  --status-badge-running-fg: #8be0a9;
+  --status-badge-neutral-bg: rgba(160, 175, 194, 0.14);
+  --status-badge-neutral-border: rgba(160, 175, 194, 0.28);
+  --status-badge-neutral-fg: #d7dee8;
+  --status-badge-error-bg: rgba(196, 43, 28, 0.2);
+  --status-badge-error-border: rgba(255, 126, 126, 0.34);
+  --status-badge-error-fg: #ffb7b7;
+  --status-badge-ready-bg: rgba(77, 143, 255, 0.22);
+  --status-badge-ready-border: rgba(124, 168, 255, 0.4);
+  --status-badge-ready-fg: #cfe0ff;
+
+  --focus-ring: rgba(77, 143, 255, 0.26);
+  --danger-ring: rgba(255, 126, 126, 0.18);
+
+  --button-bg: #28313b;
+  --button-border: transparent;
+  --button-fg: #f3f6fa;
+  --button-hover-bg: #313b47;
+  --button-focus-ring: var(--focus-ring);
+
+  --button-primary-bg: #4d8fff;
+  --button-primary-hover-bg: #6ca1ff;
+  --button-primary-fg: #0f141b;
+
+  --button-ghost-bg: #232a33;
+  --button-ghost-border: #4b5664;
+  --button-ghost-fg: #f3f6fa;
+  --button-ghost-hover-bg: #313b47;
+  --button-ghost-hover-border: #627080;
+
+  --button-ghost-borderless-fg: #b7c0cb;
+  --button-ghost-borderless-hover-bg: rgba(255, 255, 255, 0.1);
+
+  --button-danger-bg: rgba(196, 43, 28, 0.2);
+  --button-danger-border: transparent;
+  --button-danger-fg: #ffb7b7;
+  --button-danger-hover-bg: rgba(196, 43, 28, 0.3);
+  --button-danger-hover-border: rgba(255, 126, 126, 0.48);
+
+  --switch-track-bg: #2b333d;
+  --switch-track-border: #4b5664;
+  --switch-track-hover-bg: #36414e;
+  --switch-track-hover-border: #627080;
+  --switch-track-checked-bg: #4d8fff;
+  --switch-track-checked-border: #4d8fff;
+  --switch-track-checked-hover-bg: #6ca1ff;
+  --switch-track-checked-hover-border: #6ca1ff;
+  --switch-thumb-bg: #f3f6fa;
+  --switch-thumb-shadow: 0 2px 6px rgba(0, 0, 0, 0.32);
+
+  --checkbox-bg: #1f252d;
+  --checkbox-border: #4b5664;
+  --checkbox-hover-bg: #28313b;
+  --checkbox-hover-border: #627080;
+  --checkbox-checked-bg: #4d8fff;
+  --checkbox-checked-border: #4d8fff;
+  --checkbox-checked-hover-bg: #6ca1ff;
+  --checkbox-checked-hover-border: #6ca1ff;
+  --checkbox-mark: #0f141b;
+
+  --modal-overlay-bg: rgba(5, 10, 18, 0.6);
+  --modal-surface-bg: #232a33;
+  --modal-shadow: 0 32px 90px rgba(0, 0, 0, 0.42);
+
+  --drawer-overlay-bg: rgba(5, 10, 18, 0.4);
+  --drawer-surface-bg: rgba(35, 42, 51, 0.94);
+  --drawer-shadow: 0 22px 64px rgba(0, 0, 0, 0.42);
+
+  --tooltip-bg: #232a33;
+  --tooltip-border: #4b5664;
+
+  --toast-bg: #2b333d;
+  --toast-border: #4b5664;
+  --toast-shadow: 0 10px 30px rgba(0, 0, 0, 0.32);
+  --toast-close-hover-bg: #36414e;
+
+  --menu-surface-bg: #232a33;
+  --menu-border: #4b5664;
+  --menu-shadow: 0 18px 42px rgba(0, 0, 0, 0.36);
+
+  --table-header-bg: #20262e;
+  --table-row-selected-bg: rgba(77, 143, 255, 0.16);
+  --table-row-error-bg: rgba(196, 43, 28, 0.16);
 
   --code-bg: #0f1720;
   --code-text: #e7edf5;
@@ -385,39 +554,6 @@ a {
 .metric-detail {
   color: var(--text-secondary);
   font-size: var(--text-sm);
-}
-
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 28px;
-  padding: 0 var(--space-12);
-  border-radius: var(--radius-full);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  white-space: nowrap;
-}
-
-.status-badge.running {
-  background: var(--ok-50);
-  color: var(--ok-600);
-}
-
-.status-badge.stopped,
-.status-badge.unknown {
-  background: var(--bg-panel-strong);
-  color: var(--text-secondary);
-}
-
-.status-badge.error {
-  background: var(--danger-50);
-  color: var(--danger-600);
-}
-
-.status-badge.ready {
-  background: var(--brand-50);
-  color: var(--brand-600);
 }
 
 .toolbar,

@@ -1,7 +1,7 @@
 .kb-dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.46);
+  background: var(--modal-overlay-bg);
   backdrop-filter: blur(8px);
   z-index: 60;
 }
@@ -14,18 +14,12 @@
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 32px);
   transform: translate(-50%, -50%);
-  border: 1px solid var(--panel-border);
+  border: 1px solid var(--line);
   border-radius: 20px;
-  background-color: var(--panel-bg, #ffffff);
-  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.26);
+  background-color: var(--modal-surface-bg);
+  box-shadow: var(--modal-shadow);
   z-index: 61;
   overflow: hidden;
-}
-
-:where(html[data-theme="dark"], body[data-theme="dark"]) .kb-dialog-content,
-:where(html.dark, body.dark) .kb-dialog-content,
-:where([data-kb-theme="dark"]) .kb-dialog-content {
-  background-color: var(--panel-bg, #111827);
 }
 
 .modal-shell {
@@ -39,7 +33,6 @@
   display: grid;
   gap: 12px;
   padding: 20px 20px 0;
-  /* border-bottom: 1px solid rgba(148, 163, 184, 0.16); */
   background: inherit;
 }
 
@@ -80,7 +73,6 @@
 
 .modal-footer {
   padding: 0 20px 20px;
-  /* border-top: 1px solid rgba(148, 163, 184, 0.16); */
   background: inherit;
 }
 

@@ -2,8 +2,8 @@
   z-index: 120;
   max-width: min(70vw, 560px);
   border-radius: var(--radius-md);
-  border: 1px solid var(--line);
-  background: var(--bg-panel);
+  border: 1px solid var(--tooltip-border);
+  background: var(--tooltip-bg);
   color: var(--text-primary);
   font-size: var(--text-xs);
   line-height: 1.45;
@@ -13,7 +13,7 @@
 }
 
 .kb-tooltip-arrow {
-  fill: var(--bg-panel);
+  fill: var(--tooltip-bg);
 }
 
 .hint {

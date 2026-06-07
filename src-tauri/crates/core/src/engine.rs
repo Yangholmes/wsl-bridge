@@ -2289,13 +2289,18 @@ impl RuleEngine {
             .collect::<Vec<_>>();
 
         for route in store.proxy_routes.values().flatten() {
+            let listener_label = store
+                .proxy_listeners
+                .get(&route.listener_id)
+                .map(build_proxy_listener_traffic_label)
+                .unwrap_or_else(|| format!("listener:{}", short_id(&route.listener_id)));
             let route_label = build_proxy_route_traffic_label(route);
             for upstream in store.proxy_upstreams.get(&route.id).into_iter().flatten() {
                 items.push(TrafficMonitorEntity {
                     entity_type: TrafficEntityType::ProxyUpstream,
                     entity_id: upstream.id.clone(),
                     label: format!(
-                        "{route_label} / {}",
+                        "{listener_label} / {route_label} / {}",
                         build_proxy_upstream_traffic_label(upstream)
                     ),
                     enabled: upstream.enabled && route.enabled,
@@ -3343,17 +3348,20 @@ fn traffic_entity_type_rank(value: TrafficEntityType) -> u8 {
     }
 }
 
+fn build_proxy_listener_traffic_label(listener: &ProxyListener) -> String {
+    compact_traffic_label_segment(&listener.name, 7, || {
+        format!("lst:{}", short_id(&listener.id))
+    })
+}
+
 fn build_proxy_route_traffic_label(route: &ProxyRoute) -> String {
-    if route.is_default {
-        return "default".to_owned();
-    }
-    route
+    let server_name = route
         .server_names
         .first()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| format!("route:{}", short_id(&route.id)))
+        .unwrap_or(if route.is_default { "default" } else { "" });
+    compact_traffic_label_segment(server_name, 7, || format!("route:{}", short_id(&route.id)))
 }
 
 fn build_proxy_upstream_traffic_label(upstream: &ProxyUpstream) -> String {
@@ -3363,7 +3371,9 @@ fn build_proxy_upstream_traffic_label(upstream: &ProxyUpstream) -> String {
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        return target_ref.to_owned();
+        return compact_traffic_label_segment(target_ref, 7, || {
+            format!("up:{}", short_id(&upstream.id))
+        });
     }
     if let Some(target_host) = upstream
         .target_host
@@ -3371,9 +3381,22 @@ fn build_proxy_upstream_traffic_label(upstream: &ProxyUpstream) -> String {
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        return format!("{target_host}:{}", upstream.target_port);
+        return compact_traffic_label_segment(target_host, 7, || {
+            format!("up:{}", short_id(&upstream.id))
+        });
     }
-    format!("upstream:{}", short_id(&upstream.id))
+    format!("up:{}", short_id(&upstream.id))
+}
+
+fn compact_traffic_label_segment<F>(value: &str, max_chars: usize, fallback: F) -> String
+where
+    F: FnOnce() -> String,
+{
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return fallback();
+    }
+    trimmed.chars().take(max_chars).collect()
 }
 
 fn short_id(value: &str) -> &str {
@@ -3547,6 +3570,7 @@ mod tests {
         ProxyProtocol, ProxyTlsMode, QueryTrafficStatsRequest, RuleLogStatsRequest,
         RuleMigrationStatus, RulePatch, RuleType, RuntimeState, SaveHostsEntriesRequest,
         TargetKind, TrafficEntityType, TrafficWindowQueryEntity, UpdateHostsGroupRequest,
+        UpdateProxyRouteRequest,
         UpstreamScheme,
     };
 
@@ -4454,6 +4478,15 @@ mod tests {
             .find(|item| item.upstream_id == upstream_id)
             .expect("upstream runtime");
         assert_eq!(upstream_runtime.hit_count, 1);
+        let traffic_entities = engine.list_traffic_monitor_entities();
+        let proxy_entity = traffic_entities
+            .into_iter()
+            .find(|item| item.entity_id == upstream_id)
+            .expect("proxy traffic entity");
+        assert_eq!(
+            proxy_entity.label,
+            "metrics / metrics / 127.0.0"
+        );
         assert_eq!(upstream_runtime.error_count, 0);
         assert!(upstream_runtime
             .last_target
@@ -4464,6 +4497,142 @@ mod tests {
 
         drop(engine);
         let _ = server.join();
+    }
+
+    #[test]
+    fn proxy_traffic_entity_label_updates_after_route_server_name_change() {
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "listener-alpha".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port: free_tcp_port(),
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id: listener_id.clone(),
+                server_names: vec!["before.example.com".to_owned()],
+                path_prefix: None,
+                is_default: false,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let upstream_id = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id: route_id.clone(),
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port: 3000,
+                upstream_scheme: UpstreamScheme::Http,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        let before = engine
+            .list_traffic_monitor_entities()
+            .into_iter()
+            .find(|item| item.entity_id == upstream_id)
+            .expect("traffic entity before update");
+        assert_eq!(before.label, "listene / before. / 127.0.0");
+
+        engine
+            .update_proxy_route(
+                &route_id,
+                UpdateProxyRouteRequest {
+                    server_names: vec!["after.example.com".to_owned()],
+                    path_prefix: None,
+                    is_default: false,
+                    enabled: true,
+                },
+            )
+            .expect("update route");
+
+        let after = engine
+            .list_traffic_monitor_entities()
+            .into_iter()
+            .find(|item| item.entity_id == upstream_id)
+            .expect("traffic entity after update");
+        assert_eq!(after.label, "listene / after.e / 127.0.0");
+    }
+
+    #[test]
+    fn proxy_default_route_traffic_entity_label_prefers_server_name_when_present() {
+        let engine = RuleEngine::new();
+        let listener_id = engine
+            .create_proxy_listener(CreateProxyListenerRequest {
+                name: "listener-alpha".to_owned(),
+                listen_host: "127.0.0.1".to_owned(),
+                listen_port: free_tcp_port(),
+                protocol: ProxyProtocol::Http,
+                tls_mode: ProxyTlsMode::Disabled,
+                cert_id: None,
+                bind_mode: BindMode::AllNics,
+                nic_id: None,
+                enabled: true,
+            })
+            .expect("create listener");
+
+        let route_id = engine
+            .create_proxy_route(CreateProxyRouteRequest {
+                listener_id,
+                server_names: vec!["before.example.com".to_owned()],
+                path_prefix: None,
+                is_default: true,
+                enabled: true,
+            })
+            .expect("create route");
+
+        let upstream_id = engine
+            .create_proxy_upstream(CreateProxyUpstreamRequest {
+                route_id: route_id.clone(),
+                target_kind: TargetKind::Static,
+                target_ref: None,
+                target_host: Some("127.0.0.1".to_owned()),
+                target_port: 3000,
+                upstream_scheme: UpstreamScheme::Http,
+                path_rewrite_from: None,
+                path_rewrite_to: None,
+                enabled: true,
+            })
+            .expect("create upstream");
+
+        let before = engine
+            .list_traffic_monitor_entities()
+            .into_iter()
+            .find(|item| item.entity_id == upstream_id)
+            .expect("traffic entity before update");
+        assert_eq!(before.label, "listene / before. / 127.0.0");
+
+        engine
+            .update_proxy_route(
+                &route_id,
+                UpdateProxyRouteRequest {
+                    server_names: vec!["after.example.com".to_owned()],
+                    path_prefix: None,
+                    is_default: true,
+                    enabled: true,
+                },
+            )
+            .expect("update default route");
+
+        let after = engine
+            .list_traffic_monitor_entities()
+            .into_iter()
+            .find(|item| item.entity_id == upstream_id)
+            .expect("traffic entity after update");
+        assert_eq!(after.label, "listene / after.e / 127.0.0");
     }
 
     #[test]
