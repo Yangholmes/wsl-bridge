@@ -57,6 +57,9 @@ export function parseNodeKey(key: string): SelectedProxyNode {
 }
 
 export function routeLabel(route: ProxyRoute, defaultRouteLabel: string) {
+  if (route.is_default) {
+    return defaultRouteLabel;
+  }
   const serverName = route.server_names[0]?.trim() ?? "";
   return serverName || defaultRouteLabel;
 }

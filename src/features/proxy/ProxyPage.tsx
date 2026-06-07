@@ -829,6 +829,13 @@ export function ProxyPage() {
   });
 
   createEffect(() => {
+    if (dialogMode() !== "route" || !routeIsDefault()) return;
+    if (routeServerNames()) {
+      setRouteServerNames("");
+    }
+  });
+
+  createEffect(() => {
     if (dialogMode() !== "listener" || listenerBindMode() !== "single_nic") return;
     const resolvedIp = resolvedListenerNicIp();
     if (resolvedIp && listenerHost() !== resolvedIp) {
@@ -872,7 +879,9 @@ export function ProxyPage() {
   }
 
   function syncRouteCaches(routeId: string, req: UpdateProxyRouteRequest) {
-    const normalizedServerNames = req.server_names.map((item) => item.trim()).filter(Boolean);
+    const normalizedServerNames = req.is_default
+      ? []
+      : req.server_names.map((item) => item.trim()).filter(Boolean);
     const nextPathPrefix = req.path_prefix?.trim() || null;
     const current = appQueryClient.getQueryData<ProxyTopologyData>(["proxy", "topology"]);
     if (!current) return;
@@ -1001,7 +1010,7 @@ export function ProxyPage() {
       setSelectedListenerId(listenerId);
     }
     setEditingTarget({ kind: "route", id: route.id });
-    setRouteServerNames(route.server_names.join(", "));
+    setRouteServerNames(route.is_default ? "" : route.server_names.join(", "));
     setRoutePathPrefix(route.path_prefix ?? "");
     setRouteIsDefault(route.is_default);
     setRouteEnabled(route.enabled);
@@ -1357,11 +1366,14 @@ export function ProxyPage() {
       }
       setDialogSubmitting(true);
       const isEditing = editingTarget()?.kind === "route";
+      const serverNames = routeIsDefault()
+        ? []
+        : routeServerNames()
+            .split(/[,\n]/)
+            .map((item) => item.trim())
+            .filter(Boolean);
       const req: UpdateProxyRouteRequest = {
-        server_names: routeServerNames()
-          .split(/[,\n]/)
-          .map((item) => item.trim())
-          .filter(Boolean),
+        server_names: serverNames,
         path_prefix: routePathPrefix().trim() || null,
         is_default: routeIsDefault(),
         enabled: routeEnabled()
@@ -1821,6 +1833,7 @@ export function ProxyPage() {
           value={routeServerNames()}
           onChange={setRouteServerNames}
           placeholder={t("proxy.serverNamesPlaceholder")}
+          disabled={routeIsDefault()}
         />
         <TextFieldControl
           label={t("proxy.pathPrefix")}

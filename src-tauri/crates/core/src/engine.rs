@@ -3355,12 +3355,15 @@ fn build_proxy_listener_traffic_label(listener: &ProxyListener) -> String {
 }
 
 fn build_proxy_route_traffic_label(route: &ProxyRoute) -> String {
+    if route.is_default {
+        return "default".to_owned();
+    }
     let server_name = route
         .server_names
         .first()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
-        .unwrap_or(if route.is_default { "default" } else { "" });
+        .unwrap_or("");
     compact_traffic_label_segment(server_name, 7, || format!("route:{}", short_id(&route.id)))
 }
 
@@ -4568,7 +4571,7 @@ mod tests {
     }
 
     #[test]
-    fn proxy_default_route_traffic_entity_label_prefers_server_name_when_present() {
+    fn proxy_default_route_traffic_entity_label_stays_default_when_server_name_changes() {
         let engine = RuleEngine::new();
         let listener_id = engine
             .create_proxy_listener(CreateProxyListenerRequest {
@@ -4613,7 +4616,7 @@ mod tests {
             .into_iter()
             .find(|item| item.entity_id == upstream_id)
             .expect("traffic entity before update");
-        assert_eq!(before.label, "listene / before. / 127.0.0");
+        assert_eq!(before.label, "listene / default / 127.0.0");
 
         engine
             .update_proxy_route(
@@ -4632,7 +4635,7 @@ mod tests {
             .into_iter()
             .find(|item| item.entity_id == upstream_id)
             .expect("traffic entity after update");
-        assert_eq!(after.label, "listene / after.e / 127.0.0");
+        assert_eq!(after.label, "listene / default / 127.0.0");
     }
 
     #[test]
