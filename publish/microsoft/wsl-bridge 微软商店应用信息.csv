@@ -1,44 +1,44 @@
 ﻿Field,Type,Chinese,English,Chinese (China),Chinese (Traditional) (Hong Kong)
 ProductName,Text,WSL Bridge,WSL Bridge,WSL Bridge,WSL Bridge
-Description,Text,"WSL Bridge 是一款 Windows 桌面应用，帮助您轻松将 WSL 和 Hyper-V 虚拟机的网络服务暴露到外部网络。支持 TCP/UDP 端口转发、HTTP 代理和 SOCKS5 代理，并提供直观的规则管理和防火墙配置功能。支持 MCP 协议，可通过 AI 助手（如 Claude、Cursor）远程管理和查询应用状态。","WSL Bridge is a Windows desktop application that helps you easily expose WSL and Hyper-V virtual machine network services to external networks. Supports TCP/UDP port forwarding, HTTP proxy and SOCKS5 proxy, with intuitive rule management and firewall configuration. Also supports MCP protocol for AI assistant (e.g. Claude, Cursor) remote management and query.","WSL Bridge 是一款 Windows 桌面应用，帮助您轻松将 WSL 和 Hyper-V 虚拟机的网络服务暴露到外部网络。支持 TCP/UDP 端口转发、HTTP 代理和 SOCKS5 代理，并提供直观的规则管理和防火墙配置功能。支持 MCP 协议，可通过 AI 助手（如 Claude、Cursor）远程管理和查询应用状态。","WSL Bridge 是一款 Windows 桌面應用，説明您輕鬆將 WSL 和 Hyper-V 虛擬機的網路服務暴露到外部網路。支援 TCP/UDP 連接埠轉發、HTTP 代理和 SOCKS5 代理，並提供直觀的規則管理和防火牆配置功能。支援 MCP 協議，可通過 AI 助手（如 Claude、Cursor）遠程管理和查詢應用狀態。"
-WhatsNew,Text,"全新发布：支持 MCP 服务器，可通过 AI 助手远程管理；支持 WSL 和 Hyper-V 拓扑自动检测，支持单网卡/所有网卡绑定，支持按 Domain/Private/Public 配置防火墙规则。","New release: MCP server support for AI assistant remote management; Support for automatic WSL and Hyper-V topology detection, single NIC/all NIC binding, and firewall rules configuration by Domain/Private/Public.","全新发布：支持 MCP 服务器，可通过 AI 助手远程管理；支持 WSL 和 Hyper-V 拓扑自动检测，支持单网卡/所有网卡绑定，支持按 Domain/Private/Public 配置防火墙规则。","全新發布：支援 MCP 伺服器，可通過 AI 助手遠程管理；支援 WSL 和 Hyper-V 拓撲自動檢測，支援單網卡/所有網卡綁定，支援按 Domain/Private/Public 配置防火牆規則。"
-ProductFeatures1,Text,TCP/UDP 端口转发 - 将 WSL/Hyper-V 端口映射到外部网络,TCP/UDP Port Forwarding - Map WSL/Hyper-V ports to external networks,TCP/UDP 端口转发 - 将 WSL/Hyper-V 端口映射到外部网络,TCP/UDP 連接埠轉發 - 將 WSL/Hyper-V 連接埠映射到外部網路
-ProductFeatures2,Text,HTTP 代理 - 支持 HTTP CONNECT 隧道,HTTP Proxy - Support HTTP CONNECT tunneling,HTTP 代理 - 支持 HTTP CONNECT 隧道,HTTP 代理 - 支援 HTTP CONNECT 隧道
-ProductFeatures3,Text,SOCKS5 代理 - 支持 CONNECT 和 UDP ASSOCIATE,SOCKS5 Proxy - Support CONNECT and UDP ASSOCIATE,SOCKS5 代理 - 支持 CONNECT 和 UDP ASSOCIATE,SOCKS5 代理 - 支援 CONNECT 和 UDP ASSOCIATE
-ProductFeatures4,Text,WSL/Hyper-V 拓扑自动检测,WSL/Hyper-V Topology Auto-detection,WSL/Hyper-V 拓扑自动检测,WSL/Hyper-V 拓撲自動檢測
-ProductFeatures5,Text,多网卡绑定支持 - 单网卡或所有网卡,Multi-NIC Binding - Single NIC or all NICs,多网卡绑定支持 - 单网卡或所有网卡,多網卡綁定支援 - 單網卡或所有網卡
-ProductFeatures6,Text,防火墙按需配置 - 支持 Domain/Private/Public 独立控制,Firewall Configuration - Independent control for Domain/Private/Public,防火墙按需配置 - 支持 Domain/Private/Public 独立控制,防火牆按需配置 - 支援 Domain/Private/Public 獨立控制
-ProductFeatures7,Text,实时状态监控 - 查看规则运行状态和错误信息,Real-time Status Monitoring - View rule status and error messages,实时状态监控 - 查看规则运行状态和错误信息,即時狀態監控 - 查看規則運行狀態和錯誤訊息
-ProductFeatures8,Text,规则管理 - 创建、编辑、删除、启用/禁用规则,Rule Management - Create, edit, delete, enable/disable rules,规则管理 - 创建、编辑、删除、启用/禁用规则,規則管理 - 創建、編輯、刪除、啟用/停用規則
-ProductFeatures9,Text,日志查看 - 审计日志和运行日志,Log Viewing - Audit logs and runtime logs,日志查看 - 审计日志和运行日志,日誌查看 - 審計日誌和運行日誌
-ProductFeatures10,Text,可视化拓扑图 - 展示网络适配器和目标虚拟机,Visual Topology - Display network adapters and target VMs,可视化拓扑图 - 展示网络适配器和目标虚拟机,可視化拓撲圖 - 展示網路介面卡和目標虛擬機
-ProductFeatures11,Text,简洁易用的 UI 界面,Simple and Easy-to-Use UI,简洁易用的 UI 界面,簡潔易用的 UI 介面
-ProductFeatures12,Text,管理员权限运行 - 确保系统操作权限,Admin Privilege - Ensures system operation permissions,管理员权限运行 - 确保系统操作权限,管理員許可權運行 - 確保系統操作許可權
-ProductFeatures13,Text,应用启动时自动应用规则,Auto-apply rules when application starts,应用启动时自动应用规则,應用啟動時自動應用規則
-ProductFeatures14,Text,应用退出时自动清理规则,Auto-cleanup rules when application exits,应用退出时自动清理规则,應用退出時自動清理規則
-ProductFeatures15,Text,支持 Windows 10/11,Support Windows 10/11,支持 Windows 10/11,支援 Windows 10/11
-ProductFeatures16,Text,MCP 服务器 - 支持 AI 助手远程管理,MCP Server - AI Assistant Remote Management,MCP 服务器 - 支持 AI 助手远程管理,MCP 伺服器 - 支援 AI 助手遠程管理
-ProductFeatures17,Text,MCP 拓扑读取 - AI 可读取 WSL/Hyper-V 拓扑,MCP Topology Read - AI can read WSL/Hyper-V topology,MCP 拓扑读取 - AI 可读取 WSL/Hyper-V 拓扑,MCP 拓撲讀取 - AI 可讀取 WSL/Hyper-V 拓撲
-ProductFeatures18,Text,MCP 规则管理 - AI 可创建/修改/删除转发规则,MCP Rule Management - AI can create/update/delete forward rules,MCP 规则管理 - AI 可创建/修改/删除转发规则,MCP 規則管理 - AI 可創建/修改/刪除轉發規則
-ProductFeatures19,Text,,,
-ProductFeatures20,Text,,,
-ShortDescription,Text,WSL 和 Hyper-V 网络桥接工具,WSL and Hyper-V network bridging tool,WSL 和 Hyper-V 网络桥接工具,WSL 和 Hyper-V 網路橋接工具
+Description,Text,"WSL Bridge 是一款面向 Windows 10/11 的桌面网络工具，帮助您将 WSL、Hyper-V 和静态主机服务稳定暴露到本机或局域网。内置 Proxy 反向代理工作台、结构化 Hosts 分组管理、Legacy Rules 兼容管理、统一流量监控，以及面向 AI Agent 的 MCP/Skill 集成。支持 HTTP/HTTPS 监听、TLS 终止、按 Server Name 分流、WebSocket、gRPC/gRPCS、路径前缀改写、多网卡绑定和拓扑自动发现。","WSL Bridge is a Windows 10/11 desktop networking toolkit for exposing and operating services from WSL, Hyper-V, and static host targets on localhost or LAN. It includes a dedicated Proxy workspace, structured Hosts group management, legacy Rules compatibility, unified traffic monitoring, and built-in MCP/Skill integration for AI agents. Features include HTTP/HTTPS listeners, TLS termination, server-name-based routing, WebSocket, gRPC/gRPCS, path-prefix rewrite, multi-NIC binding, and automatic topology discovery.","WSL Bridge 是一款面向 Windows 10/11 的桌面网络工具，帮助您将 WSL、Hyper-V 和静态主机服务稳定暴露到本机或局域网。内置 Proxy 反向代理工作台、结构化 Hosts 分组管理、Legacy Rules 兼容管理、统一流量监控，以及面向 AI Agent 的 MCP/Skill 集成。支持 HTTP/HTTPS 监听、TLS 终止、按 Server Name 分流、WebSocket、gRPC/gRPCS、路径前缀改写、多网卡绑定和拓扑自动发现。","WSL Bridge 是一款面向 Windows 10/11 的桌面網路工具，幫助您將 WSL、Hyper-V 和靜態主機服務穩定暴露到本機或區域網路。內建 Proxy 反向代理工作台、結構化 Hosts 分組管理、Legacy Rules 相容管理、統一流量監控，以及面向 AI Agent 的 MCP/Skill 整合。支援 HTTP/HTTPS 監聽、TLS 終止、按 Server Name 分流、WebSocket、gRPC/gRPCS、路徑前綴改寫、多網卡綁定和拓撲自動發現。"
+WhatsNew,Text,"新增 Proxy 工作台与 PixiJS 拓扑画布；新增结构化 Hosts 分组管理；首页流量监控现同时聚合 Proxy 与 Rules；新增 AI 集成工作台，支持内置 MCP、Skill 安装、ConfigPatch dry-run / apply / validate / connectivity test。","Added a dedicated Proxy workspace with PixiJS topology canvas, structured Hosts group management, unified traffic monitoring across Proxy and Rules, and a new AI integration workspace with built-in MCP, Skill installation, and ConfigPatch dry-run / apply / validate / connectivity test.","新增 Proxy 工作台与 PixiJS 拓扑画布；新增结构化 Hosts 分组管理；首页流量监控现同时聚合 Proxy 与 Rules；新增 AI 集成工作台，支持内置 MCP、Skill 安装、ConfigPatch dry-run / apply / validate / connectivity test。","新增 Proxy 工作台與 PixiJS 拓撲畫布；新增結構化 Hosts 分組管理；首頁流量監控現同時聚合 Proxy 與 Rules；新增 AI 整合工作台，支援內建 MCP、Skill 安裝、ConfigPatch dry-run / apply / validate / connectivity test。"
+ProductFeatures1,Text,Proxy 反向代理 - Listener / Route / Upstream 拓扑管理,Proxy Reverse Proxy - Listener / Route / Upstream topology,Proxy 反向代理 - Listener / Route / Upstream 拓扑管理,Proxy 反向代理 - Listener / Route / Upstream 拓撲管理
+ProductFeatures2,Text,HTTP / HTTPS 监听 - 支持 TLS 终止与本地 CA 证书,HTTP / HTTPS Listeners - TLS termination and local CA support,HTTP / HTTPS 监听 - 支持 TLS 终止与本地 CA 证书,HTTP / HTTPS 監聽 - 支援 TLS 終止與本地 CA 憑證
+ProductFeatures3,Text,Server Name 分流 - 支持通配符匹配与默认路由,Server-Name Routing - Wildcard matching and default route,Server Name 分流 - 支持通配符匹配与默认路由,Server Name 分流 - 支援萬用字元匹配與預設路由
+ProductFeatures4,Text,WebSocket 与 gRPC/gRPCS 支持,WebSocket and gRPC/gRPCS support,WebSocket 与 gRPC/gRPCS 支持,WebSocket 與 gRPC/gRPCS 支援
+ProductFeatures5,Text,上游目标支持 WSL / Hyper-V / Static 主机,Upstreams for WSL / Hyper-V / static hosts,上游目标支持 WSL / Hyper-V / Static 主机,上游目標支援 WSL / Hyper-V / Static 主機
+ProductFeatures6,Text,路径前缀改写与 URL 级目标转发,Path-prefix rewrite and URL-level upstream targeting,路径前缀改写与 URL 级目标转发,路徑前綴改寫與 URL 級目標轉發
+ProductFeatures7,Text,Hosts 分组管理 - 多套结构化 hosts 预设,Hosts Group Management - Multiple structured hosts presets,Hosts 分组管理 - 多套结构化 hosts 预设,Hosts 分組管理 - 多套結構化 hosts 預設
+ProductFeatures8,Text,一键切换当前生效 Hosts 分组,Activate one Hosts group at a time,一键切换当前生效 Hosts 分组,一鍵切換目前生效的 Hosts 分組
+ProductFeatures9,Text,支持 IPv4 / IPv6 hosts 记录、导入导出与复制,IPv4 / IPv6 hosts records with import/export/copy,支持 IPv4 / IPv6 hosts 记录、导入导出与复制,支援 IPv4 / IPv6 hosts 記錄、匯入匯出與複製
+ProductFeatures10,Text,Legacy Rules 兼容 - 保留 UDP 转发与 SOCKS5,Legacy Rules Compatibility - Keep UDP forwarding and SOCKS5,Legacy Rules 兼容 - 保留 UDP 转发与 SOCKS5,Legacy Rules 相容 - 保留 UDP 轉發與 SOCKS5
+ProductFeatures11,Text,旧版 TCP/HTTP 规则可迁移到 Proxy,Legacy TCP/HTTP rules can migrate to Proxy,旧版 TCP/HTTP 规则可迁移到 Proxy,舊版 TCP/HTTP 規則可遷移到 Proxy
+ProductFeatures12,Text,统一流量监控 - 聚合 Proxy 与 Rules 曲线数据,Unified Traffic Monitoring - Combined Proxy and Rules charts,统一流量监控 - 聚合 Proxy 与 Rules 曲线数据,統一流量監控 - 聚合 Proxy 與 Rules 曲線資料
+ProductFeatures13,Text,拓扑自动发现 - 扫描 WSL / Hyper-V / 网卡信息,Topology Discovery - Scan WSL / Hyper-V / NIC state,拓扑自动发现 - 扫描 WSL / Hyper-V / 网卡信息,拓撲自動發現 - 掃描 WSL / Hyper-V / 網卡資訊
+ProductFeatures14,Text,多网卡绑定与监听地址管理,Multi-NIC binding and listener address management,多网卡绑定与监听地址管理,多網卡綁定與監聽位址管理
+ProductFeatures15,Text,内置 MCP 服务 - 面向 AI Agent 暴露状态与操作能力,Built-in MCP service - Expose state and operations to AI agents,Built-in MCP 服务 - 面向 AI Agent 暴露状态与操作能力,內建 MCP 服務 - 面向 AI Agent 暴露狀態與操作能力
+ProductFeatures16,Text,Skill 安装与客户端配置检测,Skill installation and client configuration detection,Skill 安装与客户端配置检测,Skill 安裝與客戶端設定檢測
+ProductFeatures17,Text,ConfigPatch - 支持 dry-run、校验、连通性测试与受控 apply,ConfigPatch with dry-run, validation, connectivity test, and controlled apply,ConfigPatch - 支持 dry-run、校验、连通性测试与受控 apply,ConfigPatch - 支援 dry-run、校驗、連通性測試與受控 apply
+ProductFeatures18,Text,审计日志与运行日志,Audit logs and runtime logs,审计日志与运行日志,審計日誌與運行日誌
+ProductFeatures19,Text,Proxy 拓扑画布 - 支持搜索、平移、缩放与节点详情,Proxy topology canvas with search, pan, zoom, and node details,Proxy 拓扑画布 - 支持搜索、平移、缩放与节点详情,Proxy 拓撲畫布 - 支援搜尋、平移、縮放與節點詳情
+ProductFeatures20,Text,支持 Windows 10/11,Support Windows 10/11,支持 Windows 10/11,支援 Windows 10/11
+ShortDescription,Text,适用于 WSL / Hyper-V 的 Windows Proxy、Hosts 与 AI 集成工具,Windows proxy, hosts, and AI integration toolkit for WSL / Hyper-V,适用于 WSL / Hyper-V 的 Windows Proxy、Hosts 与 AI 集成工具,適用於 WSL / Hyper-V 的 Windows Proxy、Hosts 與 AI 整合工具
 SearchTerms1,Text,WSL,WSL,WSL,WSL
 SearchTerms2,Text,Hyper-V,Hyper-V,Hyper-V,Hyper-V
-SearchTerms3,Text,端口转发,Port Forwarding,端口转发,連接埠轉發
-SearchTerms4,Text,代理,Proxy,代理,代理
-SearchTerms5,Text,网络桥接,Network Bridge,网络桥接,網路橋接
-SearchTerms6,Text,虚拟机,Virtual Machine,虚拟机,虛擬機
-SearchTerms7,Text,,,
+SearchTerms3,Text,反向代理,Reverse Proxy,反向代理,反向代理
+SearchTerms4,Text,Hosts,Hosts,Hosts,Hosts
+SearchTerms5,Text,端口转发,Port Forwarding,端口转发,連接埠轉發
+SearchTerms6,Text,MCP,MCP,MCP,MCP
+SearchTerms7,Text,WebSocket,WebSocket,WebSocket,WebSocket
 Applicable license terms,Text,MIT License,MIT License,MIT License,MIT License
 Copyright,Text,Copyright © 2026 WSL Bridge,Copyright © 2026 WSL Bridge,Copyright © 2026 WSL Bridge,Copyright © 2026 WSL Bridge
 DevelopedBy,Text,yangholmes,yangholmes,yangholmes,yangholmes
 RequirementsMinimum1,Text,Windows 10 版本 22H2 或更高版本,Windows 10 version 22H2 or later,Windows 10 版本 22H2 或更高版本,Windows 10 版本 22H2 或更高版本
 RequirementsMinimum2,Text,100 MB 可用磁盘空间,100 MB available disk space,100 MB 可用磁碟空間,100 MB 可用磁碟空間
 RequirementsMinimum3,Text,128 MB RAM,128 MB RAM,128 MB RAM,128 MB RAM
-RequirementsMinimum4,Text,,,
-RequirementsMinimum5,Text,,,
-RequirementsMinimum6,Text,,,
+RequirementsMinimum4,Text,如需使用 WSL 目标需已安装 WSL,WSL must be installed for WSL targets,如需使用 WSL 目标需已安装 WSL,如需使用 WSL 目標需已安裝 WSL
+RequirementsMinimum5,Text,如需使用 Hyper-V 目标需启用 Hyper-V,Hyper-V must be enabled for Hyper-V targets,如需使用 Hyper-V 目标需启用 Hyper-V,如需使用 Hyper-V 目標需啟用 Hyper-V
+RequirementsMinimum6,Text,Hosts 生效写入建议以管理员权限运行,Administrator privileges recommended for Hosts activation,Hosts 生效写入建议以管理员权限运行,Hosts 生效寫入建議以管理員權限執行
 RequirementsMinimum7,Text,,,
 RequirementsMinimum8,Text,,,
 RequirementsMinimum9,Text,,,
@@ -46,7 +46,7 @@ RequirementsMinimum10,Text,,,
 RequirementsMinimum11,Text,,,
 RequirementsRecommended1,Text,Windows 11,Windows 11,Windows 11,Windows 11
 RequirementsRecommended2,Text,512 MB RAM,512 MB RAM,512 MB RAM,512 MB RAM
-RequirementsRecommended3,Text,,,
+RequirementsRecommended3,Text,管理员权限运行以获得完整 Hosts / 防火墙 / 运行时体验,Run as administrator for full Hosts / firewall / runtime behavior,管理员权限运行以获得完整 Hosts / 防火墙 / 运行时体验,以管理員權限執行以獲得完整 Hosts / 防火牆 / 執行期體驗
 RequirementsRecommended4,Text,,,
 RequirementsRecommended5,Text,,,
 RequirementsRecommended6,Text,,,
