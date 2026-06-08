@@ -9,22 +9,38 @@
   width: 40px;
   height: 22px;
   padding: 2px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--switch-track-border);
   border-radius: var(--radius-full);
-  background: var(--bg-panel-strong);
+  background: var(--switch-track-bg);
+  cursor: pointer;
+}
+
+.kb-switch:hover .kb-switch-control {
+  background: var(--switch-track-hover-bg);
+  border-color: var(--switch-track-hover-border);
 }
 
 .kb-switch[data-checked] .kb-switch-control {
-  background: var(--brand-500);
-  border-color: var(--brand-500);
+  background: var(--switch-track-checked-bg);
+  border-color: var(--switch-track-checked-border);
+}
+
+.kb-switch[data-checked]:hover .kb-switch-control {
+  background: var(--switch-track-checked-hover-bg);
+  border-color: var(--switch-track-checked-hover-border);
+}
+
+.kb-switch:focus-visible .kb-switch-control {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .kb-switch-thumb {
   width: 16px;
   height: 16px;
   border-radius: var(--radius-full);
-  background: var(--text-inverse);
-  box-shadow: var(--shadow-xs);
+  background: var(--switch-thumb-bg);
+  box-shadow: var(--switch-thumb-shadow);
   transform: translateX(0);
 }
 
@@ -57,14 +73,30 @@
   position: relative;
   width: 18px;
   height: 18px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--checkbox-border);
   border-radius: 5px;
   background: var(--checkbox-bg);
+  cursor: pointer;
+}
+
+.kb-checkbox:hover .kb-checkbox-control {
+  background: var(--checkbox-hover-bg);
+  border-color: var(--checkbox-hover-border);
 }
 
 .kb-checkbox[data-checked] .kb-checkbox-control {
-  background: var(--brand-500);
-  border-color: var(--brand-500);
+  background: var(--checkbox-checked-bg);
+  border-color: var(--checkbox-checked-border);
+}
+
+.kb-checkbox[data-checked]:hover .kb-checkbox-control {
+  background: var(--checkbox-checked-hover-bg);
+  border-color: var(--checkbox-checked-hover-border);
+}
+
+.kb-checkbox:focus-visible .kb-checkbox-control {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .kb-checkbox-indicator {

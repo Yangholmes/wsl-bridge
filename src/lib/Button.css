@@ -5,10 +5,10 @@
   gap: var(--space-8);
   min-height: 36px;
   padding: 0 var(--space-14);
-  border: 1px solid transparent;
+  border: 1px solid var(--button-border);
   border-radius: var(--radius-md);
-  background: var(--bg-panel-muted);
-  color: var(--text-primary);
+  background: var(--button-bg);
+  color: var(--button-fg);
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
   cursor: pointer;
@@ -16,7 +16,12 @@
 }
 
 .kb-btn:hover {
-  background: var(--bg-hover);
+  background: var(--button-hover-bg);
+}
+
+.kb-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--button-focus-ring);
 }
 
 .kb-btn:disabled {
@@ -24,36 +29,61 @@
   cursor: not-allowed;
 }
 
+.kb-btn-loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: kb-btn-spin 0.75s linear infinite;
+}
+
 .kb-btn.accent,
 .kb-btn.primary {
-  background: var(--brand-500);
-  color: var(--text-inverse);
+  border-color: transparent;
+  background: var(--button-primary-bg);
+  color: var(--button-primary-fg);
+  text-decoration: none;
 }
 
 .kb-btn.accent:hover,
 .kb-btn.primary:hover {
-  background: var(--brand-600);
+  background: var(--button-primary-hover-bg);
 }
 
 .kb-btn.ghost {
-  border-color: var(--line);
-  background: var(--bg-panel);
+  border-color: var(--button-ghost-border);
+  background: var(--button-ghost-bg);
+  color: var(--button-ghost-fg);
 }
 
 .kb-btn.ghost:hover {
-  border-color: var(--line-strong);
-  background: var(--bg-hover);
+  border-color: var(--button-ghost-hover-border);
+  background: var(--button-ghost-hover-bg);
+}
+
+.kb-btn.ghost-borderless {
+  border-color: transparent;
+  background: transparent;
+  color: var(--button-ghost-borderless-fg);
+  box-shadow: none;
+}
+
+.kb-btn.ghost-borderless:hover {
+  border-color: transparent;
+  background: var(--button-ghost-borderless-hover-bg);
+  box-shadow: none;
 }
 
 .kb-btn.danger {
-  background: var(--danger-50);
-  color: var(--danger-600);
-  border-color: transparent;
+  background: var(--button-danger-bg);
+  color: var(--button-danger-fg);
+  border-color: var(--button-danger-border);
 }
 
 .kb-btn.danger:hover {
-  background: var(--danger-50);
-  border-color: var(--danger-600);
+  background: var(--button-danger-hover-bg);
+  border-color: var(--button-danger-hover-border);
 }
 
 .kb-btn.small {
@@ -61,8 +91,28 @@
   padding: 0 var(--space-10);
 }
 
+.kb-btn.tiny {
+  min-height: 20px;
+  padding: 0 var(--space-6);
+  gap: var(--space-4);
+  font-size: var(--text-xs);
+}
+
 .kb-btn.icon-btn {
   width: 32px;
   min-width: 32px;
   padding: 0;
+}
+
+.kb-btn.icon-btn.tiny {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+}
+
+@keyframes kb-btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

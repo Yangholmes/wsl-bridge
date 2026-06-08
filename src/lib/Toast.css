@@ -7,6 +7,7 @@
   flex-direction: column;
   gap: 8px;
   max-width: 360px;
+  pointer-events: none;
 }
 
 .toast {
@@ -15,10 +16,11 @@
   gap: 10px;
   padding: 12px 14px;
   border-radius: var(--radius-md);
-  background: var(--surface-strong);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
+  background: var(--toast-bg);
+  border: 1px solid var(--toast-border);
+  box-shadow: var(--toast-shadow);
   animation: toastSlideIn 0.2s ease;
+  pointer-events: auto;
 }
 
 @keyframes toastSlideIn {
@@ -61,7 +63,7 @@
 }
 
 .toast-close:hover {
-  background: var(--hover-bg);
+  background: var(--toast-close-hover-bg);
   color: var(--text);
 }
 

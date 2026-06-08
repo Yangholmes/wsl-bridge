@@ -88,6 +88,7 @@
 
 .sidebar-nav-item svg {
   flex-shrink: 0;
+  display: block;
 }
 
 .sidebar-footer {
@@ -141,7 +142,12 @@
   min-width: 0;
 }
 
+.app-main > .hint-banner {
+  grid-row: 2;
+}
+
 .content {
+  grid-row: 3;
   min-width: 0;
   min-height: 0;
   padding: var(--space-24);
@@ -156,6 +162,22 @@
   max-width: 1120px;
   min-width: 0;
   align-content: start;
+}
+
+.content:has(.proxy-page-shell) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.content:has(.proxy-page-shell) .content-inner {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 100%;
+  align-items: stretch;
 }
 
 @media (max-width: var(--breakpoint-md)) {

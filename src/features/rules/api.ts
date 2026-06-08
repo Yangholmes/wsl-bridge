@@ -3,6 +3,7 @@ import type {
   ApplyRulesResult,
   CreateRuleRequest,
   ProxyRule,
+  RuleMigrationRecord,
   RulePatch,
   RuntimeStatusItem,
   StopRulesResult,
@@ -10,15 +11,29 @@ import type {
   TopologySnapshot,
   QueryTrafficStatsRequest,
   QueryTrafficStatsResult,
-  TrafficWindowData
+  TrafficMonitorEntity,
+  TrafficWindowData,
+  TrafficWindowQueryEntity
 } from "../../lib/types";
 
 export function listRules() {
   return invokeBridge<ProxyRule[]>("list_rules");
 }
 
+export function listRuleMigrations() {
+  return invokeBridge<RuleMigrationRecord[]>("list_rule_migrations");
+}
+
 export function createRule(req: CreateRuleRequest) {
   return invokeBridge<string>("create_rule", { req });
+}
+
+export function migrateRuleToProxy(ruleId: string) {
+  return invokeBridge<RuleMigrationRecord>("migrate_rule_to_proxy", { ruleId });
+}
+
+export function rollbackRuleMigration(ruleId: string) {
+  return invokeBridge<RuleMigrationRecord>("rollback_rule_migration", { ruleId });
 }
 
 export function updateRule(id: string, patch: RulePatch) {
@@ -45,8 +60,12 @@ export function getRuntimeStatus() {
   return invokeBridge<RuntimeStatusItem[]>("get_runtime_status");
 }
 
-export function getTrafficWindowData(ruleIds: string[]) {
-  return invokeBridge<TrafficWindowData[]>("get_traffic_window_data", { ruleIds });
+export function listTrafficMonitorEntities() {
+  return invokeBridge<TrafficMonitorEntity[]>("list_traffic_monitor_entities");
+}
+
+export function getTrafficWindowData(entities: TrafficWindowQueryEntity[]) {
+  return invokeBridge<TrafficWindowData[]>("get_traffic_window_data", { entities });
 }
 
 export function queryTrafficStats(req: QueryTrafficStatsRequest) {

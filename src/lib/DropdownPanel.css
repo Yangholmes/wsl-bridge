@@ -24,16 +24,23 @@
   background: transparent;
 }
 
+.dropdown-panel-trigger.icon-btn {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
 .dropdown-panel-surface {
   position: absolute;
   top: calc(100% + 6px);
   z-index: 30;
   min-width: 320px;
   max-width: min(420px, calc(100vw - 64px));
-  border: 1px solid var(--line);
+  border: 1px solid var(--menu-border);
   border-radius: var(--radius-xl);
-  background: var(--surface-strong);
-  box-shadow: var(--shadow-md);
+  background: var(--menu-surface-bg);
+  box-shadow: var(--menu-shadow);
   padding: var(--space-10);
 }
 

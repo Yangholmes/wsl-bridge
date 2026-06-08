@@ -370,7 +370,6 @@ WSL Bridge 内置 MCP 服务器，支持 AI 助手（如 Claude、Cursor 等）�
 
 - `enabled`: 是否启用 MCP 服务器
 - `listen_port`: MCP 服务器监听端口
-- `api_token`: 认证 Token
 - `expose_topology_read`: 是否暴露拓扑读取能力
 - `expose_rule_config`: 是否暴露规则配置能力
 

@@ -1,14 +1,26 @@
 use std::collections::{HashMap, VecDeque};
+use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{
+    IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket,
+};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use rustls::pki_types::{PrivateKeyDer, ServerName};
+use rustls::{
+    ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned,
+};
 use serde_json::json;
+use wsl_bridge_shared::{ProxyRoute, ProxyUpstream, TargetKind, TrafficEntityType, UpstreamScheme};
 
 use crate::app_logs::{classify_io_error, AccessLogEntry, ErrorLogEntry};
+use crate::proxy_metrics::ProxyMetricsRecorder;
+use crate::proxy_runtime::{rewrite_path, select_route, select_upstream};
+use crate::topology::resolve_dynamic_target_candidates;
 use crate::traffic::TrafficRecorder;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +69,209 @@ pub fn spawn(
         ForwarderKind::Socks5Proxy => spawn_socks5_proxy_forwarder(listen_addr, traffic),
     }
 }
+
+fn proxy_upstream_host_candidates(upstream: &ProxyUpstream) -> Vec<String> {
+    match upstream.target_kind {
+        TargetKind::Static => upstream
+            .target_host
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| vec![value.to_owned()])
+            .unwrap_or_default(),
+        TargetKind::Wsl | TargetKind::Hyperv => resolve_dynamic_target_candidates(
+            upstream.target_kind,
+            upstream.target_ref.as_deref().unwrap_or_default(),
+            upstream.target_host.as_deref(),
+        ),
+    }
+}
+
+fn connect_first_available_target(
+    candidates: Vec<String>,
+    target_port: u16,
+) -> io::Result<(TcpStream, String)> {
+    if candidates.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "no upstream host candidate available",
+        ));
+    }
+
+    let mut last_err = None;
+    for host in &candidates {
+        match TcpStream::connect((host.as_str(), target_port)) {
+            Ok(stream) => return Ok((stream, host.clone())),
+            Err(err) => last_err = Some(err),
+        }
+    }
+
+    let last_err = last_err.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "no upstream host candidate available",
+        )
+    });
+    Err(io::Error::new(
+        last_err.kind(),
+        format!(
+            "failed to connect to upstream candidates [{}]: {}",
+            candidates.join(", "),
+            last_err
+        ),
+    ))
+}
+
+fn connect_proxy_upstream(upstream: &ProxyUpstream) -> io::Result<(TcpStream, String)> {
+    connect_first_available_target(
+        proxy_upstream_host_candidates(upstream),
+        upstream.target_port,
+    )
+}
+
+fn proxy_upstream_request_count(upstream_scheme: UpstreamScheme) -> u64 {
+    match upstream_scheme {
+        UpstreamScheme::Http | UpstreamScheme::Https => 1,
+        UpstreamScheme::Ws | UpstreamScheme::Wss | UpstreamScheme::Grpc | UpstreamScheme::Grpcs => {
+            0
+        }
+    }
+}
+
+pub fn spawn_http_reverse_proxy(
+    listen_addr: SocketAddr,
+    routes: Vec<ProxyRoute>,
+    upstreams: HashMap<String, Vec<ProxyUpstream>>,
+    extra_trust_root_paths: Vec<PathBuf>,
+    traffic: TrafficRecorder,
+    metrics: ProxyMetricsRecorder,
+) -> io::Result<ForwarderHandle> {
+    let listener = TcpListener::bind(listen_addr)?;
+    listener.set_nonblocking(true)?;
+    let tls_client_config = build_upstream_tls_client_config(&extra_trust_root_paths)?;
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_loop = Arc::clone(&stop);
+
+    let join = thread::spawn(move || {
+        while !stop_loop.load(Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((inbound, _peer)) => {
+                    let routes = routes.clone();
+                    let upstreams = upstreams.clone();
+                    let tls_client_config = Arc::clone(&tls_client_config);
+                    let traffic = traffic.clone();
+                    let metrics = metrics.clone();
+                    thread::spawn(move || {
+                        let _ = inbound.set_nonblocking(false);
+                        let _ = handle_http_reverse_proxy_tcp_connection(
+                            inbound,
+                            routes,
+                            upstreams,
+                            tls_client_config,
+                            traffic,
+                            metrics,
+                        );
+                    });
+                }
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(80));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    Ok(ForwarderHandle {
+        stop,
+        join: Some(join),
+    })
+}
+
+pub fn spawn_https_reverse_proxy(
+    listen_addr: SocketAddr,
+    cert_path: &str,
+    key_path: &str,
+    routes: Vec<ProxyRoute>,
+    upstreams: HashMap<String, Vec<ProxyUpstream>>,
+    extra_trust_root_paths: Vec<PathBuf>,
+    traffic: TrafficRecorder,
+    metrics: ProxyMetricsRecorder,
+) -> io::Result<ForwarderHandle> {
+    let listener = TcpListener::bind(listen_addr)?;
+    listener.set_nonblocking(true)?;
+    let tls_config = Arc::new(load_rustls_server_config(cert_path, key_path)?);
+    let tls_client_config = build_upstream_tls_client_config(&extra_trust_root_paths)?;
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_loop = Arc::clone(&stop);
+
+    let join = thread::spawn(move || {
+        while !stop_loop.load(Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((inbound, _peer)) => {
+                    let routes = routes.clone();
+                    let upstreams = upstreams.clone();
+                    let traffic = traffic.clone();
+                    let metrics = metrics.clone();
+                    let tls_config = Arc::clone(&tls_config);
+                    let tls_client_config = Arc::clone(&tls_client_config);
+                    thread::spawn(move || {
+                        let _ = inbound.set_nonblocking(false);
+                        let client = peer_label(&inbound);
+                        let client_ip = inbound.peer_addr().ok().map(|addr| addr.ip());
+                        let connection = match ServerConnection::new(tls_config) {
+                            Ok(connection) => connection,
+                            Err(err) => {
+                                traffic.log_error(
+                                    ErrorLogEntry::new("tls_config_error", err.to_string())
+                                        .with_client(client)
+                                        .with_detail(json!({ "protocol": "proxy_https" })),
+                                );
+                                return;
+                            }
+                        };
+                        let mut stream = StreamOwned::new(connection, inbound);
+                        if let Err(err) = handle_http_reverse_proxy_stream(
+                            &mut stream,
+                            client.clone(),
+                            client_ip,
+                            routes,
+                            upstreams,
+                            tls_client_config,
+                            traffic.clone(),
+                            metrics,
+                            "proxy_https",
+                        ) {
+                            traffic.log_error(
+                                ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                                    .with_client(client)
+                                    .with_detail(json!({
+                                      "protocol": "proxy_https",
+                                      "phase": "tls_or_http"
+                                    })),
+                            );
+                        } else {
+                            stream.conn.send_close_notify();
+                            let _ = stream.flush();
+                        }
+                    });
+                }
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(80));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    Ok(ForwarderHandle {
+        stop,
+        join: Some(join),
+    })
+}
+
+pub(crate) const HTTP2_PRIOR_KNOWLEDGE_PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 fn spawn_tcp_forwarder(
     listen_addr: SocketAddr,
@@ -418,6 +633,1679 @@ fn handle_http_proxy_connection(inbound: TcpStream, traffic: TrafficRecorder) ->
     Ok(())
 }
 
+fn handle_http_reverse_proxy_tcp_connection(
+    inbound: TcpStream,
+    routes: Vec<ProxyRoute>,
+    upstreams_by_route: HashMap<String, Vec<ProxyUpstream>>,
+    tls_client_config: Arc<ClientConfig>,
+    traffic: TrafficRecorder,
+    metrics: ProxyMetricsRecorder,
+) -> io::Result<()> {
+    if is_http2_prior_knowledge_preface(&inbound)? {
+        return handle_grpc_h2c_proxy_connection(
+            inbound,
+            routes,
+            upstreams_by_route,
+            traffic,
+            metrics,
+        );
+    }
+
+    let client = peer_label(&inbound);
+    let client_ip = inbound.peer_addr().ok().map(|addr| addr.ip());
+    let mut reader = BufReader::new(inbound);
+
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line)? == 0 {
+        return Ok(());
+    }
+    let request_line_trimmed = request_line.trim_end_matches(['\r', '\n']);
+    let mut parts = request_line_trimmed.split_whitespace();
+    let method = parts.next().unwrap_or("");
+    let target = parts.next().unwrap_or("");
+    let version = parts.next().unwrap_or("HTTP/1.1");
+
+    if method.is_empty() || target.is_empty() {
+        let err = io::Error::new(io::ErrorKind::InvalidData, "invalid http request line");
+        traffic.log_error(
+            ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                .with_client(client)
+                .with_detail(json!({
+                  "protocol": "proxy_http",
+                  "request_line": request_line_trimmed
+                })),
+        );
+        return Err(err);
+    }
+
+    if method.eq_ignore_ascii_case("CONNECT") {
+        let mut inbound = reader.into_inner();
+        write_simple_http_response(&mut inbound, 405, "Method Not Allowed")?;
+        let err = io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "reverse proxy does not support CONNECT",
+        );
+        traffic.log_error(
+            ErrorLogEntry::new("protocol_error", err.to_string())
+                .with_client(client)
+                .with_detail(json!({
+                  "protocol": "proxy_http",
+                  "method": method
+                })),
+        );
+        return Err(err);
+    }
+
+    let mut headers: Vec<(String, String)> = Vec::new();
+    let mut host_header: Option<String> = None;
+    let mut content_length = 0usize;
+    let mut has_chunked_body = false;
+    loop {
+        let mut line = String::new();
+        if reader.read_line(&mut line)? == 0 {
+            break;
+        }
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed.is_empty() {
+            break;
+        }
+        if let Some((k, v)) = trimmed.split_once(':') {
+            let key = k.trim().to_owned();
+            let value = v.trim().to_owned();
+            if key.eq_ignore_ascii_case("host") {
+                host_header = Some(value.clone());
+            }
+            if key.eq_ignore_ascii_case("content-length") {
+                content_length = value.parse::<usize>().unwrap_or(0);
+            }
+            if key.eq_ignore_ascii_case("transfer-encoding")
+                && value.to_ascii_lowercase().contains("chunked")
+            {
+                has_chunked_body = true;
+            }
+            headers.push((key, value));
+        }
+    }
+
+    let (request_host, request_port, request_path) =
+        match resolve_http_request_target(target, host_header.as_deref()) {
+            Some(value) => value,
+            None => {
+                let mut inbound = reader.into_inner();
+                write_simple_http_response(&mut inbound, 400, "Bad Request")?;
+                let err = io::Error::new(io::ErrorKind::InvalidInput, "invalid request target");
+                traffic.log_error(
+                    ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                        .with_client(client)
+                        .with_target(target.to_owned())
+                        .with_detail(json!({
+                          "protocol": "proxy_http",
+                          "method": method
+                        })),
+                );
+                return Err(err);
+            }
+        };
+
+    let matched = match select_route(&routes, &request_host, &request_path) {
+        Some(route) => route,
+        None => {
+            let mut inbound = reader.into_inner();
+            write_simple_http_response(&mut inbound, 404, "Not Found")?;
+            let err = io::Error::new(io::ErrorKind::NotFound, "no proxy route matched");
+            traffic.log_error(
+                ErrorLogEntry::new("route_not_matched", err.to_string())
+                    .with_client(client)
+                    .with_target(format!("{request_host}:{request_port}{request_path}"))
+                    .with_detail(json!({
+                      "protocol": "proxy_http",
+                      "host": request_host,
+                      "path": request_path
+                    })),
+            );
+            return Err(err);
+        }
+    };
+    metrics.record_route_match(
+        &matched.route.id,
+        &matched.route.listener_id,
+        &matched.server_name,
+        &request_path,
+    );
+
+    let route_upstreams = upstreams_by_route
+        .get(&matched.route.id)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let upstream = match select_upstream(route_upstreams) {
+        Some(upstream) => upstream,
+        None => {
+            let mut inbound = reader.into_inner();
+            write_simple_http_response(&mut inbound, 502, "Bad Gateway")?;
+            let err = io::Error::new(io::ErrorKind::NotFound, "no enabled upstream available");
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                "no enabled upstream available",
+            );
+            traffic.log_error(
+                ErrorLogEntry::new("upstream_not_available", err.to_string())
+                    .with_client(client)
+                    .with_target(format!("{request_host}:{request_port}{request_path}"))
+                    .with_detail(json!({
+                      "protocol": "proxy_http",
+                      "route_id": matched.route.id,
+                      "server_name": matched.server_name,
+                      "path": request_path
+                    })),
+            );
+            return Err(err);
+        }
+    };
+    let upstream_traffic = traffic.scoped(TrafficEntityType::ProxyUpstream, upstream.id.clone());
+    let upstream_request_count = proxy_upstream_request_count(upstream.upstream_scheme);
+
+    if matches!(
+        upstream.upstream_scheme,
+        UpstreamScheme::Grpc | UpstreamScheme::Grpcs
+    ) {
+        let mut inbound = reader.into_inner();
+        write_simple_http_response(&mut inbound, 501, "Not Implemented")?;
+        let err = io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!(
+                "upstream scheme '{}' is not supported yet",
+                upstream_scheme_label(upstream)
+            ),
+        );
+        metrics.record_route_error(
+            &matched.route.id,
+            &matched.route.listener_id,
+            &err.to_string(),
+        );
+        metrics.record_upstream_error(
+            &upstream.id,
+            &matched.route.id,
+            upstream.target_host.as_deref().unwrap_or_default(),
+            &request_path,
+            &err.to_string(),
+        );
+        traffic.log_error(
+            ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                .with_client(client)
+                .with_target(format!(
+                    "{}:{}{}",
+                    upstream.target_host.as_deref().unwrap_or_default(),
+                    upstream.target_port,
+                    request_path
+                ))
+                .with_detail(json!({
+                  "protocol": "proxy_http",
+                  "route_id": matched.route.id,
+                  "upstream_id": upstream.id,
+                  "server_name": matched.server_name,
+                  "path": request_path,
+                  "method": method,
+                  "scheme": upstream_scheme_label(upstream)
+                })),
+        );
+        return Err(err);
+    }
+
+    let mut upstream_host = upstream.target_host.as_deref().unwrap_or("").to_owned();
+    let rewritten_path = rewrite_path(
+        &request_path,
+        upstream.path_rewrite_from.as_deref(),
+        upstream.path_rewrite_to.as_deref(),
+    );
+    let mut target_label = format!("{upstream_host}:{}{}", upstream.target_port, rewritten_path);
+    let is_websocket = matches!(
+        upstream.upstream_scheme,
+        UpstreamScheme::Ws | UpstreamScheme::Wss
+    );
+    let is_tls_upstream = matches!(
+        upstream.upstream_scheme,
+        UpstreamScheme::Https | UpstreamScheme::Wss
+    );
+
+    let mut outbound = match connect_proxy_upstream(upstream) {
+        Ok((stream, actual_host)) => {
+            upstream_host = actual_host;
+            target_label = format!("{upstream_host}:{}{}", upstream.target_port, rewritten_path);
+            stream
+        }
+        Err(err) => {
+            let mut inbound = reader.into_inner();
+            let _ = write_simple_http_response(&mut inbound, 502, "Bad Gateway");
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                &err.to_string(),
+            );
+            metrics.record_upstream_error(
+                &upstream.id,
+                &matched.route.id,
+                &target_label,
+                &rewritten_path,
+                &err.to_string(),
+            );
+            traffic.log_error(
+                ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                    .with_client(client.clone())
+                    .with_target(target_label.clone())
+                    .with_detail(json!({
+                      "protocol": "proxy_http",
+                      "route_id": matched.route.id,
+                      "upstream_id": upstream.id,
+                      "server_name": matched.server_name
+                    })),
+            );
+            return Err(err);
+        }
+    };
+
+    let request_bytes = request_line_trimmed.len()
+        + 2
+        + headers
+            .iter()
+            .map(|(key, value)| key.len() + value.len() + 4)
+            .sum::<usize>()
+        + 2
+        + content_length;
+
+    let mut inbound = reader.into_inner();
+    outbound.set_nonblocking(false)?;
+
+    if has_chunked_body {
+        write_simple_http_response(&mut inbound, 501, "Not Implemented")?;
+        let err = io::Error::new(
+            io::ErrorKind::Unsupported,
+            "chunked request bodies are not supported yet",
+        );
+        metrics.record_route_error(
+            &matched.route.id,
+            &matched.route.listener_id,
+            "chunked request bodies are not supported yet",
+        );
+        metrics.record_upstream_error(
+            &upstream.id,
+            &matched.route.id,
+            &target_label,
+            &rewritten_path,
+            "chunked request bodies are not supported yet",
+        );
+        traffic.log_error(
+            ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                .with_client(client.clone())
+                .with_target(target_label.clone())
+                .with_detail(json!({
+                  "protocol": "proxy_http",
+                  "route_id": matched.route.id,
+                  "upstream_id": upstream.id,
+                  "server_name": matched.server_name,
+                  "path": rewritten_path,
+                  "method": method,
+                  "reason": "chunked_request_body_not_supported"
+                })),
+        );
+        return Err(err);
+    }
+
+    if content_length > 0 {
+        let mut remaining = content_length;
+        let mut buffer = [0u8; 8192];
+        while remaining > 0 {
+            let read_len = remaining.min(buffer.len());
+            inbound.read_exact(&mut buffer[..read_len])?;
+            outbound.write_all(&buffer[..read_len])?;
+            remaining -= read_len;
+        }
+    }
+
+    if is_websocket && !is_tls_upstream {
+        write_proxy_request(
+            &mut outbound,
+            method,
+            &rewritten_path,
+            version,
+            &headers,
+            &request_host,
+            client_ip,
+            true,
+        )?;
+        forward_request_body(&mut inbound, &mut outbound, content_length)?;
+        upstream_traffic.record(request_bytes as u64, 0, 1, upstream_request_count, 0);
+        let relay = relay_tcp_streams(inbound, outbound, &upstream_traffic, 0)?;
+        if let Some(err) = relay.error {
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                &err.to_string(),
+            );
+            metrics.record_upstream_error(
+                &upstream.id,
+                &matched.route.id,
+                &target_label,
+                &rewritten_path,
+                &err.to_string(),
+            );
+            traffic.log_error(
+                ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                    .with_client(client.clone())
+                    .with_target(target_label.clone())
+                    .with_detail(json!({
+                      "protocol": "proxy_http",
+                      "route_id": matched.route.id,
+                      "upstream_id": upstream.id,
+                      "server_name": matched.server_name,
+                      "path": rewritten_path,
+                      "method": method,
+                      "scheme": "ws"
+                    })),
+            );
+            return Err(err);
+        }
+        metrics.record_upstream_success(
+            &upstream.id,
+            &matched.route.id,
+            &target_label,
+            &rewritten_path,
+        );
+        traffic.log_access(AccessLogEntry::success(
+            traffic.rule_id().to_owned(),
+            client,
+            "proxy_http",
+            method.to_owned(),
+            target_label,
+            request_bytes as u64 + relay.bytes_in,
+            relay.bytes_out,
+            relay.duration_ms,
+        ));
+        return Ok(());
+    }
+
+    if is_websocket {
+        let mut tls_stream = match connect_tls_upstream_stream(
+            outbound,
+            upstream_host.as_str(),
+            Arc::clone(&tls_client_config),
+        ) {
+            Ok(stream) => stream,
+            Err(err) => {
+                let _ = write_simple_http_response(&mut inbound, 502, "Bad Gateway");
+                metrics.record_route_error(
+                    &matched.route.id,
+                    &matched.route.listener_id,
+                    &err.to_string(),
+                );
+                metrics.record_upstream_error(
+                    &upstream.id,
+                    &matched.route.id,
+                    &target_label,
+                    &rewritten_path,
+                    &err.to_string(),
+                );
+                traffic.log_error(
+                    ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                        .with_client(client.clone())
+                        .with_target(target_label.clone())
+                        .with_detail(json!({
+                          "protocol": "proxy_http",
+                          "route_id": matched.route.id,
+                          "upstream_id": upstream.id,
+                          "server_name": matched.server_name,
+                          "path": rewritten_path,
+                          "method": method,
+                          "scheme": "wss"
+                        })),
+                );
+                return Err(err);
+            }
+        };
+        write_proxy_request(
+            &mut tls_stream,
+            method,
+            &rewritten_path,
+            version,
+            &headers,
+            &request_host,
+            client_ip,
+            true,
+        )?;
+        forward_request_body(&mut inbound, &mut tls_stream, content_length)?;
+        upstream_traffic.record(request_bytes as u64, 0, 1, upstream_request_count, 0);
+        let relay = relay_websocket_tls_streams(inbound, tls_stream, &upstream_traffic, 0)?;
+        if let Some(err) = relay.error {
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                &err.to_string(),
+            );
+            metrics.record_upstream_error(
+                &upstream.id,
+                &matched.route.id,
+                &target_label,
+                &rewritten_path,
+                &err.to_string(),
+            );
+            traffic.log_error(
+                ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                    .with_client(client.clone())
+                    .with_target(target_label.clone())
+                    .with_detail(json!({
+                      "protocol": "proxy_http",
+                      "route_id": matched.route.id,
+                      "upstream_id": upstream.id,
+                      "server_name": matched.server_name,
+                      "path": rewritten_path,
+                      "method": method,
+                      "scheme": "wss"
+                    })),
+            );
+            return Err(err);
+        }
+        metrics.record_upstream_success(
+            &upstream.id,
+            &matched.route.id,
+            &target_label,
+            &rewritten_path,
+        );
+        traffic.log_access(AccessLogEntry::success(
+            traffic.rule_id().to_owned(),
+            client,
+            "proxy_http",
+            method.to_owned(),
+            target_label,
+            request_bytes as u64 + relay.bytes_in,
+            relay.bytes_out,
+            relay.duration_ms,
+        ));
+        return Ok(());
+    }
+
+    if is_tls_upstream {
+        let mut tls_stream = match connect_tls_upstream_stream(
+            outbound,
+            upstream_host.as_str(),
+            Arc::clone(&tls_client_config),
+        ) {
+            Ok(stream) => stream,
+            Err(err) => {
+                let _ = write_simple_http_response(&mut inbound, 502, "Bad Gateway");
+                metrics.record_route_error(
+                    &matched.route.id,
+                    &matched.route.listener_id,
+                    &err.to_string(),
+                );
+                metrics.record_upstream_error(
+                    &upstream.id,
+                    &matched.route.id,
+                    &target_label,
+                    &rewritten_path,
+                    &err.to_string(),
+                );
+                traffic.log_error(
+                    ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                        .with_client(client.clone())
+                        .with_target(target_label.clone())
+                        .with_detail(json!({
+                          "protocol": "proxy_http",
+                          "route_id": matched.route.id,
+                          "upstream_id": upstream.id,
+                          "server_name": matched.server_name,
+                          "path": rewritten_path,
+                          "method": method,
+                          "scheme": upstream_scheme_label(upstream)
+                        })),
+                );
+                return Err(err);
+            }
+        };
+        write_proxy_request(
+            &mut tls_stream,
+            method,
+            &rewritten_path,
+            version,
+            &headers,
+            &request_host,
+            client_ip,
+            false,
+        )?;
+        forward_request_body(&mut inbound, &mut tls_stream, content_length)?;
+        let started = Instant::now();
+        let result = io::copy(&mut tls_stream, &mut inbound);
+        let duration_ms = started.elapsed().as_millis() as u64;
+        let response_bytes = match result {
+            Ok(value) => value,
+            Err(err) => {
+                metrics.record_route_error(
+                    &matched.route.id,
+                    &matched.route.listener_id,
+                    &err.to_string(),
+                );
+                metrics.record_upstream_error(
+                    &upstream.id,
+                    &matched.route.id,
+                    &target_label,
+                    &rewritten_path,
+                    &err.to_string(),
+                );
+                traffic.log_error(
+                    ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                        .with_client(client.clone())
+                        .with_target(target_label.clone())
+                        .with_detail(json!({
+                          "protocol": "proxy_http",
+                          "route_id": matched.route.id,
+                          "upstream_id": upstream.id,
+                          "server_name": matched.server_name,
+                          "path": rewritten_path,
+                          "method": method,
+                          "scheme": "https"
+                        })),
+                );
+                return Err(err);
+            }
+        };
+        inbound.flush()?;
+        metrics.record_upstream_success(
+            &upstream.id,
+            &matched.route.id,
+            &target_label,
+            &rewritten_path,
+        );
+        upstream_traffic.record(
+            request_bytes as u64,
+            response_bytes,
+            1,
+            upstream_request_count,
+            duration_ms,
+        );
+        traffic.log_access(AccessLogEntry::success(
+            traffic.rule_id().to_owned(),
+            client,
+            "proxy_http",
+            method.to_owned(),
+            target_label,
+            request_bytes as u64,
+            response_bytes,
+            duration_ms,
+        ));
+        return Ok(());
+    }
+
+    write_proxy_request(
+        &mut outbound,
+        method,
+        &rewritten_path,
+        version,
+        &headers,
+        &request_host,
+        client_ip,
+        false,
+    )?;
+    forward_request_body(&mut inbound, &mut outbound, content_length)?;
+    outbound.flush()?;
+
+    let started = Instant::now();
+    let result = io::copy(&mut outbound, &mut inbound);
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let response_bytes = match result {
+        Ok(value) => value,
+        Err(err) => {
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                &err.to_string(),
+            );
+            metrics.record_upstream_error(
+                &upstream.id,
+                &matched.route.id,
+                &target_label,
+                &rewritten_path,
+                &err.to_string(),
+            );
+            traffic.log_error(
+                ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                    .with_client(client.clone())
+                    .with_target(target_label.clone())
+                    .with_detail(json!({
+                      "protocol": "proxy_http",
+                      "route_id": matched.route.id,
+                      "upstream_id": upstream.id,
+                      "server_name": matched.server_name,
+                      "path": rewritten_path,
+                      "method": method
+                    })),
+            );
+            return Err(err);
+        }
+    };
+    inbound.flush()?;
+
+    metrics.record_upstream_success(
+        &upstream.id,
+        &matched.route.id,
+        &target_label,
+        &rewritten_path,
+    );
+    upstream_traffic.record(
+        request_bytes as u64,
+        response_bytes,
+        1,
+        upstream_request_count,
+        duration_ms,
+    );
+
+    traffic.log_access(AccessLogEntry::success(
+        traffic.rule_id().to_owned(),
+        client,
+        "proxy_http",
+        method.to_owned(),
+        target_label,
+        request_bytes as u64,
+        response_bytes,
+        duration_ms,
+    ));
+    Ok(())
+}
+
+fn handle_grpc_h2c_proxy_connection(
+    inbound: TcpStream,
+    routes: Vec<ProxyRoute>,
+    upstreams_by_route: HashMap<String, Vec<ProxyUpstream>>,
+    traffic: TrafficRecorder,
+    metrics: ProxyMetricsRecorder,
+) -> io::Result<()> {
+    let client = peer_label(&inbound);
+    let matched = match select_grpc_tunnel_route(&routes, &upstreams_by_route, UpstreamScheme::Grpc)
+    {
+        Some(value) => value,
+        None => {
+            let mut inbound = inbound;
+            write_simple_http_response(&mut inbound, 404, "Not Found")?;
+            let err = io::Error::new(
+                io::ErrorKind::NotFound,
+                "no default grpc upstream is available for h2c tunnel",
+            );
+            traffic.log_error(
+                ErrorLogEntry::new("grpc_route_not_matched", err.to_string())
+                    .with_client(client)
+                    .with_detail(json!({
+                      "protocol": "proxy_http",
+                      "scheme": "grpc",
+                      "reason": "default_grpc_route_required"
+                    })),
+            );
+            return Err(err);
+        }
+    };
+
+    metrics.record_route_match(&matched.route.id, &matched.route.listener_id, "", "h2c");
+    let upstream_traffic = traffic.scoped(
+        TrafficEntityType::ProxyUpstream,
+        matched.upstream.id.clone(),
+    );
+
+    let mut target_label = format!(
+        "{}:{}",
+        matched.upstream.target_host.as_deref().unwrap_or(""),
+        matched.upstream.target_port
+    );
+    let outbound = match connect_proxy_upstream(matched.upstream) {
+        Ok((stream, actual_host)) => {
+            target_label = format!("{actual_host}:{}", matched.upstream.target_port);
+            stream
+        }
+        Err(err) => {
+            let mut inbound = inbound;
+            let _ = write_simple_http_response(&mut inbound, 502, "Bad Gateway");
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                &err.to_string(),
+            );
+            metrics.record_upstream_error(
+                &matched.upstream.id,
+                &matched.route.id,
+                &target_label,
+                "h2c",
+                &err.to_string(),
+            );
+            traffic.log_error(
+                ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                    .with_client(client.clone())
+                    .with_target(target_label.clone())
+                    .with_detail(json!({
+                      "protocol": "proxy_http",
+                      "route_id": matched.route.id,
+                      "upstream_id": matched.upstream.id,
+                      "scheme": "grpc",
+                      "method": "H2C_TUNNEL"
+                    })),
+            );
+            return Err(err);
+        }
+    };
+
+    let relay = relay_tcp_streams(inbound, outbound, &upstream_traffic, 0)?;
+    if let Some(err) = relay.error {
+        metrics.record_route_error(
+            &matched.route.id,
+            &matched.route.listener_id,
+            &err.to_string(),
+        );
+        metrics.record_upstream_error(
+            &matched.upstream.id,
+            &matched.route.id,
+            &target_label,
+            "h2c",
+            &err.to_string(),
+        );
+        traffic.log_error(
+            ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                .with_client(client.clone())
+                .with_target(target_label.clone())
+                .with_detail(json!({
+                  "protocol": "proxy_http",
+                  "route_id": matched.route.id,
+                  "upstream_id": matched.upstream.id,
+                  "scheme": "grpc",
+                  "method": "H2C_TUNNEL"
+                })),
+        );
+        return Err(err);
+    }
+
+    metrics.record_upstream_success(
+        &matched.upstream.id,
+        &matched.route.id,
+        &target_label,
+        "h2c",
+    );
+    traffic.log_access(AccessLogEntry::success(
+        traffic.rule_id().to_owned(),
+        client,
+        "proxy_http",
+        "H2C_TUNNEL",
+        target_label,
+        relay.bytes_in,
+        relay.bytes_out,
+        relay.duration_ms,
+    ));
+    Ok(())
+}
+
+fn handle_http_reverse_proxy_stream(
+    inbound: &mut StreamOwned<ServerConnection, TcpStream>,
+    client: String,
+    client_ip: Option<IpAddr>,
+    routes: Vec<ProxyRoute>,
+    upstreams_by_route: HashMap<String, Vec<ProxyUpstream>>,
+    tls_client_config: Arc<ClientConfig>,
+    traffic: TrafficRecorder,
+    metrics: ProxyMetricsRecorder,
+    protocol_label: &'static str,
+) -> io::Result<()> {
+    let mut reader = BufReader::new(inbound);
+
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line)? == 0 {
+        return Ok(());
+    }
+    let request_line_trimmed = request_line.trim_end_matches(['\r', '\n']);
+    let mut parts = request_line_trimmed.split_whitespace();
+    let method = parts.next().unwrap_or("");
+    let target = parts.next().unwrap_or("");
+    let version = parts.next().unwrap_or("HTTP/1.1");
+
+    if method == "PRI" && target == "*" && version == "HTTP/2.0" {
+        return handle_grpcs_prior_knowledge_tunnel(
+            reader,
+            request_line.len(),
+            client,
+            routes,
+            upstreams_by_route,
+            tls_client_config,
+            traffic,
+            metrics,
+            protocol_label,
+        );
+    }
+
+    if method.is_empty() || target.is_empty() {
+        let err = io::Error::new(io::ErrorKind::InvalidData, "invalid http request line");
+        traffic.log_error(
+            ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                .with_client(client)
+                .with_detail(json!({
+                  "protocol": protocol_label,
+                  "request_line": request_line_trimmed
+                })),
+        );
+        return Err(err);
+    }
+
+    if method.eq_ignore_ascii_case("CONNECT") {
+        let mut inbound = reader.into_inner();
+        write_simple_http_response(&mut inbound, 405, "Method Not Allowed")?;
+        let err = io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "reverse proxy does not support CONNECT",
+        );
+        traffic.log_error(
+            ErrorLogEntry::new("protocol_error", err.to_string())
+                .with_client(client)
+                .with_detail(json!({
+                  "protocol": protocol_label,
+                  "method": method
+                })),
+        );
+        return Err(err);
+    }
+
+    let mut headers: Vec<(String, String)> = Vec::new();
+    let mut host_header: Option<String> = None;
+    let mut content_length = 0usize;
+    let mut has_chunked_body = false;
+    loop {
+        let mut line = String::new();
+        if reader.read_line(&mut line)? == 0 {
+            break;
+        }
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed.is_empty() {
+            break;
+        }
+        if let Some((k, v)) = trimmed.split_once(':') {
+            let key = k.trim().to_owned();
+            let value = v.trim().to_owned();
+            if key.eq_ignore_ascii_case("host") {
+                host_header = Some(value.clone());
+            }
+            if key.eq_ignore_ascii_case("content-length") {
+                content_length = value.parse::<usize>().unwrap_or(0);
+            }
+            if key.eq_ignore_ascii_case("transfer-encoding")
+                && value.to_ascii_lowercase().contains("chunked")
+            {
+                has_chunked_body = true;
+            }
+            headers.push((key, value));
+        }
+    }
+
+    let (request_host, request_port, request_path) =
+        match resolve_http_request_target(target, host_header.as_deref()) {
+            Some(value) => value,
+            None => {
+                let mut inbound = reader.into_inner();
+                write_simple_http_response(&mut inbound, 400, "Bad Request")?;
+                let err = io::Error::new(io::ErrorKind::InvalidInput, "invalid request target");
+                traffic.log_error(
+                    ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                        .with_client(client)
+                        .with_target(target.to_owned())
+                        .with_detail(json!({
+                          "protocol": protocol_label,
+                          "method": method
+                        })),
+                );
+                return Err(err);
+            }
+        };
+
+    let matched = match select_route(&routes, &request_host, &request_path) {
+        Some(route) => route,
+        None => {
+            let mut inbound = reader.into_inner();
+            write_simple_http_response(&mut inbound, 404, "Not Found")?;
+            let err = io::Error::new(io::ErrorKind::NotFound, "no proxy route matched");
+            traffic.log_error(
+                ErrorLogEntry::new("route_not_matched", err.to_string())
+                    .with_client(client)
+                    .with_target(format!("{request_host}:{request_port}{request_path}"))
+                    .with_detail(json!({
+                      "protocol": protocol_label,
+                      "host": request_host,
+                      "path": request_path
+                    })),
+            );
+            return Err(err);
+        }
+    };
+    metrics.record_route_match(
+        &matched.route.id,
+        &matched.route.listener_id,
+        &matched.server_name,
+        &request_path,
+    );
+
+    let route_upstreams = upstreams_by_route
+        .get(&matched.route.id)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let upstream = match select_upstream(route_upstreams) {
+        Some(upstream) => upstream,
+        None => {
+            let mut inbound = reader.into_inner();
+            write_simple_http_response(&mut inbound, 502, "Bad Gateway")?;
+            let err = io::Error::new(io::ErrorKind::NotFound, "no enabled upstream available");
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                "no enabled upstream available",
+            );
+            traffic.log_error(
+                ErrorLogEntry::new("upstream_not_available", err.to_string())
+                    .with_client(client)
+                    .with_target(format!("{request_host}:{request_port}{request_path}"))
+                    .with_detail(json!({
+                      "protocol": protocol_label,
+                      "route_id": matched.route.id,
+                      "server_name": matched.server_name,
+                      "path": request_path
+                    })),
+            );
+            return Err(err);
+        }
+    };
+    let upstream_traffic = traffic.scoped(TrafficEntityType::ProxyUpstream, upstream.id.clone());
+    let upstream_request_count = proxy_upstream_request_count(upstream.upstream_scheme);
+
+    if matches!(
+        upstream.upstream_scheme,
+        UpstreamScheme::Grpc | UpstreamScheme::Grpcs
+    ) {
+        let mut inbound = reader.into_inner();
+        write_simple_http_response(&mut inbound, 501, "Not Implemented")?;
+        let err = io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!(
+                "upstream scheme '{}' is not supported yet",
+                upstream_scheme_label(upstream)
+            ),
+        );
+        metrics.record_route_error(
+            &matched.route.id,
+            &matched.route.listener_id,
+            &err.to_string(),
+        );
+        metrics.record_upstream_error(
+            &upstream.id,
+            &matched.route.id,
+            upstream.target_host.as_deref().unwrap_or_default(),
+            &request_path,
+            &err.to_string(),
+        );
+        traffic.log_error(
+            ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                .with_client(client)
+                .with_target(format!(
+                    "{}:{}{}",
+                    upstream.target_host.as_deref().unwrap_or_default(),
+                    upstream.target_port,
+                    request_path
+                ))
+                .with_detail(json!({
+                  "protocol": protocol_label,
+                  "route_id": matched.route.id,
+                  "upstream_id": upstream.id,
+                  "server_name": matched.server_name,
+                  "path": request_path,
+                  "method": method,
+                  "scheme": upstream_scheme_label(upstream)
+                })),
+        );
+        return Err(err);
+    }
+
+    let mut upstream_host = upstream.target_host.as_deref().unwrap_or("").to_owned();
+    let rewritten_path = rewrite_path(
+        &request_path,
+        upstream.path_rewrite_from.as_deref(),
+        upstream.path_rewrite_to.as_deref(),
+    );
+    let mut target_label = format!("{upstream_host}:{}{}", upstream.target_port, rewritten_path);
+
+    let mut outbound = match connect_proxy_upstream(upstream) {
+        Ok((stream, actual_host)) => {
+            upstream_host = actual_host;
+            target_label = format!("{upstream_host}:{}{}", upstream.target_port, rewritten_path);
+            stream
+        }
+        Err(err) => {
+            let mut inbound = reader.into_inner();
+            let _ = write_simple_http_response(&mut inbound, 502, "Bad Gateway");
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                &err.to_string(),
+            );
+            metrics.record_upstream_error(
+                &upstream.id,
+                &matched.route.id,
+                &target_label,
+                &rewritten_path,
+                &err.to_string(),
+            );
+            traffic.log_error(
+                ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                    .with_client(client.clone())
+                    .with_target(target_label.clone())
+                    .with_detail(json!({
+                      "protocol": protocol_label,
+                      "route_id": matched.route.id,
+                      "upstream_id": upstream.id,
+                      "server_name": matched.server_name
+                    })),
+            );
+            return Err(err);
+        }
+    };
+
+    let request_bytes = request_line_trimmed.len()
+        + 2
+        + headers
+            .iter()
+            .map(|(key, value)| key.len() + value.len() + 4)
+            .sum::<usize>()
+        + 2
+        + content_length;
+    let is_websocket = matches!(
+        upstream.upstream_scheme,
+        UpstreamScheme::Ws | UpstreamScheme::Wss
+    );
+    let is_tls_upstream = matches!(
+        upstream.upstream_scheme,
+        UpstreamScheme::Https | UpstreamScheme::Wss
+    );
+
+    let mut inbound = reader.into_inner();
+    outbound.set_nonblocking(false)?;
+
+    if has_chunked_body {
+        write_simple_http_response(&mut inbound, 501, "Not Implemented")?;
+        let err = io::Error::new(
+            io::ErrorKind::Unsupported,
+            "chunked request bodies are not supported yet",
+        );
+        metrics.record_route_error(
+            &matched.route.id,
+            &matched.route.listener_id,
+            "chunked request bodies are not supported yet",
+        );
+        metrics.record_upstream_error(
+            &upstream.id,
+            &matched.route.id,
+            &target_label,
+            &rewritten_path,
+            "chunked request bodies are not supported yet",
+        );
+        traffic.log_error(
+            ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                .with_client(client.clone())
+                .with_target(target_label.clone())
+                .with_detail(json!({
+                  "protocol": protocol_label,
+                  "route_id": matched.route.id,
+                  "upstream_id": upstream.id,
+                  "server_name": matched.server_name,
+                  "path": rewritten_path,
+                  "method": method,
+                  "reason": "chunked_request_body_not_supported"
+                })),
+        );
+        return Err(err);
+    }
+
+    if is_websocket && !is_tls_upstream {
+        write_proxy_request(
+            &mut outbound,
+            method,
+            &rewritten_path,
+            version,
+            &headers,
+            &request_host,
+            client_ip,
+            true,
+        )?;
+        forward_request_body(&mut inbound, &mut outbound, content_length)?;
+        upstream_traffic.record(request_bytes as u64, 0, 1, upstream_request_count, 0);
+        let relay =
+            relay_https_listener_websocket_streams(inbound, outbound, &upstream_traffic, 0)?;
+        if let Some(err) = relay.error {
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                &err.to_string(),
+            );
+            metrics.record_upstream_error(
+                &upstream.id,
+                &matched.route.id,
+                &target_label,
+                &rewritten_path,
+                &err.to_string(),
+            );
+            traffic.log_error(
+                ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                    .with_client(client.clone())
+                    .with_target(target_label.clone())
+                    .with_detail(json!({
+                      "protocol": protocol_label,
+                      "route_id": matched.route.id,
+                      "upstream_id": upstream.id,
+                      "server_name": matched.server_name,
+                      "path": rewritten_path,
+                      "method": method,
+                      "scheme": "ws"
+                    })),
+            );
+            return Err(err);
+        }
+        metrics.record_upstream_success(
+            &upstream.id,
+            &matched.route.id,
+            &target_label,
+            &rewritten_path,
+        );
+        traffic.log_access(AccessLogEntry::success(
+            traffic.rule_id().to_owned(),
+            client,
+            protocol_label,
+            method.to_owned(),
+            target_label,
+            request_bytes as u64 + relay.bytes_in,
+            relay.bytes_out,
+            relay.duration_ms,
+        ));
+        return Ok(());
+    }
+
+    if is_websocket {
+        let mut tls_stream = match connect_tls_upstream_stream(
+            outbound,
+            upstream_host.as_str(),
+            Arc::clone(&tls_client_config),
+        ) {
+            Ok(stream) => stream,
+            Err(err) => {
+                let _ = write_simple_http_response(&mut inbound, 502, "Bad Gateway");
+                metrics.record_route_error(
+                    &matched.route.id,
+                    &matched.route.listener_id,
+                    &err.to_string(),
+                );
+                metrics.record_upstream_error(
+                    &upstream.id,
+                    &matched.route.id,
+                    &target_label,
+                    &rewritten_path,
+                    &err.to_string(),
+                );
+                traffic.log_error(
+                    ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                        .with_client(client.clone())
+                        .with_target(target_label.clone())
+                        .with_detail(json!({
+                          "protocol": protocol_label,
+                          "route_id": matched.route.id,
+                          "upstream_id": upstream.id,
+                          "server_name": matched.server_name,
+                          "path": rewritten_path,
+                          "method": method,
+                          "scheme": "wss"
+                        })),
+                );
+                return Err(err);
+            }
+        };
+        write_proxy_request(
+            &mut tls_stream,
+            method,
+            &rewritten_path,
+            version,
+            &headers,
+            &request_host,
+            client_ip,
+            true,
+        )?;
+        forward_request_body(&mut inbound, &mut tls_stream, content_length)?;
+        upstream_traffic.record(request_bytes as u64, 0, 1, upstream_request_count, 0);
+        let relay = relay_https_listener_wss_streams(inbound, tls_stream, &upstream_traffic, 0)?;
+        if let Some(err) = relay.error {
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                &err.to_string(),
+            );
+            metrics.record_upstream_error(
+                &upstream.id,
+                &matched.route.id,
+                &target_label,
+                &rewritten_path,
+                &err.to_string(),
+            );
+            traffic.log_error(
+                ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                    .with_client(client.clone())
+                    .with_target(target_label.clone())
+                    .with_detail(json!({
+                      "protocol": protocol_label,
+                      "route_id": matched.route.id,
+                      "upstream_id": upstream.id,
+                      "server_name": matched.server_name,
+                      "path": rewritten_path,
+                      "method": method,
+                      "scheme": "wss"
+                    })),
+            );
+            return Err(err);
+        }
+        metrics.record_upstream_success(
+            &upstream.id,
+            &matched.route.id,
+            &target_label,
+            &rewritten_path,
+        );
+        traffic.log_access(AccessLogEntry::success(
+            traffic.rule_id().to_owned(),
+            client,
+            protocol_label,
+            method.to_owned(),
+            target_label,
+            request_bytes as u64 + relay.bytes_in,
+            relay.bytes_out,
+            relay.duration_ms,
+        ));
+        return Ok(());
+    }
+
+    if is_tls_upstream {
+        let mut tls_stream = match connect_tls_upstream_stream(
+            outbound,
+            upstream_host.as_str(),
+            Arc::clone(&tls_client_config),
+        ) {
+            Ok(stream) => stream,
+            Err(err) => {
+                let _ = write_simple_http_response(&mut inbound, 502, "Bad Gateway");
+                metrics.record_route_error(
+                    &matched.route.id,
+                    &matched.route.listener_id,
+                    &err.to_string(),
+                );
+                metrics.record_upstream_error(
+                    &upstream.id,
+                    &matched.route.id,
+                    &target_label,
+                    &rewritten_path,
+                    &err.to_string(),
+                );
+                traffic.log_error(
+                    ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                        .with_client(client.clone())
+                        .with_target(target_label.clone())
+                        .with_detail(json!({
+                          "protocol": protocol_label,
+                          "route_id": matched.route.id,
+                          "upstream_id": upstream.id,
+                          "server_name": matched.server_name,
+                          "path": rewritten_path,
+                          "method": method,
+                          "scheme": upstream_scheme_label(upstream)
+                        })),
+                );
+                return Err(err);
+            }
+        };
+        write_proxy_request(
+            &mut tls_stream,
+            method,
+            &rewritten_path,
+            version,
+            &headers,
+            &request_host,
+            client_ip,
+            false,
+        )?;
+        forward_request_body(&mut inbound, &mut tls_stream, content_length)?;
+        let started = Instant::now();
+        let result = io::copy(&mut tls_stream, &mut inbound);
+        let duration_ms = started.elapsed().as_millis() as u64;
+        let response_bytes = match result {
+            Ok(value) => value,
+            Err(err) => {
+                metrics.record_route_error(
+                    &matched.route.id,
+                    &matched.route.listener_id,
+                    &err.to_string(),
+                );
+                metrics.record_upstream_error(
+                    &upstream.id,
+                    &matched.route.id,
+                    &target_label,
+                    &rewritten_path,
+                    &err.to_string(),
+                );
+                traffic.log_error(
+                    ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                        .with_client(client.clone())
+                        .with_target(target_label.clone())
+                        .with_detail(json!({
+                          "protocol": protocol_label,
+                          "route_id": matched.route.id,
+                          "upstream_id": upstream.id,
+                          "server_name": matched.server_name,
+                          "path": rewritten_path,
+                          "method": method,
+                          "scheme": upstream_scheme_label(upstream)
+                        })),
+                );
+                return Err(err);
+            }
+        };
+        metrics.record_upstream_success(
+            &upstream.id,
+            &matched.route.id,
+            &target_label,
+            &rewritten_path,
+        );
+        upstream_traffic.record(
+            request_bytes as u64,
+            response_bytes,
+            1,
+            upstream_request_count,
+            duration_ms,
+        );
+        traffic.log_access(AccessLogEntry::success(
+            traffic.rule_id().to_owned(),
+            client,
+            protocol_label,
+            method.to_owned(),
+            target_label,
+            request_bytes as u64,
+            response_bytes,
+            duration_ms,
+        ));
+        return Ok(());
+    }
+
+    write_proxy_request(
+        &mut outbound,
+        method,
+        &rewritten_path,
+        version,
+        &headers,
+        &request_host,
+        client_ip,
+        false,
+    )?;
+    forward_request_body(&mut inbound, &mut outbound, content_length)?;
+    outbound.flush()?;
+
+    let started = Instant::now();
+    let result = io::copy(&mut outbound, &mut inbound);
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let response_bytes = match result {
+        Ok(value) => value,
+        Err(err) => {
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                &err.to_string(),
+            );
+            metrics.record_upstream_error(
+                &upstream.id,
+                &matched.route.id,
+                &target_label,
+                &rewritten_path,
+                &err.to_string(),
+            );
+            traffic.log_error(
+                ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                    .with_client(client.clone())
+                    .with_target(target_label.clone())
+                    .with_detail(json!({
+                      "protocol": protocol_label,
+                      "route_id": matched.route.id,
+                      "upstream_id": upstream.id,
+                      "server_name": matched.server_name,
+                      "path": rewritten_path,
+                      "method": method
+                    })),
+            );
+            return Err(err);
+        }
+    };
+
+    metrics.record_upstream_success(
+        &upstream.id,
+        &matched.route.id,
+        &target_label,
+        &rewritten_path,
+    );
+    upstream_traffic.record(
+        request_bytes as u64,
+        response_bytes,
+        1,
+        upstream_request_count,
+        duration_ms,
+    );
+
+    traffic.log_access(AccessLogEntry::success(
+        traffic.rule_id().to_owned(),
+        client,
+        protocol_label,
+        method.to_owned(),
+        target_label,
+        request_bytes as u64,
+        response_bytes,
+        duration_ms,
+    ));
+    Ok(())
+}
+
+fn handle_grpcs_prior_knowledge_tunnel(
+    mut reader: BufReader<&mut StreamOwned<ServerConnection, TcpStream>>,
+    request_line_len: usize,
+    client: String,
+    routes: Vec<ProxyRoute>,
+    upstreams_by_route: HashMap<String, Vec<ProxyUpstream>>,
+    tls_client_config: Arc<ClientConfig>,
+    traffic: TrafficRecorder,
+    metrics: ProxyMetricsRecorder,
+    protocol_label: &'static str,
+) -> io::Result<()> {
+    let suffix = &HTTP2_PRIOR_KNOWLEDGE_PREFACE[request_line_len..];
+    let mut consumed_suffix = vec![0u8; suffix.len()];
+    reader.read_exact(&mut consumed_suffix)?;
+    if consumed_suffix.as_slice() != suffix {
+        let mut inbound = reader.into_inner();
+        write_simple_http_response(&mut inbound, 400, "Bad Request")?;
+        let err = io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid http/2 prior knowledge preface after tls termination",
+        );
+        traffic.log_error(
+            ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                .with_client(client)
+                .with_detail(json!({
+                  "protocol": protocol_label,
+                  "scheme": "grpcs",
+                  "phase": "http2_preface"
+                })),
+        );
+        return Err(err);
+    }
+
+    let matched =
+        match select_grpc_tunnel_route(&routes, &upstreams_by_route, UpstreamScheme::Grpcs) {
+            Some(value) => value,
+            None => {
+                let mut inbound = reader.into_inner();
+                write_simple_http_response(&mut inbound, 404, "Not Found")?;
+                let err = io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "no default grpcs upstream is available for http/2 tunnel",
+                );
+                traffic.log_error(
+                    ErrorLogEntry::new("grpc_route_not_matched", err.to_string())
+                        .with_client(client)
+                        .with_detail(json!({
+                          "protocol": protocol_label,
+                          "scheme": "grpcs",
+                          "reason": "default_grpcs_route_required"
+                        })),
+                );
+                return Err(err);
+            }
+        };
+
+    metrics.record_route_match(&matched.route.id, &matched.route.listener_id, "", "h2");
+    let upstream_traffic = traffic.scoped(
+        TrafficEntityType::ProxyUpstream,
+        matched.upstream.id.clone(),
+    );
+
+    let mut upstream_host = matched
+        .upstream
+        .target_host
+        .as_deref()
+        .unwrap_or("")
+        .to_owned();
+    let mut target_label = format!("{upstream_host}:{}", matched.upstream.target_port);
+    let outbound = match connect_proxy_upstream(matched.upstream) {
+        Ok((stream, actual_host)) => {
+            upstream_host = actual_host;
+            target_label = format!("{upstream_host}:{}", matched.upstream.target_port);
+            stream
+        }
+        Err(err) => {
+            let mut inbound = reader.into_inner();
+            let _ = write_simple_http_response(&mut inbound, 502, "Bad Gateway");
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                &err.to_string(),
+            );
+            metrics.record_upstream_error(
+                &matched.upstream.id,
+                &matched.route.id,
+                &target_label,
+                "h2",
+                &err.to_string(),
+            );
+            traffic.log_error(
+                ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                    .with_client(client.clone())
+                    .with_target(target_label.clone())
+                    .with_detail(json!({
+                      "protocol": protocol_label,
+                      "route_id": matched.route.id,
+                      "upstream_id": matched.upstream.id,
+                      "scheme": "grpcs",
+                      "method": "H2_TUNNEL"
+                    })),
+            );
+            return Err(err);
+        }
+    };
+
+    let mut tls_stream = match connect_tls_upstream_stream(
+        outbound,
+        upstream_host.as_str(),
+        Arc::clone(&tls_client_config),
+    ) {
+        Ok(stream) => stream,
+        Err(err) => {
+            metrics.record_route_error(
+                &matched.route.id,
+                &matched.route.listener_id,
+                &err.to_string(),
+            );
+            metrics.record_upstream_error(
+                &matched.upstream.id,
+                &matched.route.id,
+                &target_label,
+                "h2",
+                &err.to_string(),
+            );
+            traffic.log_error(
+                ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                    .with_client(client.clone())
+                    .with_target(target_label.clone())
+                    .with_detail(json!({
+                      "protocol": protocol_label,
+                      "route_id": matched.route.id,
+                      "upstream_id": matched.upstream.id,
+                      "scheme": "grpcs",
+                      "method": "H2_TUNNEL"
+                    })),
+            );
+            return Err(err);
+        }
+    };
+    tls_stream.write_all(HTTP2_PRIOR_KNOWLEDGE_PREFACE)?;
+    tls_stream.flush()?;
+
+    let buffered_payload = reader.buffer().to_vec();
+    if !buffered_payload.is_empty() {
+        tls_stream.write_all(&buffered_payload)?;
+        tls_stream.flush()?;
+    }
+
+    let inbound = reader.into_inner();
+    upstream_traffic.record(
+        (HTTP2_PRIOR_KNOWLEDGE_PREFACE.len() + buffered_payload.len()) as u64,
+        0,
+        1,
+        0,
+        0,
+    );
+    let relay = relay_grpcs_tunnel_streams(inbound, tls_stream, &upstream_traffic, 0)?;
+    if let Some(err) = relay.error {
+        metrics.record_route_error(
+            &matched.route.id,
+            &matched.route.listener_id,
+            &err.to_string(),
+        );
+        metrics.record_upstream_error(
+            &matched.upstream.id,
+            &matched.route.id,
+            &target_label,
+            "h2",
+            &err.to_string(),
+        );
+        traffic.log_error(
+            ErrorLogEntry::new(classify_io_error(&err), err.to_string())
+                .with_client(client.clone())
+                .with_target(target_label.clone())
+                .with_detail(json!({
+                  "protocol": protocol_label,
+                  "route_id": matched.route.id,
+                  "upstream_id": matched.upstream.id,
+                  "scheme": "grpcs",
+                  "method": "H2_TUNNEL"
+                })),
+        );
+        return Err(err);
+    }
+
+    metrics.record_upstream_success(&matched.upstream.id, &matched.route.id, &target_label, "h2");
+    traffic.log_access(AccessLogEntry::success(
+        traffic.rule_id().to_owned(),
+        client,
+        protocol_label,
+        "H2_TUNNEL",
+        target_label,
+        (HTTP2_PRIOR_KNOWLEDGE_PREFACE.len() + buffered_payload.len()) as u64 + relay.bytes_in,
+        relay.bytes_out,
+        relay.duration_ms,
+    ));
+    Ok(())
+}
+
 fn resolve_http_request_target(
     target: &str,
     host_header: Option<&str>,
@@ -458,6 +2346,228 @@ fn parse_host_port(authority: &str) -> Option<(String, u16)> {
         }
     }
     Some((value.to_owned(), 80))
+}
+
+fn write_simple_http_response(
+    stream: &mut impl Write,
+    status_code: u16,
+    reason: &str,
+) -> io::Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 {status_code} {reason}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )
+}
+
+fn write_proxy_request(
+    stream: &mut impl Write,
+    method: &str,
+    rewritten_path: &str,
+    version: &str,
+    headers: &[(String, String)],
+    request_host: &str,
+    client_ip: Option<IpAddr>,
+    is_websocket: bool,
+) -> io::Result<()> {
+    write!(stream, "{method} {rewritten_path} {version}\r\n")?;
+    let mut saw_host = false;
+    let mut saw_connection = false;
+    for (key, value) in headers {
+        if key.eq_ignore_ascii_case("proxy-connection")
+            || (!is_websocket
+                && (key.eq_ignore_ascii_case("connection")
+                    || key.eq_ignore_ascii_case("keep-alive")))
+        {
+            continue;
+        }
+        if key.eq_ignore_ascii_case("host") {
+            saw_host = true;
+        }
+        if key.eq_ignore_ascii_case("connection") {
+            saw_connection = true;
+        }
+        write!(stream, "{key}: {value}\r\n")?;
+    }
+    if !saw_host {
+        write!(stream, "Host: {request_host}\r\n")?;
+    }
+    if let Some(peer_ip) = client_ip {
+        write!(stream, "X-Forwarded-For: {}\r\n", peer_ip)?;
+    }
+    if !is_websocket {
+        write!(stream, "Connection: close\r\n")?;
+    } else if !saw_connection {
+        write!(stream, "Connection: Upgrade\r\n")?;
+    }
+    write!(stream, "\r\n")
+}
+
+fn forward_request_body(
+    inbound: &mut impl Read,
+    outbound: &mut impl Write,
+    content_length: usize,
+) -> io::Result<()> {
+    if content_length == 0 {
+        return Ok(());
+    }
+    let mut remaining = content_length;
+    let mut buffer = [0u8; 8192];
+    while remaining > 0 {
+        let read_len = remaining.min(buffer.len());
+        inbound.read_exact(&mut buffer[..read_len])?;
+        outbound.write_all(&buffer[..read_len])?;
+        remaining -= read_len;
+    }
+    Ok(())
+}
+
+fn upstream_scheme_label(upstream: &ProxyUpstream) -> &'static str {
+    match upstream.upstream_scheme {
+        UpstreamScheme::Http => "http",
+        UpstreamScheme::Https => "https",
+        UpstreamScheme::Ws => "ws",
+        UpstreamScheme::Wss => "wss",
+        UpstreamScheme::Grpc => "grpc",
+        UpstreamScheme::Grpcs => "grpcs",
+    }
+}
+
+struct SelectedGrpcTunnelRoute<'a> {
+    route: &'a ProxyRoute,
+    upstream: &'a ProxyUpstream,
+}
+
+fn select_grpc_tunnel_route<'a>(
+    routes: &'a [ProxyRoute],
+    upstreams_by_route: &'a HashMap<String, Vec<ProxyUpstream>>,
+    scheme: UpstreamScheme,
+) -> Option<SelectedGrpcTunnelRoute<'a>> {
+    routes
+        .iter()
+        .filter(|route| route.enabled && route.is_default)
+        .max_by(|left, right| left.created_at.cmp(&right.created_at))
+        .and_then(|route| {
+            let upstream = upstreams_by_route
+                .get(&route.id)
+                .into_iter()
+                .flatten()
+                .filter(|upstream| upstream.enabled && upstream.upstream_scheme == scheme)
+                .max_by(|left, right| left.created_at.cmp(&right.created_at))?;
+            Some(SelectedGrpcTunnelRoute { route, upstream })
+        })
+}
+
+fn is_http2_prior_knowledge_preface(stream: &TcpStream) -> io::Result<bool> {
+    let mut buffer = [0u8; 24];
+    let peeked = stream.peek(&mut buffer)?;
+    Ok(peeked >= HTTP2_PRIOR_KNOWLEDGE_PREFACE.len()
+        && &buffer[..HTTP2_PRIOR_KNOWLEDGE_PREFACE.len()] == HTTP2_PRIOR_KNOWLEDGE_PREFACE)
+}
+
+fn connect_tls_upstream_stream(
+    tcp: TcpStream,
+    upstream_host: &str,
+    tls_config: Arc<ClientConfig>,
+) -> io::Result<StreamOwned<ClientConnection, TcpStream>> {
+    let server_name = tls_server_name(upstream_host)?;
+    let connection = ClientConnection::new(tls_config, server_name)
+        .map_err(|err| io::Error::other(format!("create tls client failed: {err}")))?;
+    let mut stream = StreamOwned::new(connection, tcp);
+    while stream.conn.is_handshaking() {
+        stream
+            .conn
+            .complete_io(&mut stream.sock)
+            .map_err(|err| io::Error::other(format!("tls handshake failed: {err}")))?;
+    }
+    Ok(stream)
+}
+
+fn build_upstream_tls_client_config(
+    extra_trust_root_paths: &[PathBuf],
+) -> io::Result<Arc<ClientConfig>> {
+    let root_store = build_upstream_root_store(extra_trust_root_paths)?;
+    Ok(Arc::new(
+        ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth(),
+    ))
+}
+
+fn build_upstream_root_store(extra_trust_root_paths: &[PathBuf]) -> io::Result<RootCertStore> {
+    let mut root_store = RootCertStore::empty();
+    let native = rustls_native_certs::load_native_certs();
+    let native_error_count = native.errors.len();
+    for cert in native.certs {
+        root_store
+            .add(cert)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))?;
+    }
+    for path in extra_trust_root_paths {
+        append_pem_certificates_to_root_store(&mut root_store, path)?;
+    }
+    if root_store.is_empty() {
+        let mut detail = "no trusted upstream root certificates available".to_owned();
+        if native_error_count > 0 {
+            detail.push_str(&format!(" (native_cert_errors={native_error_count})"));
+        }
+        return Err(io::Error::new(io::ErrorKind::InvalidData, detail));
+    }
+    Ok(root_store)
+}
+
+fn append_pem_certificates_to_root_store(
+    root_store: &mut RootCertStore,
+    path: &Path,
+) -> io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let mut reader = BufReader::new(File::open(path)?);
+    let certs = rustls_pemfile::certs(&mut reader).collect::<Result<Vec<_>, _>>()?;
+    if certs.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("tls trust root file is empty: {}", path.display()),
+        ));
+    }
+    for cert in certs {
+        root_store
+            .add(cert)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))?;
+    }
+    Ok(())
+}
+
+fn tls_server_name(upstream_host: &str) -> io::Result<ServerName<'static>> {
+    if let Ok(ip) = upstream_host.parse::<IpAddr>() {
+        return Ok(ServerName::IpAddress(ip.into()));
+    }
+    ServerName::try_from(upstream_host.to_owned()).map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid tls server name: {err}"),
+        )
+    })
+}
+
+fn load_rustls_server_config(cert_path: &str, key_path: &str) -> io::Result<ServerConfig> {
+    let mut cert_reader = BufReader::new(File::open(cert_path)?);
+    let cert_chain = rustls_pemfile::certs(&mut cert_reader).collect::<Result<Vec<_>, _>>()?;
+    if cert_chain.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "tls certificate chain is empty",
+        ));
+    }
+
+    let mut key_reader = BufReader::new(File::open(key_path)?);
+    let private_key: PrivateKeyDer<'static> = rustls_pemfile::private_key(&mut key_reader)?
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "tls private key not found"))?;
+
+    rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(cert_chain, private_key)
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))
 }
 
 fn handle_socks5_connection(
@@ -782,6 +2892,440 @@ fn relay_tcp_streams(
     })
 }
 
+fn relay_websocket_tls_streams(
+    mut inbound: TcpStream,
+    mut outbound: StreamOwned<ClientConnection, TcpStream>,
+    traffic: &TrafficRecorder,
+    requests: u64,
+) -> io::Result<RelaySummary> {
+    inbound.set_nonblocking(false)?;
+    inbound.set_read_timeout(Some(Duration::from_millis(60)))?;
+    inbound.set_write_timeout(Some(Duration::from_secs(2)))?;
+    outbound.sock.set_nonblocking(false)?;
+    outbound
+        .sock
+        .set_read_timeout(Some(Duration::from_millis(60)))?;
+    outbound
+        .sock
+        .set_write_timeout(Some(Duration::from_secs(2)))?;
+    traffic.record(0, 0, 1, requests, 0);
+
+    let started = Instant::now();
+    let mut total_in = 0u64;
+    let mut total_out = 0u64;
+    let mut flushed_in = 0u64;
+    let mut flushed_out = 0u64;
+    let mut inbound_closed = false;
+    let mut outbound_closed = false;
+    let mut last_error: Option<io::Error> = None;
+    let mut inbound_buf = [0u8; 16 * 1024];
+    let mut outbound_buf = [0u8; 16 * 1024];
+
+    while !(inbound_closed && outbound_closed) {
+        let mut progressed = false;
+
+        if !inbound_closed {
+            match inbound.read(&mut inbound_buf) {
+                Ok(0) => {
+                    inbound_closed = true;
+                    outbound.conn.send_close_notify();
+                    let _ = outbound.flush();
+                }
+                Ok(len) => {
+                    outbound.write_all(&inbound_buf[..len])?;
+                    total_in += len as u64;
+                    progressed = true;
+                }
+                Err(err)
+                    if err.kind() == io::ErrorKind::WouldBlock
+                        || err.kind() == io::ErrorKind::TimedOut => {}
+                Err(err) => {
+                    if !is_graceful_tunnel_close_error(&err) {
+                        last_error = Some(err);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if !outbound_closed {
+            match outbound.read(&mut outbound_buf) {
+                Ok(0) => {
+                    outbound_closed = true;
+                }
+                Ok(len) => {
+                    inbound.write_all(&outbound_buf[..len])?;
+                    inbound.flush()?;
+                    total_out += len as u64;
+                    progressed = true;
+                }
+                Err(err)
+                    if err.kind() == io::ErrorKind::WouldBlock
+                        || err.kind() == io::ErrorKind::TimedOut => {}
+                Err(err) => {
+                    if !is_graceful_tunnel_close_error(&err) {
+                        last_error = Some(err);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if progressed {
+            let delta_in = total_in.saturating_sub(flushed_in);
+            let delta_out = total_out.saturating_sub(flushed_out);
+            traffic.record(delta_in, delta_out, 0, 0, 0);
+            flushed_in = total_in;
+            flushed_out = total_out;
+        } else {
+            thread::sleep(Duration::from_millis(15));
+        }
+    }
+
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let delta_in = total_in.saturating_sub(flushed_in);
+    let delta_out = total_out.saturating_sub(flushed_out);
+    traffic.record(delta_in, delta_out, 0, 0, duration_ms);
+    Ok(RelaySummary {
+        bytes_in: total_in,
+        bytes_out: total_out,
+        duration_ms,
+        error: last_error,
+    })
+}
+
+fn relay_https_listener_websocket_streams(
+    inbound: &mut StreamOwned<ServerConnection, TcpStream>,
+    mut outbound: TcpStream,
+    traffic: &TrafficRecorder,
+    requests: u64,
+) -> io::Result<RelaySummary> {
+    inbound.sock.set_nonblocking(false)?;
+    inbound
+        .sock
+        .set_read_timeout(Some(Duration::from_millis(60)))?;
+    inbound
+        .sock
+        .set_write_timeout(Some(Duration::from_secs(2)))?;
+    outbound.set_nonblocking(false)?;
+    outbound.set_read_timeout(Some(Duration::from_millis(60)))?;
+    outbound.set_write_timeout(Some(Duration::from_secs(2)))?;
+    traffic.record(0, 0, 1, requests, 0);
+
+    let started = Instant::now();
+    let mut total_in = 0u64;
+    let mut total_out = 0u64;
+    let mut flushed_in = 0u64;
+    let mut flushed_out = 0u64;
+    let mut inbound_closed = false;
+    let mut outbound_closed = false;
+    let mut last_error: Option<io::Error> = None;
+    let mut inbound_buf = [0u8; 16 * 1024];
+    let mut outbound_buf = [0u8; 16 * 1024];
+
+    while !(inbound_closed && outbound_closed) {
+        let mut progressed = false;
+
+        if !inbound_closed {
+            match inbound.read(&mut inbound_buf) {
+                Ok(0) => {
+                    inbound_closed = true;
+                    let _ = outbound.shutdown(Shutdown::Write);
+                }
+                Ok(len) => {
+                    outbound.write_all(&inbound_buf[..len])?;
+                    outbound.flush()?;
+                    total_in += len as u64;
+                    progressed = true;
+                }
+                Err(err)
+                    if err.kind() == io::ErrorKind::WouldBlock
+                        || err.kind() == io::ErrorKind::TimedOut => {}
+                Err(err) => {
+                    if !is_graceful_tunnel_close_error(&err) {
+                        last_error = Some(err);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if !outbound_closed {
+            match outbound.read(&mut outbound_buf) {
+                Ok(0) => {
+                    outbound_closed = true;
+                    inbound.conn.send_close_notify();
+                    let _ = inbound.flush();
+                }
+                Ok(len) => {
+                    inbound.write_all(&outbound_buf[..len])?;
+                    inbound.flush()?;
+                    total_out += len as u64;
+                    progressed = true;
+                }
+                Err(err)
+                    if err.kind() == io::ErrorKind::WouldBlock
+                        || err.kind() == io::ErrorKind::TimedOut => {}
+                Err(err) => {
+                    if !is_graceful_tunnel_close_error(&err) {
+                        last_error = Some(err);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if progressed {
+            let delta_in = total_in.saturating_sub(flushed_in);
+            let delta_out = total_out.saturating_sub(flushed_out);
+            traffic.record(delta_in, delta_out, 0, 0, 0);
+            flushed_in = total_in;
+            flushed_out = total_out;
+        } else {
+            thread::sleep(Duration::from_millis(15));
+        }
+    }
+
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let delta_in = total_in.saturating_sub(flushed_in);
+    let delta_out = total_out.saturating_sub(flushed_out);
+    traffic.record(delta_in, delta_out, 0, 0, duration_ms);
+    Ok(RelaySummary {
+        bytes_in: total_in,
+        bytes_out: total_out,
+        duration_ms,
+        error: last_error,
+    })
+}
+
+fn relay_https_listener_wss_streams(
+    inbound: &mut StreamOwned<ServerConnection, TcpStream>,
+    mut outbound: StreamOwned<ClientConnection, TcpStream>,
+    traffic: &TrafficRecorder,
+    requests: u64,
+) -> io::Result<RelaySummary> {
+    inbound.sock.set_nonblocking(false)?;
+    inbound
+        .sock
+        .set_read_timeout(Some(Duration::from_millis(60)))?;
+    inbound
+        .sock
+        .set_write_timeout(Some(Duration::from_secs(2)))?;
+    outbound.sock.set_nonblocking(false)?;
+    outbound
+        .sock
+        .set_read_timeout(Some(Duration::from_millis(60)))?;
+    outbound
+        .sock
+        .set_write_timeout(Some(Duration::from_secs(2)))?;
+    traffic.record(0, 0, 1, requests, 0);
+
+    let started = Instant::now();
+    let mut total_in = 0u64;
+    let mut total_out = 0u64;
+    let mut flushed_in = 0u64;
+    let mut flushed_out = 0u64;
+    let mut inbound_closed = false;
+    let mut outbound_closed = false;
+    let mut last_error: Option<io::Error> = None;
+    let mut inbound_buf = [0u8; 16 * 1024];
+    let mut outbound_buf = [0u8; 16 * 1024];
+
+    while !(inbound_closed && outbound_closed) {
+        let mut progressed = false;
+
+        if !inbound_closed {
+            match inbound.read(&mut inbound_buf) {
+                Ok(0) => {
+                    inbound_closed = true;
+                    outbound.conn.send_close_notify();
+                    let _ = outbound.flush();
+                }
+                Ok(len) => {
+                    outbound.write_all(&inbound_buf[..len])?;
+                    total_in += len as u64;
+                    progressed = true;
+                }
+                Err(err)
+                    if err.kind() == io::ErrorKind::WouldBlock
+                        || err.kind() == io::ErrorKind::TimedOut => {}
+                Err(err) => {
+                    if !is_graceful_tunnel_close_error(&err) {
+                        last_error = Some(err);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if !outbound_closed {
+            match outbound.read(&mut outbound_buf) {
+                Ok(0) => {
+                    outbound_closed = true;
+                    inbound.conn.send_close_notify();
+                    let _ = inbound.flush();
+                }
+                Ok(len) => {
+                    inbound.write_all(&outbound_buf[..len])?;
+                    total_out += len as u64;
+                    progressed = true;
+                }
+                Err(err)
+                    if err.kind() == io::ErrorKind::WouldBlock
+                        || err.kind() == io::ErrorKind::TimedOut => {}
+                Err(err) => {
+                    if !is_graceful_tunnel_close_error(&err) {
+                        last_error = Some(err);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if progressed {
+            let delta_in = total_in.saturating_sub(flushed_in);
+            let delta_out = total_out.saturating_sub(flushed_out);
+            traffic.record(delta_in, delta_out, 0, 0, 0);
+            flushed_in = total_in;
+            flushed_out = total_out;
+        } else {
+            thread::sleep(Duration::from_millis(15));
+        }
+    }
+
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let delta_in = total_in.saturating_sub(flushed_in);
+    let delta_out = total_out.saturating_sub(flushed_out);
+    traffic.record(delta_in, delta_out, 0, 0, duration_ms);
+    Ok(RelaySummary {
+        bytes_in: total_in,
+        bytes_out: total_out,
+        duration_ms,
+        error: last_error,
+    })
+}
+
+fn relay_grpcs_tunnel_streams(
+    inbound: &mut StreamOwned<ServerConnection, TcpStream>,
+    mut outbound: StreamOwned<ClientConnection, TcpStream>,
+    traffic: &TrafficRecorder,
+    requests: u64,
+) -> io::Result<RelaySummary> {
+    inbound.sock.set_nonblocking(false)?;
+    inbound
+        .sock
+        .set_read_timeout(Some(Duration::from_millis(60)))?;
+    inbound
+        .sock
+        .set_write_timeout(Some(Duration::from_secs(2)))?;
+    outbound.sock.set_nonblocking(false)?;
+    outbound
+        .sock
+        .set_read_timeout(Some(Duration::from_millis(60)))?;
+    outbound
+        .sock
+        .set_write_timeout(Some(Duration::from_secs(2)))?;
+    traffic.record(0, 0, 1, requests, 0);
+
+    let started = Instant::now();
+    let mut total_in = 0u64;
+    let mut total_out = 0u64;
+    let mut flushed_in = 0u64;
+    let mut flushed_out = 0u64;
+    let mut inbound_closed = false;
+    let mut outbound_closed = false;
+    let mut last_error: Option<io::Error> = None;
+    let mut inbound_buf = [0u8; 16 * 1024];
+    let mut outbound_buf = [0u8; 16 * 1024];
+
+    while !(inbound_closed && outbound_closed) {
+        let mut progressed = false;
+
+        if !inbound_closed {
+            match inbound.read(&mut inbound_buf) {
+                Ok(0) => {
+                    inbound_closed = true;
+                    outbound.conn.send_close_notify();
+                    let _ = outbound.flush();
+                }
+                Ok(len) => {
+                    outbound.write_all(&inbound_buf[..len])?;
+                    outbound.flush()?;
+                    total_in += len as u64;
+                    progressed = true;
+                }
+                Err(err)
+                    if err.kind() == io::ErrorKind::WouldBlock
+                        || err.kind() == io::ErrorKind::TimedOut => {}
+                Err(err) => {
+                    if !is_graceful_tunnel_close_error(&err) {
+                        last_error = Some(err);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if !outbound_closed {
+            match outbound.read(&mut outbound_buf) {
+                Ok(0) => {
+                    outbound_closed = true;
+                    if inbound_closed {
+                        inbound.conn.send_close_notify();
+                        let _ = inbound.flush();
+                    }
+                }
+                Ok(len) => {
+                    inbound.write_all(&outbound_buf[..len])?;
+                    inbound.flush()?;
+                    total_out += len as u64;
+                    progressed = true;
+                }
+                Err(err)
+                    if err.kind() == io::ErrorKind::WouldBlock
+                        || err.kind() == io::ErrorKind::TimedOut => {}
+                Err(err) => {
+                    if !is_graceful_tunnel_close_error(&err) {
+                        last_error = Some(err);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if progressed {
+            let delta_in = total_in.saturating_sub(flushed_in);
+            let delta_out = total_out.saturating_sub(flushed_out);
+            traffic.record(delta_in, delta_out, 0, 0, 0);
+            flushed_in = total_in;
+            flushed_out = total_out;
+        } else {
+            thread::sleep(Duration::from_millis(15));
+        }
+    }
+
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let delta_in = total_in.saturating_sub(flushed_in);
+    let delta_out = total_out.saturating_sub(flushed_out);
+    traffic.record(delta_in, delta_out, 0, 0, duration_ms);
+    Ok(RelaySummary {
+        bytes_in: total_in,
+        bytes_out: total_out,
+        duration_ms,
+        error: last_error,
+    })
+}
+
+fn is_graceful_tunnel_close_error(err: &io::Error) -> bool {
+    matches!(
+        err.kind(),
+        io::ErrorKind::UnexpectedEof
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionReset
+    )
+}
+
 fn copy_counting(
     reader: &mut TcpStream,
     writer: &mut TcpStream,
@@ -919,4 +3463,37 @@ fn peer_label(stream: &TcpStream) -> String {
         .peer_addr()
         .map(|addr| addr.to_string())
         .unwrap_or_else(|_| "-".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Read;
+    use std::net::TcpListener;
+    use std::thread;
+    use std::time::Duration;
+
+    use super::connect_first_available_target;
+
+    #[test]
+    fn connect_first_available_target_retries_later_candidates() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind listener");
+        let port = listener.local_addr().expect("listener addr").port();
+
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .expect("set timeout");
+            let mut buffer = [0u8; 1];
+            let _ = stream.read(&mut buffer);
+        });
+
+        let candidates = vec!["127.0.0.2".to_owned(), "127.0.0.1".to_owned()];
+        let (stream, selected_host) =
+            connect_first_available_target(candidates, port).expect("connect candidate");
+        assert_eq!(selected_host, "127.0.0.1");
+        drop(stream);
+
+        let _ = server.join();
+    }
 }

@@ -9,9 +9,11 @@ import { useAppRuntimeStatusQuery } from "./lib/appRuntime";
 import { useTheme } from "./lib/theme";
 import {
   DashboardIcon,
+  HostsIcon,
+  ProxyIcon,
   RulesIcon,
-  RuntimeIcon,
   SettingsIcon,
+  SparkIcon,
   StatusBadge,
   TopologyIcon
 } from "./lib/ui";
@@ -21,6 +23,7 @@ import "./lib/Form.css";
 import "./lib/Button.css";
 import "./lib/Toggle.css";
 import "./lib/Modal.css";
+import "./lib/Drawer.css";
 import "./lib/Skeleton.css";
 import "./lib/Status.css";
 
@@ -30,11 +33,17 @@ const DashboardPage = lazy(() =>
 const RulesPage = lazy(() =>
   import("./features/rules/RulesPage").then((module) => ({ default: module.RulesPage }))
 );
-const RuntimePage = lazy(() =>
-  import("./features/runtime/RuntimePage").then((module) => ({ default: module.RuntimePage }))
-);
 const TopologyPage = lazy(() =>
   import("./features/topology/TopologyPage").then((module) => ({ default: module.TopologyPage }))
+);
+const HostsPage = lazy(() =>
+  import("./features/hosts/HostsPage").then((module) => ({ default: module.HostsPage }))
+);
+const ProxyPage = lazy(() =>
+  import("./features/proxy/ProxyPage").then((module) => ({ default: module.ProxyPage }))
+);
+const AiIntegrationPage = lazy(() =>
+  import("./features/ai/AiIntegrationPage").then((module) => ({ default: module.AiIntegrationPage }))
 );
 const SettingsPage = lazy(() =>
   import("./features/settings/SettingsPage").then((module) => ({ default: module.SettingsPage }))
@@ -73,7 +82,9 @@ function RootLayout() {
   const navItems = createMemo(() => [
     { path: "/dashboard", label: t("nav.dashboard"), icon: DashboardIcon },
     { path: "/rules", label: t("nav.rules"), icon: RulesIcon },
-    { path: "/runtime", label: t("nav.runtime"), icon: RuntimeIcon },
+    { path: "/proxy", label: t("nav.proxy"), icon: ProxyIcon },
+    { path: "/hosts", label: t("nav.hosts"), icon: HostsIcon },
+    { path: "/ai", label: t("nav.ai"), icon: SparkIcon },
     { path: "/topology", label: t("nav.topology"), icon: TopologyIcon },
     { path: "/settings", label: t("nav.settings"), icon: SettingsIcon }
   ]);
@@ -160,10 +171,22 @@ const rulesRoute = createRoute({
   component: withSuspense(() => <RulesPage />)
 });
 
-const runtimeRoute = createRoute({
+const proxyRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/runtime",
-  component: withSuspense(() => <RuntimePage />)
+  path: "/proxy",
+  component: withSuspense(() => <ProxyPage />)
+});
+
+const hostsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/hosts",
+  component: withSuspense(() => <HostsPage />)
+});
+
+const aiRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/ai",
+  component: withSuspense(() => <AiIntegrationPage />)
 });
 
 const topologyRoute = createRoute({
@@ -182,7 +205,9 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   dashboardRoute,
   rulesRoute,
-  runtimeRoute,
+  proxyRoute,
+  hostsRoute,
+  aiRoute,
   topologyRoute,
   settingsRoute
 ]);

@@ -105,6 +105,24 @@
   justify-content: flex-end;
 }
 
+.settings-ai-redirect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-16);
+  min-width: 0;
+  padding: var(--space-16);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+}
+
+.settings-ai-redirect p {
+  margin: var(--space-6) 0 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
 .settings-field-row {
   display: flex;
   flex-direction: column;
