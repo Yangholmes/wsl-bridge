@@ -5,20 +5,32 @@ use chrono::{TimeZone, Utc};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use wsl_bridge_shared::{
-    AuditLog, BindMode, FirewallPolicy, McpServerConfig, ProxyRule, RuleType, RuntimeState,
-    RuntimeStatusItem, TargetKind,
+    AppSettings, AuditLog, BindMode, FirewallPolicy, HostsEntry, HostsGroup, HostsGroupSourceType,
+    McpServerConfig, ProxyCertificate, ProxyCertificateSourceType, ProxyListener, ProxyProtocol,
+    ProxyRoute, ProxyRule, ProxyTlsMode, ProxyUpstream, RuleMigrationRecord, RuleMigrationStatus,
+    RuleType, RuntimeState, RuntimeStatusItem, TargetKind, TrafficEntityType, TrafficStatsPoint,
+    UpstreamScheme,
 };
 
 use crate::engine::EngineError;
+use crate::traffic::PersistedTrafficStat;
 
 #[derive(Debug, Clone, Default)]
 pub struct Snapshot {
     pub rules: HashMap<String, ProxyRule>,
     pub firewalls: HashMap<String, FirewallPolicy>,
     pub runtime: HashMap<String, RuntimeStatusItem>,
+    pub hosts_groups: HashMap<String, HostsGroup>,
+    pub hosts_entries: HashMap<String, Vec<HostsEntry>>,
+    pub proxy_listeners: HashMap<String, ProxyListener>,
+    pub proxy_routes: HashMap<String, Vec<ProxyRoute>>,
+    pub proxy_upstreams: HashMap<String, Vec<ProxyUpstream>>,
+    pub proxy_certificates: HashMap<String, ProxyCertificate>,
+    pub rule_migrations: HashMap<String, RuleMigrationRecord>,
     pub logs: Vec<AuditLog>,
     pub log_seq: u64,
     pub mcp_config: McpServerConfig,
+    pub app_settings: AppSettings,
 }
 
 #[derive(Debug)]
@@ -49,8 +61,16 @@ impl SqliteStore {
         let mut rules = HashMap::new();
         let mut firewalls = HashMap::new();
         let mut runtime = HashMap::new();
+        let mut hosts_groups = HashMap::new();
+        let mut hosts_entries = HashMap::<String, Vec<HostsEntry>>::new();
+        let mut proxy_listeners = HashMap::new();
+        let mut proxy_routes = HashMap::<String, Vec<ProxyRoute>>::new();
+        let mut proxy_upstreams = HashMap::<String, Vec<ProxyUpstream>>::new();
+        let mut proxy_certificates = HashMap::new();
+        let mut rule_migrations = HashMap::new();
         let mut logs = Vec::new();
         let mut mcp_config = McpServerConfig::default();
+        let mut app_settings = AppSettings::default();
 
         {
             let mut stmt = conn
@@ -135,6 +155,223 @@ impl SqliteStore {
 
         {
             let mut stmt = conn
+                .prepare(
+                    "SELECT id,name,description,source_type,is_active,created_at,updated_at FROM hosts_group",
+                )
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(HostsGroup {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        description: row.get(2)?,
+                        source_type: hosts_group_source_type_from_db(&row.get::<_, String>(3)?)
+                            .map_err(db_err)?,
+                        is_active: row.get(4)?,
+                        created_at: from_millis(row.get(5)?).map_err(db_err)?,
+                        updated_at: from_millis(row.get(6)?).map_err(db_err)?,
+                    })
+                })
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            for row in rows {
+                let group = row.map_err(|err| EngineError::Storage(err.to_string()))?;
+                hosts_groups.insert(group.id.clone(), group);
+            }
+        }
+
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id,group_id,ip,domain,comment,enabled,order_index,created_at,updated_at FROM hosts_entry ORDER BY group_id ASC, order_index ASC",
+                )
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(HostsEntry {
+                        id: row.get(0)?,
+                        group_id: row.get(1)?,
+                        ip: row.get(2)?,
+                        domain: row.get(3)?,
+                        comment: row.get(4)?,
+                        enabled: row.get(5)?,
+                        order_index: row.get(6)?,
+                        created_at: from_millis(row.get(7)?).map_err(db_err)?,
+                        updated_at: from_millis(row.get(8)?).map_err(db_err)?,
+                    })
+                })
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            for row in rows {
+                let entry = row.map_err(|err| EngineError::Storage(err.to_string()))?;
+                hosts_entries
+                    .entry(entry.group_id.clone())
+                    .or_default()
+                    .push(entry);
+            }
+        }
+
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id,name,listen_host,listen_port,protocol,tls_mode,cert_id,bind_mode,nic_id,enabled,created_at,updated_at FROM proxy_listener",
+                )
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(ProxyListener {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        listen_host: row.get(2)?,
+                        listen_port: row.get(3)?,
+                        protocol: proxy_protocol_from_db(&row.get::<_, String>(4)?)
+                            .map_err(db_err)?,
+                        tls_mode: proxy_tls_mode_from_db(&row.get::<_, String>(5)?)
+                            .map_err(db_err)?,
+                        cert_id: row.get(6)?,
+                        bind_mode: bind_mode_from_db(&row.get::<_, String>(7)?).map_err(db_err)?,
+                        nic_id: row.get(8)?,
+                        enabled: row.get(9)?,
+                        created_at: from_millis(row.get(10)?).map_err(db_err)?,
+                        updated_at: from_millis(row.get(11)?).map_err(db_err)?,
+                    })
+                })
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            for row in rows {
+                let listener = row.map_err(|err| EngineError::Storage(err.to_string()))?;
+                proxy_listeners.insert(listener.id.clone(), listener);
+            }
+        }
+
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id,listener_id,server_names_json,path_prefix,is_default,enabled,created_at,updated_at FROM proxy_route ORDER BY listener_id ASC, created_at ASC",
+                )
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    let server_names_json: String = row.get(2)?;
+                    Ok(ProxyRoute {
+                        id: row.get(0)?,
+                        listener_id: row.get(1)?,
+                        server_names: serde_json::from_str(&server_names_json)
+                            .map_err(|err| db_err(err.to_string()))?,
+                        path_prefix: row.get(3)?,
+                        is_default: row.get(4)?,
+                        enabled: row.get(5)?,
+                        created_at: from_millis(row.get(6)?).map_err(db_err)?,
+                        updated_at: from_millis(row.get(7)?).map_err(db_err)?,
+                    })
+                })
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            for row in rows {
+                let route = row.map_err(|err| EngineError::Storage(err.to_string()))?;
+                proxy_routes
+                    .entry(route.listener_id.clone())
+                    .or_default()
+                    .push(route);
+            }
+        }
+
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id,route_id,target_kind,target_ref,target_host,target_port,upstream_scheme,path_rewrite_from,path_rewrite_to,enabled,created_at,updated_at FROM proxy_upstream ORDER BY route_id ASC, created_at ASC",
+                )
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(ProxyUpstream {
+                        id: row.get(0)?,
+                        route_id: row.get(1)?,
+                        target_kind: target_kind_from_db(&row.get::<_, String>(2)?)
+                            .map_err(db_err)?,
+                        target_ref: row.get(3)?,
+                        target_host: row.get(4)?,
+                        target_port: row.get(5)?,
+                        upstream_scheme: upstream_scheme_from_db(&row.get::<_, String>(6)?)
+                            .map_err(db_err)?,
+                        path_rewrite_from: row.get(7)?,
+                        path_rewrite_to: row.get(8)?,
+                        enabled: row.get(9)?,
+                        created_at: from_millis(row.get(10)?).map_err(db_err)?,
+                        updated_at: from_millis(row.get(11)?).map_err(db_err)?,
+                    })
+                })
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            for row in rows {
+                let upstream = row.map_err(|err| EngineError::Storage(err.to_string()))?;
+                proxy_upstreams
+                    .entry(upstream.route_id.clone())
+                    .or_default()
+                    .push(upstream);
+            }
+        }
+
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id,name,source_type,cert_path,key_path,domains_json,created_at,updated_at FROM proxy_certificate",
+                )
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    let domains_json: String = row.get(5)?;
+                    Ok(ProxyCertificate {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        source_type: proxy_certificate_source_type_from_db(
+                            &row.get::<_, String>(2)?,
+                        )
+                        .map_err(db_err)?,
+                        cert_path: row.get(3)?,
+                        key_path: row.get(4)?,
+                        domains: serde_json::from_str(&domains_json)
+                            .map_err(|err| db_err(err.to_string()))?,
+                        created_at: from_millis(row.get(6)?).map_err(db_err)?,
+                        updated_at: from_millis(row.get(7)?).map_err(db_err)?,
+                    })
+                })
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            for row in rows {
+                let certificate = row.map_err(|err| EngineError::Storage(err.to_string()))?;
+                proxy_certificates.insert(certificate.id.clone(), certificate);
+            }
+        }
+
+        {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT rule_id,status,original_rule_enabled,proxy_listener_id,proxy_route_id,proxy_upstream_id,detail,migrated_at,rollbacked_at FROM rule_migration",
+                )
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    let rollbacked_ms = row.get::<_, Option<i64>>(8)?;
+                    Ok(RuleMigrationRecord {
+                        rule_id: row.get(0)?,
+                        status: rule_migration_status_from_db(&row.get::<_, String>(1)?)
+                            .map_err(db_err)?,
+                        original_rule_enabled: row.get(2)?,
+                        proxy_listener_id: row.get(3)?,
+                        proxy_route_id: row.get(4)?,
+                        proxy_upstream_id: row.get(5)?,
+                        detail: row.get(6)?,
+                        migrated_at: from_millis(row.get(7)?).map_err(db_err)?,
+                        rollbacked_at: match rollbacked_ms {
+                            Some(value) => Some(from_millis(value).map_err(db_err)?),
+                            None => None,
+                        },
+                    })
+                })
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            for row in rows {
+                let item = row.map_err(|err| EngineError::Storage(err.to_string()))?;
+                rule_migrations.insert(item.rule_id.clone(), item);
+            }
+        }
+
+        {
+            let mut stmt = conn
                 .prepare("SELECT id,time,level,module,event,detail FROM audit_log ORDER BY id ASC")
                 .map_err(|err| EngineError::Storage(err.to_string()))?;
             let rows = stmt
@@ -165,10 +402,35 @@ impl SqliteStore {
                 .next()
                 .map_err(|err| EngineError::Storage(err.to_string()))?
             {
-                let raw: String = row.get(0).map_err(|err| EngineError::Storage(err.to_string()))?;
+                let raw: String = row
+                    .get(0)
+                    .map_err(|err| EngineError::Storage(err.to_string()))?;
                 mcp_config = serde_json::from_str(&raw)
                     .map_err(|err| EngineError::Storage(err.to_string()))?;
             }
+        }
+
+        {
+            let mut stmt = conn
+                .prepare("SELECT value FROM app_setting WHERE key = 'app_settings'")
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            let mut rows = stmt
+                .query([])
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            if let Some(row) = rows
+                .next()
+                .map_err(|err| EngineError::Storage(err.to_string()))?
+            {
+                let raw: String = row
+                    .get(0)
+                    .map_err(|err| EngineError::Storage(err.to_string()))?;
+                app_settings = serde_json::from_str(&raw)
+                    .map_err(|err| EngineError::Storage(err.to_string()))?;
+            }
+        }
+
+        if app_settings.user_uid.is_none() {
+            app_settings.user_uid = Some(uuid::Uuid::new_v4().to_string());
         }
 
         let log_seq = logs.last().map(|item| item.id).unwrap_or(0);
@@ -177,9 +439,17 @@ impl SqliteStore {
             rules,
             firewalls,
             runtime,
+            hosts_groups,
+            hosts_entries,
+            proxy_listeners,
+            proxy_routes,
+            proxy_upstreams,
+            proxy_certificates,
+            rule_migrations,
             logs,
             log_seq,
             mcp_config,
+            app_settings,
         })
     }
 
@@ -194,6 +464,20 @@ impl SqliteStore {
         tx.execute("DELETE FROM firewall_policy", [])
             .map_err(|err| EngineError::Storage(err.to_string()))?;
         tx.execute("DELETE FROM runtime_state", [])
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        tx.execute("DELETE FROM hosts_group", [])
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        tx.execute("DELETE FROM hosts_entry", [])
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        tx.execute("DELETE FROM proxy_listener", [])
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        tx.execute("DELETE FROM proxy_route", [])
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        tx.execute("DELETE FROM proxy_upstream", [])
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        tx.execute("DELETE FROM proxy_certificate", [])
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        tx.execute("DELETE FROM rule_migration", [])
             .map_err(|err| EngineError::Storage(err.to_string()))?;
         tx.execute("DELETE FROM audit_log", [])
             .map_err(|err| EngineError::Storage(err.to_string()))?;
@@ -257,6 +541,187 @@ impl SqliteStore {
             .map_err(|err| EngineError::Storage(err.to_string()))?;
         }
 
+        let mut groups = snapshot.hosts_groups.values().cloned().collect::<Vec<_>>();
+        groups.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+        for group in groups {
+            tx.execute(
+                "INSERT INTO hosts_group (id,name,description,source_type,is_active,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                params![
+                    group.id,
+                    group.name,
+                    group.description,
+                    hosts_group_source_type_to_db(group.source_type),
+                    group.is_active,
+                    group.created_at.timestamp_millis(),
+                    group.updated_at.timestamp_millis(),
+                ],
+            )
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        }
+
+        let mut group_ids = snapshot.hosts_entries.keys().cloned().collect::<Vec<_>>();
+        group_ids.sort();
+        for group_id in group_ids {
+            let Some(entries) = snapshot.hosts_entries.get(&group_id) else {
+                continue;
+            };
+            let mut ordered = entries.clone();
+            ordered.sort_by_key(|item| item.order_index);
+            for entry in ordered {
+                tx.execute(
+                    "INSERT INTO hosts_entry (id,group_id,ip,domain,comment,enabled,order_index,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                    params![
+                        entry.id,
+                        entry.group_id,
+                        entry.ip,
+                        entry.domain,
+                        entry.comment,
+                        entry.enabled,
+                        entry.order_index,
+                        entry.created_at.timestamp_millis(),
+                        entry.updated_at.timestamp_millis(),
+                    ],
+                )
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            }
+        }
+
+        let mut listeners = snapshot
+            .proxy_listeners
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        listeners.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+        for listener in listeners {
+            tx.execute(
+                "INSERT INTO proxy_listener (id,name,listen_host,listen_port,protocol,tls_mode,cert_id,bind_mode,nic_id,enabled,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                params![
+                    listener.id,
+                    listener.name,
+                    listener.listen_host,
+                    listener.listen_port,
+                    proxy_protocol_to_db(listener.protocol),
+                    proxy_tls_mode_to_db(listener.tls_mode),
+                    listener.cert_id,
+                    bind_mode_to_db(listener.bind_mode),
+                    listener.nic_id,
+                    listener.enabled,
+                    listener.created_at.timestamp_millis(),
+                    listener.updated_at.timestamp_millis(),
+                ],
+            )
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        }
+
+        let mut listener_ids = snapshot.proxy_routes.keys().cloned().collect::<Vec<_>>();
+        listener_ids.sort();
+        for listener_id in listener_ids {
+            let Some(routes) = snapshot.proxy_routes.get(&listener_id) else {
+                continue;
+            };
+            let mut ordered = routes.clone();
+            ordered.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+            for route in ordered {
+                tx.execute(
+                    "INSERT INTO proxy_route (id,listener_id,server_names_json,path_prefix,is_default,enabled,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                    params![
+                        route.id,
+                        route.listener_id,
+                        serde_json::to_string(&route.server_names)
+                            .map_err(|err| EngineError::Storage(err.to_string()))?,
+                        route.path_prefix,
+                        route.is_default,
+                        route.enabled,
+                        route.created_at.timestamp_millis(),
+                        route.updated_at.timestamp_millis(),
+                    ],
+                )
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            }
+        }
+
+        let mut route_ids = snapshot.proxy_upstreams.keys().cloned().collect::<Vec<_>>();
+        route_ids.sort();
+        for route_id in route_ids {
+            let Some(upstreams) = snapshot.proxy_upstreams.get(&route_id) else {
+                continue;
+            };
+            let mut ordered = upstreams.clone();
+            ordered.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+            for upstream in ordered {
+                tx.execute(
+                    "INSERT INTO proxy_upstream (id,route_id,target_kind,target_ref,target_host,target_port,upstream_scheme,path_rewrite_from,path_rewrite_to,enabled,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                    params![
+                        upstream.id,
+                        upstream.route_id,
+                        target_kind_to_db(upstream.target_kind),
+                        upstream.target_ref,
+                        upstream.target_host,
+                        upstream.target_port,
+                        upstream_scheme_to_db(upstream.upstream_scheme),
+                        upstream.path_rewrite_from,
+                        upstream.path_rewrite_to,
+                        upstream.enabled,
+                        upstream.created_at.timestamp_millis(),
+                        upstream.updated_at.timestamp_millis(),
+                    ],
+                )
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+            }
+        }
+
+        let mut certificates = snapshot
+            .proxy_certificates
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        certificates.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+        for certificate in certificates {
+            tx.execute(
+                "INSERT INTO proxy_certificate (id,name,source_type,cert_path,key_path,domains_json,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                params![
+                    certificate.id,
+                    certificate.name,
+                    proxy_certificate_source_type_to_db(certificate.source_type),
+                    certificate.cert_path,
+                    certificate.key_path,
+                    serde_json::to_string(&certificate.domains)
+                        .map_err(|err| EngineError::Storage(err.to_string()))?,
+                    certificate.created_at.timestamp_millis(),
+                    certificate.updated_at.timestamp_millis(),
+                ],
+            )
+                .map_err(|err| EngineError::Storage(err.to_string()))?;
+        }
+
+        let mut migrations = snapshot
+            .rule_migrations
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        migrations.sort_by(|a, b| {
+            a.migrated_at
+                .cmp(&b.migrated_at)
+                .then(a.rule_id.cmp(&b.rule_id))
+        });
+        for migration in migrations {
+            tx.execute(
+                "INSERT INTO rule_migration (rule_id,status,original_rule_enabled,proxy_listener_id,proxy_route_id,proxy_upstream_id,detail,migrated_at,rollbacked_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                params![
+                    migration.rule_id,
+                    rule_migration_status_to_db(migration.status),
+                    migration.original_rule_enabled,
+                    migration.proxy_listener_id,
+                    migration.proxy_route_id,
+                    migration.proxy_upstream_id,
+                    migration.detail,
+                    migration.migrated_at.timestamp_millis(),
+                    migration.rollbacked_at.map(|value| value.timestamp_millis()),
+                ],
+            )
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        }
+
         for item in &snapshot.logs {
             tx.execute(
                 "INSERT INTO audit_log (id,time,level,module,event,detail) VALUES (?1,?2,?3,?4,?5,?6)",
@@ -282,9 +747,122 @@ impl SqliteStore {
         )
         .map_err(|err| EngineError::Storage(err.to_string()))?;
 
+        tx.execute(
+            "INSERT INTO app_setting (key,value) VALUES (?1,?2)",
+            params![
+                "app_settings",
+                serde_json::to_string(&snapshot.app_settings)
+                    .map_err(|err| EngineError::Storage(err.to_string()))?
+            ],
+        )
+        .map_err(|err| EngineError::Storage(err.to_string()))?;
+
         tx.commit()
             .map_err(|err| EngineError::Storage(err.to_string()))?;
         Ok(())
+    }
+
+    pub fn upsert_traffic_stats(&self, rows: &[PersistedTrafficStat]) -> Result<(), EngineError> {
+        let mut conn = self.conn.lock();
+        let tx = conn
+            .transaction()
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+
+        for row in rows {
+            tx.execute(
+                "INSERT INTO traffic_stats (id,entity_type,entity_id,time_bucket,bytes_in,bytes_out,connections,requests,total_duration_ms,avg_duration_ms,created_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                 ON CONFLICT(entity_type, entity_id, time_bucket) DO UPDATE SET
+                   bytes_in = traffic_stats.bytes_in + excluded.bytes_in,
+                   bytes_out = traffic_stats.bytes_out + excluded.bytes_out,
+                   connections = traffic_stats.connections + excluded.connections,
+                   requests = traffic_stats.requests + excluded.requests,
+                   total_duration_ms = traffic_stats.total_duration_ms + excluded.total_duration_ms,
+                   avg_duration_ms = CASE
+                     WHEN (traffic_stats.requests + excluded.requests) > 0
+                     THEN (traffic_stats.total_duration_ms + excluded.total_duration_ms) / (traffic_stats.requests + excluded.requests)
+                     WHEN (traffic_stats.connections + excluded.connections) > 0
+                     THEN (traffic_stats.total_duration_ms + excluded.total_duration_ms) / (traffic_stats.connections + excluded.connections)
+                     ELSE 0
+                   END,
+                   created_at = excluded.created_at",
+                params![
+                    format!(
+                        "{}-{}-{}",
+                        traffic_entity_type_to_db(row.entity_type),
+                        row.entity_id,
+                        row.time_bucket
+                    ),
+                    traffic_entity_type_to_db(row.entity_type),
+                    row.entity_id,
+                    row.time_bucket,
+                    row.bytes_in,
+                    row.bytes_out,
+                    row.connections,
+                    row.requests,
+                    row.total_duration_ms,
+                    row.avg_duration_ms,
+                    row.created_at,
+                ],
+            )
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        }
+
+        tx.commit()
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+        Ok(())
+    }
+
+    pub fn query_traffic_stats(
+        &self,
+        entity_type: TrafficEntityType,
+        entity_id: &str,
+        start_bucket: Option<i64>,
+        end_bucket: Option<i64>,
+    ) -> Result<Vec<TrafficStatsPoint>, EngineError> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT time_bucket,entity_type,entity_id,bytes_in,bytes_out,connections,requests,total_duration_ms,avg_duration_ms
+                 FROM traffic_stats
+                 WHERE entity_type = ?1
+                   AND entity_id = ?2
+                   AND (?3 IS NULL OR time_bucket >= ?3)
+                   AND (?4 IS NULL OR time_bucket <= ?4)
+                 ORDER BY time_bucket ASC",
+            )
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+
+        let rows = stmt
+            .query_map(
+                params![
+                    traffic_entity_type_to_db(entity_type),
+                    entity_id,
+                    start_bucket,
+                    end_bucket
+                ],
+                |row| {
+                    Ok(TrafficStatsPoint {
+                        time_bucket: row.get(0)?,
+                        entity_type: traffic_entity_type_from_db(&row.get::<_, String>(1)?)
+                            .map_err(db_err)?,
+                        entity_id: row.get(2)?,
+                        bytes_in: row.get(3)?,
+                        bytes_out: row.get(4)?,
+                        connections: row.get(5)?,
+                        requests: row.get(6)?,
+                        total_duration_ms: row.get(7)?,
+                        avg_duration_ms: row.get(8)?,
+                    })
+                },
+            )
+            .map_err(|err| EngineError::Storage(err.to_string()))?;
+
+        let mut stats = Vec::new();
+        for row in rows {
+            stats.push(row.map_err(|err| EngineError::Storage(err.to_string()))?);
+        }
+        Ok(stats)
     }
 
     fn init_schema(&self) -> Result<(), EngineError> {
@@ -326,6 +904,92 @@ impl SqliteStore {
                 last_apply_at INTEGER NULL
             );
 
+            CREATE TABLE IF NOT EXISTS hosts_group (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NULL,
+                source_type TEXT NOT NULL,
+                is_active INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hosts_entry (
+                id TEXT PRIMARY KEY,
+                group_id TEXT NOT NULL,
+                ip TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                comment TEXT NULL,
+                enabled INTEGER NOT NULL,
+                order_index INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS proxy_listener (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                listen_host TEXT NOT NULL,
+                listen_port INTEGER NOT NULL,
+                protocol TEXT NOT NULL,
+                tls_mode TEXT NOT NULL,
+                cert_id TEXT NULL,
+                bind_mode TEXT NOT NULL,
+                nic_id TEXT NULL,
+                enabled INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS proxy_route (
+                id TEXT PRIMARY KEY,
+                listener_id TEXT NOT NULL,
+                server_names_json TEXT NOT NULL,
+                path_prefix TEXT NULL,
+                is_default INTEGER NOT NULL,
+                enabled INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS proxy_upstream (
+                id TEXT PRIMARY KEY,
+                route_id TEXT NOT NULL,
+                target_kind TEXT NOT NULL,
+                target_ref TEXT NULL,
+                target_host TEXT NULL,
+                target_port INTEGER NOT NULL,
+                upstream_scheme TEXT NOT NULL,
+                path_rewrite_from TEXT NULL,
+                path_rewrite_to TEXT NULL,
+                enabled INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS proxy_certificate (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                cert_path TEXT NOT NULL,
+                key_path TEXT NOT NULL,
+                domains_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS rule_migration (
+                rule_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                original_rule_enabled INTEGER NOT NULL DEFAULT 0,
+                proxy_listener_id TEXT NOT NULL,
+                proxy_route_id TEXT NOT NULL,
+                proxy_upstream_id TEXT NULL,
+                detail TEXT NULL,
+                migrated_at INTEGER NOT NULL,
+                rollbacked_at INTEGER NULL
+            );
+
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY,
                 time INTEGER NOT NULL,
@@ -339,9 +1003,36 @@ impl SqliteStore {
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS traffic_stats (
+                id TEXT PRIMARY KEY,
+                entity_type TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                time_bucket INTEGER NOT NULL,
+                bytes_in INTEGER NOT NULL DEFAULT 0,
+                bytes_out INTEGER NOT NULL DEFAULT 0,
+                connections INTEGER NOT NULL DEFAULT 0,
+                requests INTEGER NOT NULL DEFAULT 0,
+                total_duration_ms INTEGER NOT NULL DEFAULT 0,
+                avg_duration_ms INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_traffic_stats_time
+                ON traffic_stats(time_bucket);
             "#,
         )
         .map_err(|err| EngineError::Storage(err.to_string()))?;
+        if let Err(err) = conn.execute(
+            "ALTER TABLE rule_migration ADD COLUMN original_rule_enabled INTEGER NOT NULL DEFAULT 0",
+            [],
+        ) {
+            let message = err.to_string();
+            if !message.contains("duplicate column name") {
+                return Err(EngineError::Storage(message));
+            }
+        }
+        migrate_traffic_stats_schema(&conn)?;
         Ok(())
     }
 }
@@ -367,6 +1058,96 @@ fn rule_type_to_db(value: RuleType) -> &'static str {
         RuleType::HttpProxy => "http_proxy",
         RuleType::Socks5Proxy => "socks5_proxy",
     }
+}
+
+fn traffic_entity_type_to_db(value: TrafficEntityType) -> &'static str {
+    match value {
+        TrafficEntityType::LegacyRule => "legacy_rule",
+        TrafficEntityType::ProxyUpstream => "proxy_upstream",
+    }
+}
+
+fn traffic_entity_type_from_db(value: &str) -> Result<TrafficEntityType, String> {
+    match value {
+        "legacy_rule" => Ok(TrafficEntityType::LegacyRule),
+        "proxy_upstream" => Ok(TrafficEntityType::ProxyUpstream),
+        _ => Err(format!("unknown traffic entity type: {value}")),
+    }
+}
+
+fn migrate_traffic_stats_schema(conn: &Connection) -> Result<(), EngineError> {
+    let mut stmt = conn
+        .prepare("PRAGMA table_info(traffic_stats)")
+        .map_err(|err| EngineError::Storage(err.to_string()))?;
+    let column_names = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|err| EngineError::Storage(err.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| EngineError::Storage(err.to_string()))?;
+    if column_names.iter().any(|name| name == "entity_type") {
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_traffic_stats_entity_bucket
+             ON traffic_stats(entity_type, entity_id, time_bucket)",
+            [],
+        )
+        .map_err(|err| EngineError::Storage(err.to_string()))?;
+        return Ok(());
+    }
+
+    conn.execute_batch(
+        r#"
+        ALTER TABLE traffic_stats RENAME TO traffic_stats_legacy;
+
+        CREATE TABLE traffic_stats (
+            id TEXT PRIMARY KEY,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            time_bucket INTEGER NOT NULL,
+            bytes_in INTEGER NOT NULL DEFAULT 0,
+            bytes_out INTEGER NOT NULL DEFAULT 0,
+            connections INTEGER NOT NULL DEFAULT 0,
+            requests INTEGER NOT NULL DEFAULT 0,
+            total_duration_ms INTEGER NOT NULL DEFAULT 0,
+            avg_duration_ms INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        );
+
+        INSERT INTO traffic_stats (
+            id,
+            entity_type,
+            entity_id,
+            time_bucket,
+            bytes_in,
+            bytes_out,
+            connections,
+            requests,
+            total_duration_ms,
+            avg_duration_ms,
+            created_at
+        )
+        SELECT
+            id,
+            'legacy_rule',
+            rule_id,
+            time_bucket,
+            bytes_in,
+            bytes_out,
+            connections,
+            requests,
+            total_duration_ms,
+            avg_duration_ms,
+            created_at
+        FROM traffic_stats_legacy;
+
+        DROP TABLE traffic_stats_legacy;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_traffic_stats_entity_bucket
+            ON traffic_stats(entity_type, entity_id, time_bucket);
+        CREATE INDEX IF NOT EXISTS idx_traffic_stats_time
+            ON traffic_stats(time_bucket);
+        "#,
+    )
+    .map_err(|err| EngineError::Storage(err.to_string()))
 }
 
 fn rule_type_from_db(value: &str) -> Result<RuleType, String> {
@@ -425,5 +1206,113 @@ fn runtime_state_from_db(value: &str) -> Result<RuntimeState, String> {
         "stopped" => Ok(RuntimeState::Stopped),
         "error" => Ok(RuntimeState::Error),
         _ => Err(format!("invalid runtime state: {value}")),
+    }
+}
+
+fn rule_migration_status_to_db(value: RuleMigrationStatus) -> &'static str {
+    match value {
+        RuleMigrationStatus::Pending => "pending",
+        RuleMigrationStatus::Migrated => "migrated",
+        RuleMigrationStatus::Rollbacked => "rollbacked",
+    }
+}
+
+fn rule_migration_status_from_db(value: &str) -> Result<RuleMigrationStatus, String> {
+    match value {
+        "pending" => Ok(RuleMigrationStatus::Pending),
+        "migrated" => Ok(RuleMigrationStatus::Migrated),
+        "rollbacked" => Ok(RuleMigrationStatus::Rollbacked),
+        _ => Err(format!("invalid rule migration status: {value}")),
+    }
+}
+
+fn proxy_protocol_to_db(value: ProxyProtocol) -> &'static str {
+    match value {
+        ProxyProtocol::Http => "http",
+        ProxyProtocol::Https => "https",
+    }
+}
+
+fn proxy_protocol_from_db(value: &str) -> Result<ProxyProtocol, String> {
+    match value {
+        "http" => Ok(ProxyProtocol::Http),
+        "https" => Ok(ProxyProtocol::Https),
+        _ => Err(format!("invalid proxy protocol: {value}")),
+    }
+}
+
+fn proxy_tls_mode_to_db(value: ProxyTlsMode) -> &'static str {
+    match value {
+        ProxyTlsMode::Disabled => "disabled",
+        ProxyTlsMode::ManualCert => "manual_cert",
+        ProxyTlsMode::LocalCa => "local_ca",
+    }
+}
+
+fn proxy_tls_mode_from_db(value: &str) -> Result<ProxyTlsMode, String> {
+    match value {
+        "disabled" => Ok(ProxyTlsMode::Disabled),
+        "manual_cert" => Ok(ProxyTlsMode::ManualCert),
+        "local_ca" => Ok(ProxyTlsMode::LocalCa),
+        _ => Err(format!("invalid proxy tls mode: {value}")),
+    }
+}
+
+fn upstream_scheme_to_db(value: UpstreamScheme) -> &'static str {
+    match value {
+        UpstreamScheme::Http => "http",
+        UpstreamScheme::Https => "https",
+        UpstreamScheme::Ws => "ws",
+        UpstreamScheme::Wss => "wss",
+        UpstreamScheme::Grpc => "grpc",
+        UpstreamScheme::Grpcs => "grpcs",
+    }
+}
+
+fn upstream_scheme_from_db(value: &str) -> Result<UpstreamScheme, String> {
+    match value {
+        "http" => Ok(UpstreamScheme::Http),
+        "https" => Ok(UpstreamScheme::Https),
+        "ws" => Ok(UpstreamScheme::Ws),
+        "wss" => Ok(UpstreamScheme::Wss),
+        "grpc" => Ok(UpstreamScheme::Grpc),
+        "grpcs" => Ok(UpstreamScheme::Grpcs),
+        _ => Err(format!("invalid upstream scheme: {value}")),
+    }
+}
+
+fn hosts_group_source_type_to_db(value: HostsGroupSourceType) -> &'static str {
+    match value {
+        HostsGroupSourceType::SystemImported => "system_imported",
+        HostsGroupSourceType::Copied => "copied",
+        HostsGroupSourceType::Manual => "manual",
+        HostsGroupSourceType::FileImported => "file_imported",
+    }
+}
+
+fn hosts_group_source_type_from_db(value: &str) -> Result<HostsGroupSourceType, String> {
+    match value {
+        "system_imported" => Ok(HostsGroupSourceType::SystemImported),
+        "copied" => Ok(HostsGroupSourceType::Copied),
+        "manual" => Ok(HostsGroupSourceType::Manual),
+        "file_imported" => Ok(HostsGroupSourceType::FileImported),
+        _ => Err(format!("invalid hosts group source type: {value}")),
+    }
+}
+
+fn proxy_certificate_source_type_to_db(value: ProxyCertificateSourceType) -> &'static str {
+    match value {
+        ProxyCertificateSourceType::ManualUpload => "manual_upload",
+        ProxyCertificateSourceType::LocalCa => "local_ca",
+    }
+}
+
+fn proxy_certificate_source_type_from_db(
+    value: &str,
+) -> Result<ProxyCertificateSourceType, String> {
+    match value {
+        "manual_upload" => Ok(ProxyCertificateSourceType::ManualUpload),
+        "local_ca" => Ok(ProxyCertificateSourceType::LocalCa),
+        _ => Err(format!("invalid proxy certificate source type: {value}")),
     }
 }

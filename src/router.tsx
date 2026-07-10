@@ -1,22 +1,22 @@
-import { lazy, Suspense, createMemo, Show, For } from "solid-js";
-import { createRootRoute, createRoute, createRouter, Link, Outlet, useRouterState } from "@tanstack/solid-router";
-import { useI18n } from "./i18n/context";
-import IconBridge from "./assets/bridge-logo.svg?url";
-import { ErrorPage } from "./features/ErrorPage";
-import { SkeletonTitle, SkeletonLine } from "./lib/Skeleton";
+import { lazy, Suspense, createEffect, createMemo, Show, For } from "solid-js";
+import { SkeletonTitle } from "./lib/Skeleton";
 import { AppRuntimeBanner } from "./lib/AppRuntimeBanner";
 import { useAppRuntimeStatusQuery } from "./lib/appRuntime";
 import { useTheme } from "./lib/theme";
-import { toLocalTime } from "./lib/datetime";
-import * as KButton from "@kobalte/core/button";
-import "./lib/Layout.css";
-import "./lib/Table.css";
-import "./lib/Form.css";
-import "./lib/Button.css";
-import "./lib/Toggle.css";
-import "./lib/Modal.css";
-import "./lib/Skeleton.css";
-import "./lib/Status.css";
+import {
+  DashboardIcon,
+  HostsIcon,
+  ProxyIcon,
+import {
+  DashboardIcon,
+  HostsIcon,
+  ProxyIcon,
+  RulesIcon,
+  SettingsIcon,
+  SparkIcon,
+  StatusBadge,
+  TopologyIcon
+} from "./lib/ui";
 
 const DashboardPage = lazy(() =>
   import("./features/dashboard/DashboardPage").then((module) => ({ default: module.DashboardPage }))
@@ -24,14 +24,17 @@ const DashboardPage = lazy(() =>
 const RulesPage = lazy(() =>
   import("./features/rules/RulesPage").then((module) => ({ default: module.RulesPage }))
 );
-const RuntimePage = lazy(() =>
-  import("./features/runtime/RuntimePage").then((module) => ({ default: module.RuntimePage }))
-);
 const TopologyPage = lazy(() =>
   import("./features/topology/TopologyPage").then((module) => ({ default: module.TopologyPage }))
 );
-const LogsPage = lazy(() =>
-  import("./features/logs/LogsPage").then((module) => ({ default: module.LogsPage }))
+const HostsPage = lazy(() =>
+  import("./features/hosts/HostsPage").then((module) => ({ default: module.HostsPage }))
+);
+const ProxyPage = lazy(() =>
+  import("./features/proxy/ProxyPage").then((module) => ({ default: module.ProxyPage }))
+);
+const AiIntegrationPage = lazy(() =>
+  import("./features/ai/AiIntegrationPage").then((module) => ({ default: module.AiIntegrationPage }))
 );
 const SettingsPage = lazy(() =>
   import("./features/settings/SettingsPage").then((module) => ({ default: module.SettingsPage }))
@@ -39,9 +42,14 @@ const SettingsPage = lazy(() =>
 
 function PageLoadingFallback() {
   return (
-    <section class="panel">
+    <section class="panel page-loading-card">
       <SkeletonTitle />
-      <SkeletonLine wide count={3} />
+      <div class="page-loading-metrics">
+        <div class="skeleton-grid dashboard-skeleton-grid" />
+        <div class="skeleton-grid dashboard-skeleton-grid" />
+        <div class="skeleton-grid dashboard-skeleton-grid" />
+      </div>
+      <div class="skeleton-grid page-loading-body" />
     </section>
   );
 }
@@ -58,133 +66,84 @@ function RootLayout() {
 
   const currentPath = createMemo(() => routerState().location.pathname);
   const hasBanner = createMemo(() => !runtimeStatusQuery.data?.admin_features_available && runtimeStatusQuery.data);
+  const runtimeStateLabel = createMemo(() =>
+    runtimeStatusQuery.data?.admin_features_available ? t("common.running") : t("common.ready")
+  );
 
   const navItems = createMemo(() => [
-    { path: "/dashboard", label: t("nav.dashboard") },
-    { path: "/rules", label: t("nav.rules") },
-    { path: "/runtime", label: t("nav.runtime") },
-    { path: "/topology", label: t("nav.topology") },
-    { path: "/logs", label: t("nav.logs") },
-    { path: "/settings", label: t("nav.settings") }
+    { path: "/dashboard", label: t("nav.dashboard"), icon: DashboardIcon },
+    { path: "/rules", label: t("nav.rules"), icon: RulesIcon },
+    { path: "/proxy", label: t("nav.proxy"), icon: ProxyIcon },
+    { path: "/hosts", label: t("nav.hosts"), icon: HostsIcon },
+  const runtimeStateLabel = createMemo(() =>
+    runtimeStatusQuery.data?.admin_features_available ? t("common.running") : t("common.ready")
+  );
+
+  const navItems = createMemo(() => [
+    { path: "/dashboard", label: t("nav.dashboard"), icon: DashboardIcon },
+    { path: "/rules", label: t("nav.rules"), icon: RulesIcon },
+    { path: "/proxy", label: t("nav.proxy"), icon: ProxyIcon },
+    { path: "/hosts", label: t("nav.hosts"), icon: HostsIcon },
+    { path: "/ai", label: t("nav.ai"), icon: SparkIcon },
+    { path: "/topology", label: t("nav.topology"), icon: TopologyIcon },
+    { path: "/settings", label: t("nav.settings"), icon: SettingsIcon }
   ]);
+  let contentRef: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    currentPath();
+    queueMicrotask(() => contentRef?.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+  });
 
   return (
-    <div class={`app-layout ${hasBanner() ? "" : "no-banner"}`}>
-      <header class="top-bar">
-        <div class="brand">
-          <img src={IconBridge} class="brand-icon" alt="WSL Bridge" />
-          <span>{t("app.name")}</span>
-        </div>
-        
-        <div class="app-status-section">
-          <Show when={runtimeStatusQuery.data?.admin_features_available}>
-            <div class="status-chip running">{t("common.adminMode")}</div>
-          </Show>
-        </div>
-      </header>
-      
-      <nav class="tab-nav">
-        <For each={navItems()}>
-          {(item) => (
-            <Link 
-              to={item.path} 
-              class="tab-item"
-              data-status={currentPath() === item.path || (item.path === "/dashboard" && currentPath() === "/") ? "active" : undefined}
-            >
-              {item.label}
-            </Link>
-          )}
-        </For>
-      </nav>
-      
-      <Show when={hasBanner()}>
-        <AppRuntimeBanner />
-      </Show>
-      
-      <main class="content">
-        <Outlet />
-      </main>
-      
-      <footer class="status-bar">
-        <div class="status-bar-left">
-          <Show when={runtimeStatusQuery.data}>
-            <div class="status-item">
-              <span>v{runtimeStatusQuery.data?.build_flavor}</span>
-            </div>
-          </Show>
-        </div>
-        <div class="status-bar-right">
-          <div class="status-item">
-            <span>{theme.resolvedTheme()}</span>
+    <div class="app-layout">
+      <aside class="app-sidebar">
+        <div class="sidebar-brand">
+          <div class="brand">
+            <img src={IconBridge} class="brand-icon" alt="WSL Bridge" />
+            <span>{t("app.name")}</span>
           </div>
         </div>
-      </footer>
-    </div>
-  );
-}
 
-const rootRoute = createRootRoute({
-  component: RootLayout,
-  errorComponent: ErrorPage
-});
+        <nav class="sidebar-nav">
+          <For each={navItems()}>
+            {(item) => {
+              const Icon = item.icon;
+              const isActive = () => currentPath() === item.path || (item.path === "/dashboard" && currentPath() === "/");
+              return (
+                <Link to={item.path} class="sidebar-nav-item" data-active={isActive() ? "true" : undefined}>
+                  <Icon size={18} />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            }}
+          </For>
+        </nav>
+      </aside>
 
-const indexRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/",
-  component: withSuspense(() => <DashboardPage />)
-});
+      <section class="app-main">
+        <header class="main-header">
+          <div class="main-header-meta">
+            <StatusBadge
+              state={runtimeStatusQuery.data?.admin_features_available ? "running" : "stopped"}
+              label={runtimeStatusQuery.data?.admin_features_available ? t("common.engineAvailable") : t("common.limitedMode")}
+            />
+            <Show when={runtimeStatusQuery.data?.is_admin}>
+              <StatusBadge state="ready" label={t("common.admin")} />
+            </Show>
+          </div>
+        </header>
 
-const dashboardRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/dashboard",
-  component: withSuspense(() => <DashboardPage />)
-});
+        <Show when={hasBanner()}>
+          <AppRuntimeBanner />
+        </Show>
 
-const rulesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/rules",
-  component: withSuspense(() => <RulesPage />)
-});
-
-const runtimeRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/runtime",
-  component: withSuspense(() => <RuntimePage />)
-});
-
-const topologyRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/topology",
-  component: withSuspense(() => <TopologyPage />)
-});
-
-const logsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/logs",
-  component: withSuspense(() => <LogsPage />)
-});
-
-const settingsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/settings",
-  component: withSuspense(() => <SettingsPage />)
-});
-
-const routeTree = rootRoute.addChildren([
-  indexRoute,
-  dashboardRoute,
-  rulesRoute,
-  runtimeRoute,
-  topologyRoute,
-  logsRoute,
-  settingsRoute
-]);
-
-export const router = createRouter({
-  routeTree
-});
-
-declare module "@tanstack/solid-router" {
+        <main class="content" ref={contentRef}>
+          <div class="content-inner">
+            <Outlet />
+          </div>
+        </main>
+      </section>
   interface Register {
     router: typeof router;
   }

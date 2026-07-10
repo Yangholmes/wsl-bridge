@@ -1,0 +1,31 @@
+{
+  "id": "wsl-bridge-operator",
+  "name": "wsl-bridge Operator",
+  "version": "0.1.0",
+  "requiresWslBridgeAiApi": "v1",
+  "description": "Operate wsl-bridge through MCP resources, config patches, dry-run and validation.",
+  "files": [
+    "SKILL.md",
+    "manifest.json",
+    "references/concepts.md",
+    "references/proxy-recipes.md",
+    "references/hosts-recipes.md",
+    "references/rules-legacy.md",
+    "references/troubleshooting.md",
+    "references/patch-schema.md",
+    "references/safety.md"
+  ],
+  "mcp": {
+    "serverName": "wsl-bridge",
+    "requiredResources": [
+      "wsl-bridge://ai-guide",
+      "wsl-bridge://state/summary",
+      "wsl-bridge://schemas/config-patch"
+    ],
+    "requiredTools": [
+      "inspect_app",
+      "validate_config",
+      "apply_config_patch"
+    ]
+  }
+}

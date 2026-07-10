@@ -22,10 +22,10 @@ export function ErrorPage(props: ErrorPageProps) {
   const getHint = () => {
     const msg = errorMessage().toLowerCase();
     if (msg.includes("network") || msg.includes("fetch") || msg.includes("connection")) {
-      return "请检查网络连接或后端服务是否正常运行。";
+      return t("common.errorPage.networkHint");
     }
     if (msg.includes("tauri") || msg.includes("invoke")) {
-      return "请确保应用已正确启动，可尝试重启应用。";
+      return t("common.errorPage.tauriHint");
     }
     return t("common.errorPage.hint");
   };

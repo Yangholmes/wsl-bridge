@@ -1,16 +1,16 @@
 .table-wrap {
   overflow: auto;
   max-width: 100%;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: var(--surface-strong);
+  background: var(--bg-panel);
 }
 
 table {
   width: 100%;
   min-width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .rules-table {
@@ -18,29 +18,39 @@ table {
   min-width: 800px;
 }
 
+.rules-table th:nth-last-child(2),
+.rules-table td:nth-last-child(2) {
+  width: 128px;
+}
+
+.rules-table th:last-child,
+.rules-table td:last-child {
+  width: 96px;
+}
+
 th,
 td {
+  padding: var(--space-12) var(--space-10);
   border-bottom: 1px solid var(--line-soft);
-  padding: 9px 8px;
   text-align: left;
   vertical-align: middle;
 }
 
-tbody tr:last-child td {
-  border-bottom: none;
-}
-
-th {
-  color: var(--sub);
-  font-weight: 600;
-  background: var(--surface-strong);
+thead th {
   position: sticky;
   top: 0;
   z-index: 1;
+  background: var(--table-header-bg);
+  color: var(--text-secondary);
+  font-weight: var(--font-semibold);
 }
 
 tbody tr:hover {
-  background: var(--hover-bg);
+  background: var(--bg-hover);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .row-check {
@@ -48,30 +58,63 @@ tbody tr:hover {
   place-items: center;
 }
 
-.row-check .kb-checkbox-control {
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+.table-wrap .row-check.kb-checkbox {
+  display: grid;
+  place-items: center;
 }
 
 .row-selected {
-  background: rgba(10, 100, 255, 0.1);
-}
-
-.row-selected:hover {
-  background: rgba(10, 100, 255, 0.14);
+  background: var(--table-row-selected-bg);
 }
 
 .runtime-row-error {
-  background: rgba(196, 43, 28, 0.08);
+  background: var(--table-row-error-bg);
 }
 
 .row-actions {
   display: flex;
-  gap: 6px;
-  flex-wrap: nowrap;
   align-items: center;
+  gap: var(--space-6);
+}
+
+.rules-row-actions {
+  justify-content: flex-start;
+  white-space: nowrap;
+}
+
+.rules-legacy-notice {
+  margin-bottom: var(--space-12);
+}
+
+.rules-action-menu-panel {
+  position: fixed;
+  z-index: 1000;
+  min-width: 168px;
+  max-width: 220px;
+  padding: var(--space-6);
+  border: 1px solid var(--menu-border);
+  border-radius: var(--radius-lg);
+  background: var(--menu-surface-bg);
+  box-shadow: var(--menu-shadow);
+}
+
+.rules-action-menu-item {
+  min-height: 32px;
+  padding: var(--space-6) var(--space-10);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  outline: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.rules-action-menu-item:hover,
+.rules-action-menu-item:focus-visible {
+  background: var(--bg-hover);
+  color: var(--accent-strong);
 }
 
 .row-enable-switch {
@@ -82,16 +125,90 @@ tbody tr:hover {
 .table-cell-ellipsis {
   display: block;
   width: 100%;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.4;
+  color: inherit;
   background: transparent;
   border: 0;
   padding: 0;
-  margin: 0;
   text-align: left;
-  color: inherit;
-  cursor: default;
+}
+
+.hosts-groups-table {
+  width: 100%;
+  min-width: 0;
+}
+
+.hosts-groups-table th:first-child,
+.hosts-groups-table td:first-child {
+  width: 72px;
+  text-align: center;
+}
+
+.hosts-groups-table th:nth-child(2),
+.hosts-groups-table td:nth-child(2) {
+  width: 180px;
+  max-width: 180px;
+}
+
+.hosts-groups-table th:nth-child(3),
+.hosts-groups-table td:nth-child(3) {
+  width: 220px;
+  max-width: 220px;
+}
+
+.hosts-groups-table th:nth-child(4),
+.hosts-groups-table td:nth-child(4) {
+  width: 150px;
+  max-width: 150px;
+}
+
+.hosts-groups-table th:last-child,
+.hosts-groups-table td:last-child {
+  width: 204px;
+}
+
+.hosts-group-actions {
+  justify-content: flex-start;
+}
+
+.hosts-records-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+
+.hosts-records-table {
+  min-width: 920px;
+}
+
+.hosts-records-table th:first-child,
+.hosts-records-table td:first-child {
+  width: 72px;
+  text-align: center;
+}
+
+.hosts-records-table th:last-child,
+.hosts-records-table td:last-child {
+  width: 136px;
+}
+
+.hosts-records-table .kb-field {
+  min-width: 0;
+}
+
+.icon-btn {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+@media (max-width: 760px) {
+  .hosts-records-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }

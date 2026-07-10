@@ -8,7 +8,8 @@ import { I18nProvider } from "./i18n/context";
 import { ThemeProvider } from "./lib/theme";
 import { ContextMenu, showContextMenu, hideContextMenu, handleKeyDown } from "./lib/ContextMenu";
 import { ToastProvider, ToastContainer } from "./lib/Toast";
-import { initClarity } from "./lib/clarity";
+import { initClarity, setupClarityTracking } from "./lib/clarity";
+import { WindowCloseGuard } from "./lib/WindowCloseGuard";
 import "./lib/NumberInput.css";
 import "./styles.css";
 
@@ -19,7 +20,7 @@ if (!import.meta.env.DEV) {
 }
 
 if (!import.meta.env.DEV && import.meta.env.VITE_CLARITY_PROJECT_ID) {
-  initClarity(import.meta.env.VITE_CLARITY_PROJECT_ID);
+  setupClarityTracking(import.meta.env.VITE_CLARITY_PROJECT_ID);
 }
 
 render(
@@ -30,6 +31,7 @@ render(
           <QueryClientProvider client={appQueryClient}>
             <RouterProvider router={router} />
             {!import.meta.env.DEV && <ContextMenu />}
+            <WindowCloseGuard />
             <ToastContainer />
           </QueryClientProvider>
         </I18nProvider>

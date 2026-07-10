@@ -1,5 +1,6 @@
-import { createContext, useContext, type Accessor, type JSX, createSignal } from "solid-js";
+import { createContext, useContext, type Accessor, type Context, type JSX, createSignal } from "solid-js";
 import { type Component, For } from "solid-js";
+import { Portal } from "solid-js/web";
 import "./Toast.css";
 
 export type ToastType = "info" | "success" | "warn" | "error";
@@ -21,7 +22,19 @@ interface ToastContextValue {
   error: (message: string, duration?: number) => void;
 }
 
-const ToastContext = createContext<ToastContextValue>();
+type ToastGlobalState = {
+  context?: Context<ToastContextValue | undefined>;
+};
+
+const toastGlobalState = globalThis as typeof globalThis & {
+  __wslBridgeToastState__?: ToastGlobalState;
+};
+
+const toastContextState =
+  (toastGlobalState.__wslBridgeToastState__ ??= {}) as ToastGlobalState;
+
+const ToastContext: Context<ToastContextValue | undefined> =
+  toastContextState.context ?? (toastContextState.context = createContext<ToastContextValue>());
 
 let toastId = 0;
 
@@ -79,16 +92,18 @@ export const ToastContainer: Component = () => {
   const { toasts, removeToast } = useToast();
 
   return (
-    <div class="toast-container">
-      <For each={toasts()}>
-        {(toast) => (
-          <div class={`toast toast-${toast.type}`}>
-            <span class="toast-icon">{ICONS[toast.type]}</span>
-            <span class="toast-message">{toast.message}</span>
-            <button class="toast-close" onClick={() => removeToast(toast.id)}>×</button>
-          </div>
-        )}
-      </For>
-    </div>
+    <Portal>
+      <div class="toast-container">
+        <For each={toasts()}>
+          {(toast) => (
+            <div class={`toast toast-${toast.type}`}>
+              <span class="toast-icon">{ICONS[toast.type]}</span>
+              <span class="toast-message">{toast.message}</span>
+              <button class="toast-close" onClick={() => removeToast(toast.id)}>×</button>
+            </div>
+          )}
+        </For>
+      </div>
+    </Portal>
   );
 };

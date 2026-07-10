@@ -1,19 +1,47 @@
-import { createMemo, For, Show } from "solid-js";
-import { Link } from "@tanstack/solid-router";
+import { createMemo, Show } from "solid-js";
 import { queryOptions, useQuery } from "@tanstack/solid-query";
 import * as KButton from "@kobalte/core/button";
 
 import "./DashboardPage.css";
 
-import { getRuntimeStatus, listRules, queryLogs, scanTopology } from "../rules/api";
+import {
+  getRuntimeStatus,
+  listRules,
+  listTrafficMonitorEntities,
+  scanTopology
+} from "../rules/api";
+import {
+  getProxyRuntimeStatus,
+  listProxyListeners,
+  listProxyRoutes,
+  listProxyUpstreams
+} from "../proxy/api";
 import { appQueryClient } from "../../lib/queryClient";
-import type { AuditLog, ProxyRule, RuntimeStatusItem, RuntimeState, TopologySnapshot } from "../../lib/types";
+import type {
+  ProxyListener,
+  ProxyRule,
+  ProxyRoute,
+  ProxyRuntimeStatusItem,
+  ProxyUpstream,
+  RuntimeStatusItem,
+  RuntimeState,
+  TopologySnapshot,
+  TrafficMonitorEntity
+} from "../../lib/types";
 import { useI18n } from "../../i18n/context";
 import { toLocalTime } from "../../lib/datetime";
-import { EllipsisCell } from "../../lib/EllipsisCell";
-import { SkeletonGrid, SkeletonLine } from "../../lib/Skeleton";
-import { Hint } from "../../lib/Hint";
+import { SkeletonGrid } from "../../lib/Skeleton";
 import { useToast } from "../../lib/Toast";
+import { TrafficChart } from "./TrafficChart";
+
+import { MetricCard, PageHeader, StatusBadge } from "../../lib/ui";
+
+type ProxyDashboardSnapshot = {
+  listeners: ProxyListener[];
+  routes: ProxyRoute[];
+  upstreams: ProxyUpstream[];
+  runtime: ProxyRuntimeStatusItem[];
+};
 
 export function DashboardPage() {
   const { t } = useI18n();
@@ -53,19 +81,36 @@ export function DashboardPage() {
     () => appQueryClient
   );
 
-  const errorLogsQuery = useQuery(
+  const trafficEntitiesQuery = useQuery(
     () =>
-      queryOptions<{ total: number; events: AuditLog[] }>({
-        queryKey: ["dashboard", "error-logs"],
-        queryFn: () =>
-          queryLogs({
-            level: "error",
-            start_time: new Date(Date.now() - 24 * 3600_000).toISOString(),
-            newest_first: true,
-            limit: 8
-          }),
-        staleTime: 8_000,
-        refetchInterval: 8_000,
+      queryOptions<TrafficMonitorEntity[]>({
+        queryKey: ["dashboard", "traffic-entities"],
+        queryFn: listTrafficMonitorEntities,
+        staleTime: 10_000,
+        refetchOnWindowFocus: false
+      }),
+    () => appQueryClient
+  );
+
+  const proxyOverviewQuery = useQuery(
+    () =>
+      queryOptions<ProxyDashboardSnapshot>({
+        queryKey: ["dashboard", "proxy-overview"],
+        queryFn: async () => {
+          const listeners = await listProxyListeners();
+          const routesByListener = await Promise.all(listeners.map((item) => listProxyRoutes(item.id)));
+          const routes = routesByListener.flat();
+          const upstreamsByRoute = await Promise.all(routes.map((item) => listProxyUpstreams(item.id)));
+          const upstreams = upstreamsByRoute.flat();
+          const runtime = await getProxyRuntimeStatus();
+          return {
+            listeners,
+            routes,
+            upstreams,
+            runtime
+          };
+        },
+        staleTime: 10_000,
         refetchOnWindowFocus: false
       }),
     () => appQueryClient
@@ -80,21 +125,49 @@ export function DashboardPage() {
     };
   });
 
+  const proxyRuntimeSummary = createMemo(() => {
+    const items = proxyOverviewQuery.data?.runtime ?? [];
+    return {
+      running: items.filter((item) => item.state === "running").length,
+      error: items.filter((item) => item.state === "error").length,
+      stopped: items.filter((item) => item.state === "stopped").length
+    };
+  });
+
   const enabledRules = createMemo(() => (rulesQuery.data ?? []).filter((item) => item.enabled).length);
+  const totalRules = createMemo(() => rulesQuery.data?.length ?? 0);
+  const totalProxyListeners = createMemo(() => proxyOverviewQuery.data?.listeners.length ?? 0);
+  const enabledProxyListeners = createMemo(
+    () => (proxyOverviewQuery.data?.listeners ?? []).filter((item) => item.enabled).length
+  );
+  const totalProxyRoutes = createMemo(() => proxyOverviewQuery.data?.routes.length ?? 0);
+  const enabledProxyRoutes = createMemo(
+    () => (proxyOverviewQuery.data?.routes ?? []).filter((item) => item.enabled).length
+  );
+  const totalProxyUpstreams = createMemo(() => proxyOverviewQuery.data?.upstreams.length ?? 0);
+  const enabledProxyUpstreams = createMemo(
+    () => (proxyOverviewQuery.data?.upstreams ?? []).filter((item) => item.enabled).length
+  );
   const natWithoutRules = createMemo(() => {
     const hasNat = (topologyQuery.data?.wsl ?? []).some((item) => item.networking_mode.toLowerCase() === "nat");
-    return hasNat && enabledRules() === 0;
+    return hasNat && enabledRules() === 0 && enabledProxyListeners() === 0;
   });
 
   const appStatus = createMemo<RuntimeState | "ready">(() => {
-    if ((runtimeQuery.data ?? []).length === 0) return "ready";
-    if (runtimeSummary().error > 0) return "error";
-    if (runtimeSummary().running > 0) return "running";
+    const totalRuntimeEntities = (runtimeQuery.data?.length ?? 0) + (proxyOverviewQuery.data?.runtime.length ?? 0);
+    if (totalRuntimeEntities === 0) return "ready";
+    if (runtimeSummary().error > 0 || proxyRuntimeSummary().error > 0) return "error";
+    if (runtimeSummary().running > 0 || proxyRuntimeSummary().running > 0) return "running";
     return "stopped";
   });
 
   const isLoading = createMemo(
-    () => rulesQuery.isPending || runtimeQuery.isPending || topologyQuery.isPending || errorLogsQuery.isPending
+    () =>
+      rulesQuery.isPending ||
+      runtimeQuery.isPending ||
+      topologyQuery.isPending ||
+      trafficEntitiesQuery.isPending ||
+      proxyOverviewQuery.isPending
   );
 
   async function refreshDashboard() {
@@ -103,7 +176,8 @@ export function DashboardPage() {
         rulesQuery.refetch(),
         runtimeQuery.refetch(),
         topologyQuery.refetch(),
-        errorLogsQuery.refetch()
+        trafficEntitiesQuery.refetch(),
+        proxyOverviewQuery.refetch()
       ]);
       toast.info(t("dashboard.refreshed"));
     } catch (error) {
@@ -122,105 +196,91 @@ export function DashboardPage() {
 
   return (
     <div class="page">
-      <section class="page-shell">
-        <div class="panel-title">
-          <h2>{t("dashboard.title")}</h2>
-        </div>
-        <div class="dashboard-actions">
-          <KButton.Root class="kb-btn primary" onClick={refreshDashboard}>
-            {t("dashboard.refreshOverview")}
-          </KButton.Root>
-          <KButton.Root class="kb-btn ghost" onClick={rescanTopology}>
-            {t("dashboard.rescanTopology")}
-          </KButton.Root>
-        </div>
-        <Show when={!isLoading()} fallback={<SkeletonGrid dashboard />}>
-          <div class="dashboard-grid">
-            <div class="dashboard-card">
-              <div class="dashboard-card-header">{t("dashboard.appStatus")}</div>
-              <div class={`status-chip ${appStatus()}`}>
-                {t(`common.${appStatus()}`)}
-              </div>
-              <div class="caption-text">
-                {t("dashboard.lastTopologyScan", { value: toLocalTime(topologyQuery.data?.timestamp ?? null) })}
-              </div>
-            </div>
-            <div class="dashboard-card">
-              <div class="dashboard-card-header">{t("dashboard.ruleStatus")}</div>
-              <div class="dashboard-stat-large">
-                {t("dashboard.totalRules", { count: rulesQuery.data?.length ?? 0 })}
-              </div>
-              <div class="dashboard-stat">{t("dashboard.enabledRules", { count: enabledRules() })}</div>
-              <div class="dashboard-stat">{t("dashboard.runningRules", { count: runtimeSummary().running })}</div>
-              <Show when={runtimeSummary().error > 0}>
-                <div class="dashboard-stat" style="color: var(--danger-text)">
-                  {t("dashboard.errorRules", { count: runtimeSummary().error })}
-                </div>
-              </Show>
-            </div>
-            <div class="dashboard-card">
-              <div class="dashboard-card-header">{t("dashboard.riskHint")}</div>
-              <Show when={natWithoutRules()} fallback={<Hint variant="info">{t("dashboard.noHighRisk")}</Hint>}>
-                <Hint variant="error">{t("dashboard.natRisk")}</Hint>
-              </Show>
-            </div>
-          </div>
-        </Show>
-      </section>
+      <PageHeader
+        title={t("dashboard.title")}
+        actions={
+          <>
+            <KButton.Root class="kb-btn ghost" onClick={refreshDashboard}>
+              {t("dashboard.refreshOverview")}
+            </KButton.Root>
+            <KButton.Root class="kb-btn accent" onClick={rescanTopology}>
+              {t("dashboard.rescanTopology")}
+            </KButton.Root>
+          </>
+        }
+      />
 
-      <section class="page-shell dashboard-section">
-        <h3>{t("dashboard.recentErrorLogs")}</h3>
-        <div class="table-wrap">
-          <table class="rules-table">
-            <thead>
-              <tr>
-                <th>{t("dashboard.tableTime")}</th>
-                <th>{t("dashboard.tableModule")}</th>
-                <th>{t("dashboard.tableEvent")}</th>
-                <th>{t("dashboard.tableDetail")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <Show
-                when={!errorLogsQuery.isPending}
-                fallback={
-                  <For each={[1, 2, 3, 4]}>
-                    {() => (
-                      <tr>
-                        <td colspan={4}>
-                          <SkeletonLine />
-                        </td>
-                      </tr>
-                    )}
-                  </For>
-                }
-              >
-                <Show
-                  when={(errorLogsQuery.data?.events.length ?? 0) > 0}
-                  fallback={
-                    <tr>
-                      <td colspan={4} class="muted">
-                        {t("dashboard.noErrorLogs")}
-                      </td>
-                    </tr>
-                  }
-                >
-                  <For each={errorLogsQuery.data?.events ?? []}>
-                    {(item) => (
-                      <tr>
-                        <td><EllipsisCell text={toLocalTime(item.time)} /></td>
-                        <td><EllipsisCell text={item.module} /></td>
-                        <td><EllipsisCell text={item.event} /></td>
-                        <td><EllipsisCell text={item.detail} /></td>
-                      </tr>
-                    )}
-                  </For>
-                </Show>
-              </Show>
-            </tbody>
-          </table>
+      <Show when={!isLoading()} fallback={<SkeletonGrid dashboard />}>
+        <div class="metric-grid dashboard-metric-grid">
+          <MetricCard
+            label={t("dashboard.appStatus")}
+            value={<StatusBadge state={appStatus()} label={t(`common.${appStatus()}`)} />}
+            detail={
+              <span class="dashboard-metric-detail-stack">
+                <span class="dashboard-metric-detail-primary">
+                  {t("dashboard.lastTopologyScan", { value: toLocalTime(topologyQuery.data?.timestamp ?? null) })}
+                </span>
+                <span class="dashboard-metric-detail-secondary">
+                  {t("dashboard.dashboardRuntimeMix", {
+                    rulesRunning: runtimeSummary().running,
+                    rulesError: runtimeSummary().error,
+                    proxyRunning: proxyRuntimeSummary().running,
+                    proxyError: proxyRuntimeSummary().error
+                  })}
+                </span>
+              </span>
+            }
+          />
+          <MetricCard
+            label={t("dashboard.ruleStatus")}
+            value={
+              <span class="dashboard-metric-dual-value">
+                <span>{t("dashboard.dashboardRulesShort", { count: totalRules() })}</span>
+                <span>{t("dashboard.dashboardProxyShort", { count: totalProxyListeners() })}</span>
+              </span>
+            }
+            detail={
+              <span class="dashboard-metric-detail-stack">
+                <span class="dashboard-metric-detail-primary">
+                  {t("dashboard.dashboardConfigEnabledMix", {
+                    rules: enabledRules(),
+                    listeners: enabledProxyListeners(),
+                    routes: enabledProxyRoutes(),
+                    upstreams: enabledProxyUpstreams()
+                  })}
+                </span>
+                <span class="dashboard-metric-detail-secondary">
+                  {t("dashboard.dashboardConfigTotalMix", {
+                    routes: totalProxyRoutes(),
+                    upstreams: totalProxyUpstreams()
+                  })}
+                </span>
+              </span>
+            }
+          />
+          <MetricCard
+            label={t("dashboard.riskHint")}
+            value={natWithoutRules() ? t("common.error") : t("common.ready")}
+            detail={
+              <span class="dashboard-metric-detail-stack">
+                <span class="dashboard-metric-detail-primary">
+                  {natWithoutRules() ? t("dashboard.natRisk") : t("dashboard.noHighRisk")}
+                </span>
+                <span class="dashboard-metric-detail-secondary">
+                  {t("dashboard.dashboardExposureMix", {
+                    rules: enabledRules(),
+                    listeners: enabledProxyListeners(),
+                    routes: enabledProxyRoutes(),
+                    upstreams: enabledProxyUpstreams()
+                  })}
+                </span>
+              </span>
+            }
+          />
         </div>
-      </section>
+      </Show>
+
+      <TrafficChart entities={trafficEntitiesQuery.data ?? []} />
     </div>
   );
 }
