@@ -6,3 +6,5 @@ data/
 .vscode/
 *.log
 .env
+.pnpm-store
+artifacts

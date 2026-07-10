@@ -5,8 +5,8 @@ fn main() {
         println!("cargo:rerun-if-changed=windows/app.su.manifest");
         println!("cargo:rerun-if-env-changed=WSL_BRIDGE_BUILD_FLAVOR");
 
-        let flavor = std::env::var("WSL_BRIDGE_BUILD_FLAVOR")
-            .unwrap_or_else(|_| "standard".to_owned());
+        let flavor =
+            std::env::var("WSL_BRIDGE_BUILD_FLAVOR").unwrap_or_else(|_| "standard".to_owned());
         println!("cargo:rustc-env=WSL_BRIDGE_BUILD_FLAVOR={flavor}");
 
         let manifest = match flavor.as_str() {

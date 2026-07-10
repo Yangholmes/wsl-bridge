@@ -3,8 +3,8 @@
 ## 1. 文档信息
 
 - 项目名称：`wsl-bridge`
-- 文档版本：`v2.1`
-- 更新时间：`2026-04-15`
+- 文档版本：`v2.2`
+- 更新时间：`2026-04-29`
 - 目标读者：产品、研发、测试
 
 ## 2. 背景与目标
@@ -99,7 +99,8 @@
 ### 4.3 生命周期策略
 
 - 应用启动后，用户可点击“应用规则”触发 `ApplyRules`。
-- 应用退出时，统一执行 `StopRules`，停止监听并按策略回收运行态防火墙规则。
+- 点击主窗口右上角 `X` 时，默认仅关闭窗口并隐藏到系统托盘，不退出应用进程。
+- 仅在显式执行“退出应用”时，统一执行 `StopRules`，停止监听并按策略回收运行态防火墙规则。
 - 满足“应用没启动就不执行规则”的业务约束。
 
 ## 5. 技术栈与组件
@@ -256,10 +257,11 @@
 
 ### 9.3 退出与清理流程
 
-1. 应用收到退出事件。
-2. 执行 `stop_rules()` 停止运行态代理/转发 listener。
-3. 根据策略清理运行态相关防火墙规则。
-4. 保留配置态规则（下次启动可再次应用）。
+1. 用户显式执行“退出应用”或托盘菜单退出。
+2. 应用收到退出事件。
+3. 执行 `stop_rules()` 停止运行态代理/转发 listener。
+4. 根据策略清理运行态相关防火墙规则。
+5. 保留配置态规则（下次启动可再次应用）。
 
 ## 10. 权限与安全
 
@@ -355,7 +357,7 @@
 4. 可按单网卡/所有网卡切换绑定策略。
 5. 在管理员版下，可按 Domain/Private/Public 分别配置放行。
 6. 标准权限版允许管理配置态规则，并可应用不依赖 `hyperv` 和防火墙配置的规则；防火墙与 Hyper-V 管理能力仍受限，并在页面中明确提示。
-7. 关闭应用后规则停止生效。
+7. 显式退出应用后规则停止生效；仅关闭窗口到托盘时规则继续生效。
 8. 日志可定位规则应用失败原因。
 
 ## 16. MCP 服务器（Model Context Protocol）
@@ -368,26 +370,50 @@ WSL Bridge 内置 MCP 服务器，支持 AI 助手（如 Claude、Cursor 等）�
 
 - `enabled`: 是否启用 MCP 服务器
 - `listen_port`: MCP 服务器监听端口
-- `api_token`: 认证 Token
 - `expose_topology_read`: 是否暴露拓扑读取能力
 - `expose_rule_config`: 是否暴露规则配置能力
 
 ### 16.3 暴露的工具
 
-| 工具名称 | 说明 | 权限要求 |
-|----------|------|----------|
+| 工具名称                       | 说明                               | 权限要求               |
+| ------------------------------ | ---------------------------------- | ---------------------- |
 | `read_virtualization_topology` | 读取 WSL/Hyper-V 当前拓扑、IP 信息 | `expose_topology_read` |
-| `list_forward_rules` | 列出所有 TCP/UDP 转发规则 | `expose_rule_config` |
-| `create_forward_rule` | 创建新的转发规则 | `expose_rule_config` |
-| `update_forward_rule` | 更新现有转发规则 | `expose_rule_config` |
-| `delete_forward_rule` | 删除指定规则 | `expose_rule_config` |
-| `set_forward_rule_enabled` | 启用/禁用规则 | `expose_rule_config` |
+| `list_forward_rules`           | 列出所有 TCP/UDP 转发规则          | `expose_rule_config`   |
+| `create_forward_rule`          | 创建新的转发规则                   | `expose_rule_config`   |
+| `update_forward_rule`          | 更新现有转发规则                   | `expose_rule_config`   |
+| `delete_forward_rule`          | 删除指定规则                       | `expose_rule_config`   |
+| `set_forward_rule_enabled`     | 启用/禁用规则                      | `expose_rule_config`   |
 
 ### 16.4 客户端集成
 
 应用内置多种客户端预设配置（Claude Desktop、Cursor、Windsurf 等），用户可一键复制配置快速集成。
 
-## 17. 实施建议（代码仓库）
+## 17. 数据分析与埋点
+
+应用集成 Microsoft Clarity 进行用户行为分析，详见 `docs/clarity-analytics-design.md`。
+
+### 17.1 埋点数据
+
+| 数据     | 类型     | 来源                   | 说明           |
+| -------- | -------- | ---------------------- | -------------- |
+| 用户 UID | `string` | 首次启动时生成 UUID    | 跨设备用户追踪 |
+| 应用版本 | `string` | `package.json` version | 版本分布统计   |
+| 下载渠道 | `string` | 构建环境变量 `channel` | 渠道效果分析   |
+
+### 17.2 数据存储
+
+- UID 存储于 SQLite `app_setting` 表的 `AppSettings.user_uid` 字段
+- 与其他用户配置（关闭行为、托盘设置）集中管理
+
+### 17.3 数据上报
+
+- 开发模式不启用埋点（`!import.meta.env.DEV`）
+- 生产环境通过 Clarity API 上报：
+  - `Clarity.identify(uid)` 上报用户 ID
+  - `Clarity.setTag("version", value)` 上报版本号
+  - `Clarity.setTag("channel", value)` 上报渠道
+
+## 18. 实施建议（代码仓库）
 
 - 建议 workspace 结构：
   - `src-tauri`（Tauri + Rust Core）

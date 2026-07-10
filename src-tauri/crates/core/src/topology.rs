@@ -109,7 +109,7 @@ pub fn scan_hyperv() -> HyperVScanResult {
             None => {
                 return HyperVScanResult {
                     items: Vec::new(),
-                    error: Some("无法启动 PowerShell，无法读取 Hyper-V 虚拟机列表。".to_owned()),
+                    error: Some("hyperv_powershell_failed".to_owned()),
                 }
             }
         };
@@ -220,6 +220,75 @@ pub fn resolve_dynamic_target_host(target_kind: TargetKind, target_ref: &str) ->
     }
 }
 
+pub fn resolve_dynamic_target_candidates(
+    target_kind: TargetKind,
+    target_ref: &str,
+    fallback_host: Option<&str>,
+) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let fallback_host = fallback_host
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+
+    match target_kind {
+        TargetKind::Static => {
+            if let Some(host) = fallback_host {
+                push_unique_host_candidate(&mut candidates, host);
+            }
+        }
+        TargetKind::Wsl => {
+            let key = target_ref.trim();
+            let instance = (!key.is_empty()).then(|| {
+                list_wsl_instances()
+                    .into_iter()
+                    .find(|item| item.distro.eq_ignore_ascii_case(key))
+            });
+            let Some(instance) = instance.flatten() else {
+                if let Some(host) = fallback_host {
+                    push_unique_host_candidate(&mut candidates, host);
+                }
+                return candidates;
+            };
+
+            if let Some(host) = fallback_host {
+                push_unique_host_candidate(&mut candidates, host);
+            }
+
+            let prefer_loopback = instance
+                .networking_mode
+                .trim()
+                .eq_ignore_ascii_case("mirrored");
+            if prefer_loopback {
+                append_wsl_loopback_candidates(&mut candidates);
+            }
+            if let Some(ip) = instance.ip {
+                push_unique_host_candidate(&mut candidates, ip);
+            }
+            if !prefer_loopback {
+                append_wsl_loopback_candidates(&mut candidates);
+            }
+        }
+        TargetKind::Hyperv => {
+            let key = target_ref.trim();
+            if !key.is_empty() {
+                if let Some(ip) = list_hyperv_vms()
+                    .into_iter()
+                    .find(|item| item.vm_name.eq_ignore_ascii_case(key))
+                    .and_then(|item| item.ip)
+                {
+                    push_unique_host_candidate(&mut candidates, ip);
+                }
+            }
+            if let Some(host) = fallback_host {
+                push_unique_host_candidate(&mut candidates, host);
+            }
+        }
+    }
+
+    candidates
+}
+
 pub fn resolve_nic_ip(nic_id: &str) -> Option<IpAddr> {
     #[cfg(windows)]
     {
@@ -248,6 +317,22 @@ pub fn resolve_nic_ip(nic_id: &str) -> Option<IpAddr> {
         let _ = nic_id;
         None
     }
+}
+
+fn push_unique_host_candidate(candidates: &mut Vec<String>, candidate: String) {
+    if candidates
+        .iter()
+        .any(|value| value.eq_ignore_ascii_case(&candidate))
+    {
+        return;
+    }
+    candidates.push(candidate);
+}
+
+fn append_wsl_loopback_candidates(candidates: &mut Vec<String>) {
+    push_unique_host_candidate(candidates, "127.0.0.1".to_owned());
+    push_unique_host_candidate(candidates, "::1".to_owned());
+    push_unique_host_candidate(candidates, "localhost".to_owned());
 }
 
 #[cfg(windows)]
@@ -378,7 +463,7 @@ fn normalize_hyperv_error(capture: &PowerShellCapture) -> String {
         || joined.contains("virtualization")
         || joined.contains("cmdlet");
     if hyperv_not_enabled {
-        return "Hyper-V 功能未启用，请先在 Windows 功能中启用 Hyper-V 后重试。".to_owned();
+        return "hyperv_not_enabled".to_owned();
     }
 
     if joined.contains("elevation_required")
@@ -386,7 +471,7 @@ fn normalize_hyperv_error(capture: &PowerShellCapture) -> String {
         || joined.contains("administrator")
         || joined.contains("权限")
     {
-        return "Hyper-V 查询需要管理员权限，请以管理员身份启动应用后重试。".to_owned();
+        return "hyperv_admin_required".to_owned();
     }
 
     let text = if !stderr.trim().is_empty() {
@@ -395,12 +480,9 @@ fn normalize_hyperv_error(capture: &PowerShellCapture) -> String {
         clean_text(&stdout)
     };
     if text.is_empty() {
-        format!(
-            "Hyper-V 查询失败（status={}），请确认 Hyper-V 模块可用且当前进程具备权限。",
-            capture.status_code
-        )
+        format!("hyperv_query_failed:{}", capture.status_code)
     } else {
-        format!("Hyper-V 查询失败：{text}")
+        format!("hyperv_error:{}", text)
     }
 }
 
@@ -606,7 +688,7 @@ fn parse_hyperv_json_output(stdout: &[u8]) -> Result<Vec<HyperVVmInfo>, String> 
     }
 
     let parsed = serde_json::from_str::<JsonOneOrMany<HyperVAdapterRow>>(&text)
-        .map_err(|err| format!("Hyper-V 输出 JSON 解析失败: {err}"))?;
+        .map_err(|err| format!("hyperv_json_parse_error:{}", err))?;
     let rows = match parsed {
         JsonOneOrMany::One(row) => vec![row],
         JsonOneOrMany::Many(rows) => rows,
@@ -681,7 +763,10 @@ Get-VM | Get-VMNetworkAdapter | Format-Table VMName, SwitchName, MacAddress, IPA
 mod tests {
     #[cfg(windows)]
     use super::parse_hyperv_json_output;
-    use super::{clean_text, decode_command_output, first_ip_token};
+    use super::{
+        append_wsl_loopback_candidates, clean_text, decode_command_output, first_ip_token,
+        push_unique_host_candidate,
+    };
 
     #[test]
     fn decode_utf16le_output() {
@@ -700,6 +785,23 @@ mod tests {
     fn first_ip_token_prefers_ipv4() {
         let ip = first_ip_token("fd7a:115c:a1e0::1 172.24.1.2").expect("ip");
         assert_eq!(ip, "172.24.1.2");
+    }
+
+    #[test]
+    fn push_unique_host_candidate_deduplicates_case_insensitively() {
+        let mut candidates = Vec::new();
+        push_unique_host_candidate(&mut candidates, "127.0.0.1".to_owned());
+        push_unique_host_candidate(&mut candidates, "127.0.0.1".to_owned());
+        push_unique_host_candidate(&mut candidates, "LOCALHOST".to_owned());
+        push_unique_host_candidate(&mut candidates, "localhost".to_owned());
+        assert_eq!(candidates, vec!["127.0.0.1", "LOCALHOST"]);
+    }
+
+    #[test]
+    fn append_wsl_loopback_candidates_adds_expected_entries_once() {
+        let mut candidates = vec!["127.0.0.1".to_owned()];
+        append_wsl_loopback_candidates(&mut candidates);
+        assert_eq!(candidates, vec!["127.0.0.1", "::1", "localhost"]);
     }
 
     #[cfg(windows)]

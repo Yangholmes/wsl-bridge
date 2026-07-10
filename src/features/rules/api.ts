@@ -2,25 +2,38 @@ import { invokeBridge } from "../../lib/bridge";
 import type {
   ApplyRulesResult,
   CreateRuleRequest,
-  LogQueryRequest,
-  LogQueryResult,
   ProxyRule,
-  RuleLogStatsItem,
-  RuleLogStatsRequest,
+  RuleMigrationRecord,
   RulePatch,
   RuntimeStatusItem,
   StopRulesResult,
-  TailLogsResult,
   HyperVProbeDebug,
-  TopologySnapshot
+  TopologySnapshot,
+  QueryTrafficStatsRequest,
+  QueryTrafficStatsResult,
+  TrafficMonitorEntity,
+  TrafficWindowData,
+  TrafficWindowQueryEntity
 } from "../../lib/types";
 
 export function listRules() {
   return invokeBridge<ProxyRule[]>("list_rules");
 }
 
+export function listRuleMigrations() {
+  return invokeBridge<RuleMigrationRecord[]>("list_rule_migrations");
+}
+
 export function createRule(req: CreateRuleRequest) {
   return invokeBridge<string>("create_rule", { req });
+}
+
+export function migrateRuleToProxy(ruleId: string) {
+  return invokeBridge<RuleMigrationRecord>("migrate_rule_to_proxy", { ruleId });
+}
+
+export function rollbackRuleMigration(ruleId: string) {
+  return invokeBridge<RuleMigrationRecord>("rollback_rule_migration", { ruleId });
 }
 
 export function updateRule(id: string, patch: RulePatch) {
@@ -47,16 +60,16 @@ export function getRuntimeStatus() {
   return invokeBridge<RuntimeStatusItem[]>("get_runtime_status");
 }
 
-export function tailLogs(cursor = 0) {
-  return invokeBridge<TailLogsResult>("tail_logs", { cursor });
+export function listTrafficMonitorEntities() {
+  return invokeBridge<TrafficMonitorEntity[]>("list_traffic_monitor_entities");
 }
 
-export function queryLogs(req: LogQueryRequest) {
-  return invokeBridge<LogQueryResult>("query_logs", { req });
+export function getTrafficWindowData(entities: TrafficWindowQueryEntity[]) {
+  return invokeBridge<TrafficWindowData[]>("get_traffic_window_data", { entities });
 }
 
-export function getRuleLogStats(req: RuleLogStatsRequest) {
-  return invokeBridge<RuleLogStatsItem[]>("get_rule_log_stats", { req });
+export function queryTrafficStats(req: QueryTrafficStatsRequest) {
+  return invokeBridge<QueryTrafficStatsResult>("query_traffic_stats", { req });
 }
 
 export function scanTopology() {

@@ -67,8 +67,8 @@
 }
 
 .number-input-btn:active:not(:disabled) {
-  background: var(--accent);
-  color: white;
+  background: var(--button-primary-bg);
+  color: var(--button-primary-fg);
 }
 
 .number-input-btn:disabled {
@@ -82,6 +82,7 @@
 
 .number-input-wrapper.focused .number-input-field {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .number-input-wrapper.focused .number-input-buttons {

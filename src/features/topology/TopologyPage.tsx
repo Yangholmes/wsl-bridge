@@ -12,6 +12,7 @@ import { toLocalTime } from "../../lib/datetime";
 import { SkeletonLine } from "../../lib/Skeleton";
 import { Hint } from "../../lib/Hint";
 import { useAppRuntimeStatusQuery } from "../../lib/appRuntime";
+import { MetricCard, PageHeader, SectionCard } from "../../lib/ui";
 
 export function TopologyPage() {
   const { t } = useI18n();
@@ -24,30 +25,23 @@ export function TopologyPage() {
 
   return (
     <div class="page">
-      <section class="page-shell">
-        <div class="panel-title">
-          <h2>{t("topology.title")}</h2>
-          <div class="runtime-tools">
-            <span class="muted">
-              {t("topology.targetContext", {
-                kind: getGlobalTargetKind(),
-                ref: getGlobalTargetRef() || t("common.none")
-              })}
-            </span>
-            <span class="muted">{t("topology.lastScanned", { value: toLocalTime(topologyQuery.data?.timestamp ?? null) })}</span>
-            <KButton.Root
-              class="kb-btn ghost"
-              onClick={() => topologyQuery.refetch()}
-              disabled={isScanning()}
-            >
-              {isScanning() ? t("common.scanning") : t("common.rescan")}
-            </KButton.Root>
-          </div>
-        </div>
+      <PageHeader
+        title={t("topology.title")}
+        actions={
+          <KButton.Root class="kb-btn accent" onClick={() => topologyQuery.refetch()} disabled={isScanning()}>
+            {isScanning() ? t("common.scanning") : t("common.rescan")}
+          </KButton.Root>
+        }
+      />
 
-        <div class="topology-grid">
-          <section class="panel topology-subpanel">
-            <h2>{t("topology.wslTitle")}</h2>
+      <div class="metric-grid">
+        <MetricCard label={t("topology.wslTitle")} value={`${topologyQuery.data?.wsl.length ?? 0}`} detail={t("topology.lastScanned", { value: toLocalTime(topologyQuery.data?.timestamp ?? null) })} />
+        <MetricCard label={t("topology.hypervTitle")} value={`${topologyQuery.data?.hyperv.length ?? 0}`} detail={hasAdminPrivileges() ? t("common.adminMode") : t("common.limitedMode")} />
+        <MetricCard label={t("topology.adaptersTitle")} value={`${topologyQuery.data?.adapters.length ?? 0}`} detail={t("topology.networkInterfaces")} />
+      </div>
+
+      <div class="topology-grid">
+        <SectionCard title={t("topology.wslTitle")} subtitle={t("topology.wslSubtitle")}>
             <div class="table-wrap">
               <table class="rules-table">
                 <thead>
@@ -83,10 +77,9 @@ export function TopologyPage() {
                 </tbody>
               </table>
             </div>
-          </section>
+        </SectionCard>
 
-          <section class="panel topology-subpanel">
-            <h2>{t("topology.hypervTitle")}</h2>
+        <SectionCard title={t("topology.hypervTitle")} subtitle={t("topology.hypervSubtitle")}>
             <Show
               when={hasAdminPrivileges()}
               fallback={<Hint variant="info">{t("topology.hiddenWithoutAdmin")}</Hint>}
@@ -94,8 +87,25 @@ export function TopologyPage() {
               <Show when={topologyQuery.data?.hyperv_error}>
                 {(err) => {
                   const errorStr = String(err());
-                  const isNotEnabled = errorStr.includes("未启用") || errorStr.includes("not enabled") || errorStr.includes("有効");
-                  return <Hint variant="error">{isNotEnabled ? t("topology.hypervNotEnabled") : t("topology.adminRequired", { error: errorStr })}</Hint>;
+                  const translateError = (error: string) => {
+                    if (error === "hyperv_not_enabled") return t("topology.hypervNotEnabled");
+                    if (error === "hyperv_admin_required") return t("topology.hypervAdminRequired");
+                    if (error === "hyperv_powershell_failed") return t("topology.hypervPowershellFailed");
+                    if (error.startsWith("hyperv_query_failed:")) {
+                      const code = error.split(":")[1];
+                      return t("topology.hypervQueryFailed", { code });
+                    }
+                    if (error.startsWith("hyperv_error:")) {
+                      const detail = error.split(":").slice(1).join(":");
+                      return t("topology.hypervError", { error: detail });
+                    }
+                    if (error.startsWith("hyperv_json_parse_error:")) {
+                      const detail = error.split(":").slice(1).join(":");
+                      return t("topology.hypervJsonParseError", { error: detail });
+                    }
+                    return t("topology.adminRequired", { error });
+                  };
+                  return <Hint variant="error">{translateError(errorStr)}</Hint>;
                 }}
               </Show>
               <div class="table-wrap">
@@ -134,10 +144,9 @@ export function TopologyPage() {
                 </table>
               </div>
             </Show>
-          </section>
+        </SectionCard>
 
-          <section class="panel topology-subpanel">
-            <h2>{t("topology.adaptersTitle")}</h2>
+        <SectionCard title={t("topology.adaptersTitle")} subtitle={t("topology.adaptersSubtitle")}>
             <div class="table-wrap">
               <table class="rules-table">
                 <thead>
@@ -175,10 +184,8 @@ export function TopologyPage() {
                 </tbody>
               </table>
             </div>
-          </section>
-        </div>
-      </section>
-
+        </SectionCard>
+      </div>
     </div>
   );
 }

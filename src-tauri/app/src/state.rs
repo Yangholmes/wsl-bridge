@@ -1,7 +1,7 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::{env, fs};
 use std::{thread, time::Duration};
-use std::path::PathBuf;
 
 use wsl_bridge_core::{EngineOptions, FirewallMode, RuleEngine};
 
@@ -29,8 +29,10 @@ impl AppState {
             let _ = fs::create_dir_all(parent);
         }
         let options = engine_options_from_env();
+        let log_dir = resolve_log_dir(&path);
 
-        match RuleEngine::with_sqlite_and_options(&path, options) {
+        match RuleEngine::with_sqlite_and_options_and_log_dir(&path, options, Some(log_dir.clone()))
+        {
             Ok(engine) => {
                 let engine = Arc::new(engine);
                 let mcp_service = Arc::new(McpHttpService::new(engine.clone()));
@@ -47,7 +49,10 @@ impl AppState {
                     "failed to initialize sqlite storage at {}: {err}; fallback to memory",
                     path.display()
                 );
-                let engine = Arc::new(RuleEngine::new_with_options(options));
+                let engine = Arc::new(
+                    RuleEngine::new_with_options_and_log_dir(options, log_dir)
+                        .unwrap_or_else(|_| RuleEngine::new_with_options(options)),
+                );
                 let mcp_service = Arc::new(McpHttpService::new(engine.clone()));
                 let state = Self {
                     engine: engine.clone(),
@@ -59,6 +64,25 @@ impl AppState {
             }
         }
     }
+}
+
+fn resolve_log_dir(db_path: &PathBuf) -> PathBuf {
+    if let Ok(explicit) = env::var("WSL_BRIDGE_LOG_DIR") {
+        return explicit.into();
+    }
+
+    #[cfg(windows)]
+    if let Ok(program_data) = env::var("PROGRAMDATA") {
+        let candidate = PathBuf::from(program_data).join("wsl-bridge").join("logs");
+        if fs::create_dir_all(&candidate).is_ok() {
+            return candidate;
+        }
+    }
+
+    db_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("logs")
 }
 
 #[cfg(not(feature = "tauri"))]
