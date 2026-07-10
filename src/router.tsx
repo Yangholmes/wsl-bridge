@@ -1,12 +1,12 @@
 import { lazy, Suspense, createEffect, createMemo, Show, For } from "solid-js";
+import { createRootRoute, createRoute, createRouter, Link, Outlet, useRouterState } from "@tanstack/solid-router";
+import { useI18n } from "./i18n/context";
+import IconBridge from "./assets/bridge-logo.svg?url";
+import { ErrorPage } from "./features/ErrorPage";
 import { SkeletonTitle } from "./lib/Skeleton";
 import { AppRuntimeBanner } from "./lib/AppRuntimeBanner";
 import { useAppRuntimeStatusQuery } from "./lib/appRuntime";
 import { useTheme } from "./lib/theme";
-import {
-  DashboardIcon,
-  HostsIcon,
-  ProxyIcon,
 import {
   DashboardIcon,
   HostsIcon,
@@ -17,6 +17,15 @@ import {
   StatusBadge,
   TopologyIcon
 } from "./lib/ui";
+import "./lib/Layout.css";
+import "./lib/Table.css";
+import "./lib/Form.css";
+import "./lib/Button.css";
+import "./lib/Toggle.css";
+import "./lib/Modal.css";
+import "./lib/Drawer.css";
+import "./lib/Skeleton.css";
+import "./lib/Status.css";
 
 const DashboardPage = lazy(() =>
   import("./features/dashboard/DashboardPage").then((module) => ({ default: module.DashboardPage }))
@@ -66,15 +75,6 @@ function RootLayout() {
 
   const currentPath = createMemo(() => routerState().location.pathname);
   const hasBanner = createMemo(() => !runtimeStatusQuery.data?.admin_features_available && runtimeStatusQuery.data);
-  const runtimeStateLabel = createMemo(() =>
-    runtimeStatusQuery.data?.admin_features_available ? t("common.running") : t("common.ready")
-  );
-
-  const navItems = createMemo(() => [
-    { path: "/dashboard", label: t("nav.dashboard"), icon: DashboardIcon },
-    { path: "/rules", label: t("nav.rules"), icon: RulesIcon },
-    { path: "/proxy", label: t("nav.proxy"), icon: ProxyIcon },
-    { path: "/hosts", label: t("nav.hosts"), icon: HostsIcon },
   const runtimeStateLabel = createMemo(() =>
     runtimeStatusQuery.data?.admin_features_available ? t("common.running") : t("common.ready")
   );
@@ -144,6 +144,85 @@ function RootLayout() {
           </div>
         </main>
       </section>
+    </div>
+  );
+}
+
+      <section class="app-main">
+        <header class="main-header">
+          <div class="main-header-meta">
+            <StatusBadge
+              state={runtimeStatusQuery.data?.admin_features_available ? "running" : "stopped"}
+              label={runtimeStatusQuery.data?.admin_features_available ? t("common.engineAvailable") : t("common.limitedMode")}
+            />
+            <Show when={runtimeStatusQuery.data?.is_admin}>
+              <StatusBadge state="ready" label={t("common.admin")} />
+            </Show>
+          </div>
+        </header>
+
+        <Show when={hasBanner()}>
+          <AppRuntimeBanner />
+        </Show>
+
+const dashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/dashboard",
+  component: withSuspense(() => <DashboardPage />)
+});
+
+const rulesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/rules",
+  component: withSuspense(() => <RulesPage />)
+});
+
+const proxyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/proxy",
+  component: withSuspense(() => <ProxyPage />)
+});
+
+const hostsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/hosts",
+  component: withSuspense(() => <HostsPage />)
+});
+
+const aiRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/ai",
+  component: withSuspense(() => <AiIntegrationPage />)
+});
+
+const topologyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/topology",
+  component: withSuspense(() => <TopologyPage />)
+});
+
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  component: withSuspense(() => <SettingsPage />)
+});
+
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  dashboardRoute,
+  rulesRoute,
+  proxyRoute,
+  hostsRoute,
+  aiRoute,
+  topologyRoute,
+  settingsRoute
+]);
+
+export const router = createRouter({
+  routeTree
+});
+
+declare module "@tanstack/solid-router" {
   interface Register {
     router: typeof router;
   }
